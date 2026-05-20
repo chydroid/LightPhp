@@ -1,0 +1,34 @@
+{
+    "name": "lightphp/framework",
+    "description": "A lightweight PHP framework inspired by ThinkPHP",
+    "type": "project",
+    "keywords": ["framework", "lightweight", "php", "mvc"],
+    "license": "MIT",
+    "require": {
+        "php": ">=8.0",
+        "ext-pdo": "*",
+        "ext-json": "*"
+    },
+    "suggest": {
+        "smarty/smarty": "For Smarty template engine support (run: composer require smarty/smarty)",
+        "ext-gd": "Required for captcha generation",
+        "ext-openssl": "Required for encryption features"
+    },
+    "autoload": {
+        "psr-4": {
+            "core\\": "app/core/",
+            "core\\console\\": "app/core/console/",
+            "controller\\": "app/controller/",
+            "model\\": "app/model/",
+            "view\\": "app/view/",
+            "middleware\\": "app/middleware/",
+            "db\\": "app/db/",
+            "cache\\": "app/cache/",
+            "log\\": "app/log/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable"
+}

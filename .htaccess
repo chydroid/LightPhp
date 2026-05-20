@@ -1,0 +1,18 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+    
+    # Redirect all requests to public directory
+    RewriteCond %{REQUEST_URI} ^/public/
+    RewriteRule ^public/(.*)$ /$1 [L,R=301]
+    
+    # Rewrite all requests to public/index.php
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ /public/index.php [QSA,L]
+</IfModule>
+
+<IfModule mod_php.c>
+    php_flag display_errors Off
+    php_value max_execution_time 60
+</IfModule>

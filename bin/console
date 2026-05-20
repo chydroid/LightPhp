@@ -1,0 +1,390 @@
+<?php
+declare(strict_types=1);
+
+if (PHP_SAPI !== 'cli') {
+    exit('This script can only be run from command line.');
+}
+
+// 定义路径常量
+define('ROOT_PATH', dirname(__DIR__) . '/');
+define('APP_PATH', ROOT_PATH . 'app/');
+define('VIEW_PATH', APP_PATH . 'view/');
+define('VENDOR_PATH', ROOT_PATH . 'vendor/');
+define('STORAGE_PATH', ROOT_PATH . 'storage/');
+define('PUBLIC_PATH', ROOT_PATH . 'public/');
+
+// 自动加载
+require APP_PATH . 'core/Loader.php';
+require APP_PATH . 'core/helpers.php';
+\core\Loader::register();
+
+// 初始化应用
+$app = new \core\Application();
+define('APP_DEBUG', $app->getConfig('app.debug', true));
+$container = $app->getContainer();
+
+// 初始化 Console
+$console = new \core\console\Console('LightPHP Console', '1.0.0');
+
+// 注册内置命令
+$console->register(new class extends \core\console\Command {
+    protected string $signature = 'serve {port=8080}';
+    protected string $description = 'Start the development server';
+
+    public function handle(): int
+    {
+        $port = (int) $this->argument('port', 8080);
+        $host = $this->option('host', 'localhost');
+
+        if ($port < 1 || $port > 65535) {
+            $this->error("Invalid port number: {$port}");
+            return 1;
+        }
+
+        if (!preg_match('/^[a-zA-Z0-9\.\-]+$/', $host)) {
+            $this->error("Invalid host: {$host}");
+            return 1;
+        }
+
+        $this->info("LightPHP development server started at http://{$host}:{$port}");
+        $this->line("Press Ctrl+C to stop.\n");
+
+        $publicPath = escapeshellarg(PUBLIC_PATH);
+        $cmd = sprintf('php -S %s:%d -t %s', escapeshellarg($host), $port, $publicPath);
+        passthru($cmd);
+        return 0;
+    }
+});
+
+$console->register(new class extends \core\console\Command {
+    protected string $signature = 'config';
+    protected string $description = 'Display current application configuration';
+
+    public function handle(): int
+    {
+        $config = \config\Config::all();
+        $headers = ['Section', 'Count'];
+        $rows = [];
+        foreach ($config as $section => $values) {
+            $rows[] = [$section, (string) (is_array($values) ? count($values) : 1)];
+        }
+        $rows[] = ['Total sections', (string) count($config)];
+        $this->table($headers, $rows);
+
+        $this->line("\nUse 'php console config:show <section>' to see details.");
+        return 0;
+    }
+});
+
+$console->register(new class extends \core\console\Command {
+    protected string $signature = 'config:show {section}';
+    protected string $description = 'Show detailed configuration for a section';
+
+    public function handle(): int
+    {
+        $section = $this->argument('section');
+        $values = \config\Config::get($section);
+
+        if ($values === null) {
+            $this->error("Configuration section '{$section}' not found.");
+            return 1;
+        }
+
+        $this->line("\033[36m[{$section}]\033[0m");
+        if (is_array($values)) {
+            foreach ($values as $key => $value) {
+                if (is_array($value)) {
+                    $this->line("  {$key}: " . json_encode($value, JSON_UNESCAPED_UNICODE));
+                } else {
+                    $displayValue = is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
+                    if ($section === 'database' && str_contains(strtolower($key), 'password')) {
+                        $displayValue = '******';
+                    }
+                    $this->line("  {$key}: {$displayValue}");
+                }
+            }
+        } else {
+            $this->line("  {$values}");
+        }
+
+        return 0;
+    }
+});
+
+$console->register(new class($container) extends \core\console\Command {
+    private $container;
+
+    public function __construct($container)
+    {
+        $this->container = $container;
+    }
+
+    protected string $signature = 'cache:clear';
+    protected string $description = 'Clear all application cache';
+
+    public function handle(): int
+    {
+        /** @var \cache\CacheManager $cache */
+        $cache = $this->container->get('cache');
+        $driver = $cache->getDefaultDriver();
+        $cache->clear();
+
+        $this->info("All cache data cleared using [{$driver}] driver.");
+        return 0;
+    }
+});
+
+$console->register(new class extends \core\console\Command {
+    protected string $signature = 'config:cache';
+    protected string $description = 'Cache all configuration files for production';
+
+    public function handle(): int
+    {
+        $cacheFile = STORAGE_PATH . 'cache/config_cache.php';
+        if (\config\Config::cache($cacheFile)) {
+            $this->info('Configuration cached successfully at storage/cache/config_cache.php');
+            return 0;
+        }
+        $this->error('Failed to cache configuration.');
+        return 1;
+    }
+});
+
+$console->register(new class extends \core\console\Command {
+    protected string $signature = 'config:clear';
+    protected string $description = 'Remove cached configuration file';
+
+    public function handle(): int
+    {
+        $cacheFile = STORAGE_PATH . 'cache/config_cache.php';
+        if (file_exists($cacheFile)) {
+            unlink($cacheFile);
+            $this->info('Configuration cache cleared.');
+        } else {
+            $this->info('No configuration cache found.');
+        }
+        return 0;
+    }
+});
+
+$console->register(new class extends \core\console\Command {
+    protected string $signature = 'make:model {name} {table?}';
+    protected string $description = 'Generate a new model class';
+
+    public function handle(): int
+    {
+        $name = $this->argument('name');
+        $table = $this->argument('table') ?? strtolower($name) . 's';
+
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $name)) {
+            $this->error("Invalid model name: {$name}. Use only letters, numbers, and underscores.");
+            return 1;
+        }
+
+        $file = APP_PATH . "model/{$name}.php";
+        if (file_exists($file)) {
+            $this->warn("Model [{$name}] already exists at app/model/{$name}.php. Skipped.");
+            return 0;
+        }
+
+        $content = "<?php\ndeclare(strict_types=1);\n\nnamespace model;\n\nclass {$name} extends Model\n{\n    protected string \$table = '{$table}';\n    protected string \$primaryKey = 'id';\n    protected array \$fillable = [];\n    protected array \$hidden = [];\n    protected array \$casts = [];\n}\n";
+
+        if (!is_dir(APP_PATH . 'model/')) {
+            mkdir(APP_PATH . 'model/', 0755, true);
+        }
+        file_put_contents($file, $content);
+
+        $this->info("Model [{$name}] created at app/model/{$name}.php");
+        return 0;
+    }
+});
+
+$console->register(new class extends \core\console\Command {
+    protected string $signature = 'make:controller {name}';
+    protected string $description = 'Generate a new controller class';
+
+    public function handle(): int
+    {
+        $name = $this->argument('name');
+
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $name)) {
+            $this->error("Invalid controller name: {$name}. Use only letters, numbers, and underscores.");
+            return 1;
+        }
+
+        $file = APP_PATH . "controller/{$name}.php";
+        if (file_exists($file)) {
+            $this->warn("Controller [{$name}] already exists at app/controller/{$name}.php. Skipped.");
+            return 0;
+        }
+
+        $content = "<?php\ndeclare(strict_types=1);\n\nnamespace controller;\n\nuse core\Controller;\nuse core\Request;\n\nclass {$name} extends Controller\n{\n    public function index()\n    {\n        return \$this->json(['message' => 'Hello from {$name}']);\n    }\n}\n";
+
+        file_put_contents($file, $content);
+
+        $this->info("Controller [{$name}] created at app/controller/{$name}.php");
+        return 0;
+    }
+});
+
+$console->register(new class extends \core\console\Command {
+    protected string $signature = 'make:middleware {name}';
+    protected string $description = 'Generate a new middleware class';
+
+    public function handle(): int
+    {
+        $name = $this->argument('name');
+
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $name)) {
+            $this->error("Invalid middleware name: {$name}. Use only letters, numbers, and underscores.");
+            return 1;
+        }
+
+        $file = APP_PATH . "middleware/{$name}.php";
+        if (file_exists($file)) {
+            $this->warn("Middleware [{$name}] already exists at app/middleware/{$name}.php. Skipped.");
+            return 0;
+        }
+
+        $content = "<?php\ndeclare(strict_types=1);\n\nnamespace middleware;\n\nclass {$name}\n{\n    public function handle(\$request, callable \$next)\n    {\n        // Before request\n\n        \$response = \$next(\$request);\n\n        // After request\n\n        return \$response;\n    }\n}\n";
+
+        file_put_contents($file, $content);
+
+        $this->info("Middleware [{$name}] created at app/middleware/{$name}.php");
+        return 0;
+    }
+});
+
+$console->register(new class extends \core\console\Command {
+    protected string $signature = 'make:migration {name} {table?}';
+    protected string $description = 'Generate a new migration file';
+
+    public function handle(): int
+    {
+        $name = $this->argument('name');
+        $table = $this->argument('table') ?? strtolower($name);
+
+        $timestamp = date('YmdHis');
+        $fileName = "{$timestamp}_{$name}.php";
+
+        $className = ucfirst($name) . '_' . $timestamp;
+        $className = (string) preg_replace('/[^a-zA-Z0-9_]/', '_', $className);
+
+        $content = "<?php\ndeclare(strict_types=1);\n\n";
+        $content .= "class {$className}\n{\n";
+        $content .= "    private \\PDO \$pdo;\n\n";
+        $content .= "    public function __construct(\\PDO \$pdo)\n    {\n        \$this->pdo = \$pdo;\n    }\n\n";
+        $content .= "    public function up(): void\n    {\n";
+        $content .= "        \\db\\Schema::setConnection(\$this->pdo)->create('{$table}', function(\\db\\Blueprint \$table) {\n";
+        $content .= "            \$table->id();\n";
+        $content .= "            \$table->timestamps();\n";
+        $content .= "        });\n";
+        $content .= "    }\n\n";
+        $content .= "    public function down(): void\n    {\n";
+        $content .= "        \\db\\Schema::setConnection(\$this->pdo)->dropIfExists('{$table}');\n";
+        $content .= "    }\n";
+        $content .= "}\n";
+
+        $migrationsDir = ROOT_PATH . 'database/migrations/';
+        if (!is_dir($migrationsDir)) {
+            mkdir($migrationsDir, 0755, true);
+        }
+
+        file_put_contents($migrationsDir . $fileName, $content);
+
+        $this->info("Migration [{$fileName}] created at database/migrations/{$fileName}");
+        return 0;
+    }
+});
+
+$console->register(new class($app) extends \core\console\Command {
+    private \core\Application $_app;
+
+    public function __construct(\core\Application $application)
+    {
+        $this->_app = $application;
+    }
+
+    protected string $signature = 'migrate';
+    protected string $description = 'Run database migrations';
+
+    public function handle(): int
+    {
+        $dbConfig = $this->_app->getConfig('database', []);
+        $default = $dbConfig['default'] ?? 'mysql';
+        $connection = $dbConfig['connections'][$default] ?? [];
+        $pdo = new \PDO(
+            "mysql:host={$connection['host']};port={$connection['port']};dbname={$connection['database']};charset={$connection['charset']}",
+            $connection['username'] ?? 'root',
+            $connection['password'] ?? '',
+            [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
+        );
+
+        $migration = new \db\Migration($pdo, ROOT_PATH . 'database/migrations/');
+        $migrated = $migration->run();
+
+        if (empty($migrated)) {
+            $this->warn("Nothing to migrate.");
+        } else {
+            foreach ($migrated as $m) {
+                $this->info("Migrated: {$m}");
+            }
+        }
+
+        return 0;
+    }
+});
+
+$console->register(new class($app) extends \core\console\Command {
+    private \core\Application $_app;
+
+    public function __construct(\core\Application $application)
+    {
+        $this->_app = $application;
+    }
+
+    protected string $signature = 'migrate:rollback {steps?}';
+    protected string $description = 'Rollback last database migration';
+
+    public function handle(): int
+    {
+        $steps = (int) ($this->argument('steps') ?? 1);
+
+        $dbConfig = $this->_app->getConfig('database', []);
+        $default = $dbConfig['default'] ?? 'mysql';
+        $connection = $dbConfig['connections'][$default] ?? [];
+        $pdo = new \PDO(
+            "mysql:host={$connection['host']};port={$connection['port']};dbname={$connection['database']};charset={$connection['charset']}",
+            $connection['username'] ?? 'root',
+            $connection['password'] ?? '',
+            [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
+        );
+
+        $migration = new \db\Migration($pdo, ROOT_PATH . 'database/migrations/');
+        $rolled = $migration->rollback((int) $steps);
+
+        foreach ($rolled as $m) {
+            $this->info("Rolled back: {$m}");
+        }
+
+        return 0;
+    }
+});
+
+$console->register(new class extends \core\console\Command {
+    protected string $signature = 'test';
+    protected string $description = 'Run unit tests';
+
+    public function handle(): int
+    {
+        $testFile = ROOT_PATH . 'tests/run_tests.php';
+        if (file_exists($testFile)) {
+            passthru('php ' . escapeshellarg($testFile));
+            return 0;
+        }
+        $this->error("Test file not found.");
+        return 1;
+    }
+});
+
+exit($console->run($argv));

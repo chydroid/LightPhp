@@ -17,10 +17,10 @@ use core\exception\HttpException;
 class ExceptionHandler
 {
     /** @var array 不需要记录日志的异常类名列表 */
-    private array $dontReport = [];
+    protected array $dontReport = [];
 
     /** @var array 不应在响应中暴露的敏感数据字段列表 */
-    private array $dontFlash = [];
+    protected array $dontFlash = [];
 
     /** @var \log\Logger|null 日志记录器实例 */
     private ?\log\Logger $logger = null;

@@ -1035,4 +1035,397 @@ $runner->run('Command - Signature with Defaults', function($t) {
     $t->assertEquals('default', $cmd->argument('value'));
 });
 
+// ═══════════════════════════════════════════════
+//  v2.0.0 新功能集成测试
+// ═══════════════════════════════════════════════
+
+// --- Pipeline 管道测试 ---
+
+$runner->run('Pipeline - 基本洋葱模型执行', function($t) {
+    $pipeline = new \core\Pipeline();
+    $trace = [];
+
+    $result = $pipeline
+        ->send('request')
+        ->through([
+            new class {
+                public function handle($passable, \Closure $next) {
+                    return '[A:' . $next($passable) . ':A]';
+                }
+            },
+            new class {
+                public function handle($passable, \Closure $next) {
+                    return '[B:' . $next($passable) . ':B]';
+                }
+            },
+        ])
+        ->then(fn($p) => "CORE({$p})");
+
+    $t->assertEquals('[A:[B:CORE(request):B]:A]', $result);
+});
+
+$runner->run('Pipeline - thenReturn 直接返回', function($t) {
+    $pipeline = new \core\Pipeline();
+
+    $result = $pipeline
+        ->send('hello')
+        ->through([
+            new class {
+                public function handle($passable, \Closure $next) {
+                    return strtoupper($next($passable));
+                }
+            },
+        ])
+        ->thenReturn();
+
+    $t->assertEquals('HELLO', $result);
+});
+
+$runner->run('Pipeline - 空管道直接到达目标', function($t) {
+    $pipeline = new \core\Pipeline();
+
+    $result = $pipeline
+        ->send('data')
+        ->through([])
+        ->then(fn($p) => "processed:{$p}");
+
+    $t->assertEquals('processed:data', $result);
+});
+
+$runner->run('Pipeline - via 自定义方法名', function($t) {
+    $pipeline = new \core\Pipeline();
+
+    $middleware = new class {
+        public function process($passable, \Closure $next) {
+            return 'processed:' . $next($passable);
+        }
+    };
+
+    $result = $pipeline
+        ->send('req')
+        ->through([$middleware])
+        ->via('process')
+        ->then(fn($p) => $p);
+
+    $t->assertEquals('processed:req', $result);
+});
+
+$runner->run('Pipeline - 中间件可修改请求和响应', function($t) {
+    $pipeline = new \core\Pipeline();
+
+    $result = $pipeline
+        ->send(10)
+        ->through([
+            new class {
+                public function handle($passable, \Closure $next) {
+                    return $next($passable * 2);
+                }
+            },
+            new class {
+                public function handle($passable, \Closure $next) {
+                    $response = $next($passable);
+                    return $response + 100;
+                }
+            },
+        ])
+        ->then(fn($n) => $n + 1);
+
+    $t->assertEquals(121, $result);
+});
+
+// --- Macroable 宏测试 ---
+
+$runner->run('Macroable - 注册并调用宏方法', function($t) {
+    \core\Request::macro('customMethod', fn() => 'custom result');
+    $request = new \core\Request();
+    $t->assertEquals('custom result', $request->customMethod());
+    \core\Request::flushMacros();
+});
+
+$runner->run('Macroable - hasMacro 检查宏是否存在', function($t) {
+    $t->assertFalse(\core\Request::hasMacro('nonexistent'));
+    \core\Request::macro('testMacro', fn() => 'ok');
+    $t->assertTrue(\core\Request::hasMacro('testMacro'));
+    \core\Request::flushMacros();
+});
+
+$runner->run('Macroable - flushMacros 清空宏', function($t) {
+    \core\Request::macro('tempMacro', fn() => 'temp');
+    $t->assertTrue(\core\Request::hasMacro('tempMacro'));
+    \core\Request::flushMacros();
+    $t->assertFalse(\core\Request::hasMacro('tempMacro'));
+});
+
+$runner->run('Macroable - 宏闭包可访问 $this', function($t) {
+    \core\Response::macro('getContentType', function() {
+        return $this->getContent();
+    });
+    $response = \core\Response::make('hello world');
+    $t->assertEquals('hello world', $response->getContentType());
+    \core\Response::flushMacros();
+});
+
+$runner->run('Macroable - mixin 批量注册宏', function($t) {
+    $mixin = new class {
+        public function upper() { return fn() => 'UPPER'; }
+        public function lower() { return fn() => 'lower'; }
+    };
+    \core\Request::mixin($mixin);
+    $t->assertTrue(\core\Request::hasMacro('upper'));
+    $t->assertTrue(\core\Request::hasMacro('lower'));
+    $request = new \core\Request();
+    $t->assertEquals('UPPER', $request->upper());
+    $t->assertEquals('lower', $request->lower());
+    \core\Request::flushMacros();
+});
+
+$runner->run('Macroable - mixin 不覆盖模式', function($t) {
+    \core\Request::macro('existing', fn() => 'original');
+    $mixin = new class {
+        public function existing() { return fn() => 'overridden'; }
+        public function fresh() { return fn() => 'new'; }
+    };
+    \core\Request::mixin($mixin, false);
+    $request = new \core\Request();
+    $t->assertEquals('original', $request->existing());
+    $t->assertEquals('new', $request->fresh());
+    \core\Request::flushMacros();
+});
+
+$runner->run('Macroable - 调用不存在宏抛出异常', function($t) {
+    \core\Request::flushMacros();
+    $request = new \core\Request();
+    $t->assertThrows(\BadMethodCallException::class, function() use ($request) {
+        $request->nonexistentMacro();
+    });
+});
+
+$runner->run('Macroable - Response 宏扩展', function($t) {
+    \core\Response::macro('csv', function(string $content) {
+        return self::make($content)->header('Content-Type', 'text/csv');
+    });
+    $response = \core\Response::csv('a,b,c');
+    $t->assertInstanceOf(\core\Response::class, $response);
+    \core\Response::flushMacros();
+});
+
+// --- SoftDelete 软删除测试 ---
+
+$runner->run('SoftDelete - trait 类存在', function($t) {
+    $t->assertTrue(trait_exists(\traits\SoftDelete::class));
+});
+
+$runner->run('SoftDelete - trashed 方法', function($t) {
+    $model = new class(['id' => 1, 'deleted_at' => null]) extends \model\Model {
+        protected string $table = 'test';
+        use \traits\SoftDelete;
+    };
+    $t->assertFalse($model->trashed());
+
+    $model2 = new class(['id' => 2, 'deleted_at' => '2026-01-01 00:00:00']) extends \model\Model {
+        protected string $table = 'test';
+        use \traits\SoftDelete;
+    };
+    $t->assertTrue($model2->trashed());
+});
+
+$runner->run('SoftDelete - forceDelete/softDelete 模式切换', function($t) {
+    $modelClass = new class(['id' => 1]) extends \model\Model {
+        protected string $table = 'test';
+        use \traits\SoftDelete;
+    };
+
+    $modelClass::forceDelete();
+    $modelClass::softDelete();
+    $t->assertTrue(true);
+});
+
+// --- HasModelEvents 模型事件测试 ---
+
+$runner->run('HasModelEvents - trait 类存在', function($t) {
+    $t->assertTrue(trait_exists(\traits\HasModelEvents::class));
+});
+
+$runner->run('HasModelEvents - onEvent 注册监听器', function($t) {
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'test';
+        use \traits\HasModelEvents;
+    };
+    $called = false;
+    $modelClass::onEvent('creating', function($m) use (&$called) { $called = true; });
+    $instance = new $modelClass(['id' => 1]);
+    $instance->fireEvent('creating');
+    $t->assertTrue($called);
+    $modelClass::flushEventListeners();
+});
+
+$runner->run('HasModelEvents - fireEvent 返回 false 取消操作', function($t) {
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'test';
+        use \traits\HasModelEvents;
+    };
+    $modelClass::onEvent('deleting', function($m) { return false; });
+    $instance = new $modelClass(['id' => 1]);
+    $result = $instance->fireEvent('deleting');
+    $t->assertFalse($result);
+    $modelClass::flushEventListeners();
+});
+
+$runner->run('HasModelEvents - observe 观察者', function($t) {
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'test';
+        use \traits\HasModelEvents;
+    };
+
+    $observerCalled = false;
+    $observer = new class($GLOBALS ?? []) {
+        public bool $called = false;
+        public function creating($model) { $this->called = true; }
+    };
+
+    $modelClass::observe($observer);
+    $instance = new $modelClass(['id' => 1]);
+    $instance->fireEvent('creating');
+    $t->assertTrue($observer->called);
+    $modelClass::flushEventListeners();
+});
+
+// --- 访问器/修改器测试 ---
+
+$runner->run('Model - 访问器 getFooAttribute', function($t) {
+    $model = new class(['name' => 'john doe']) extends \model\Model {
+        protected string $table = 'test';
+        public function getNameAttribute($value): string
+        {
+            return ucwords($value);
+        }
+    };
+    $t->assertEquals('John Doe', $model->name);
+});
+
+$runner->run('Model - 修改器 setFooAttribute', function($t) {
+    $model = new class extends \model\Model {
+        protected string $table = 'test';
+        protected array $attributes = [];
+        public function setEmailAttribute($value): void
+        {
+            $this->attributes['email'] = strtolower($value);
+        }
+    };
+    $model->email = 'JOHN@EXAMPLE.COM';
+    $t->assertEquals('john@example.com', $model->email);
+});
+
+// --- 查询作用域测试 ---
+
+$runner->run('Model - 查询作用域 scope 调用', function($t) {
+    $model = new class extends \model\Model {
+        protected string $table = 'users';
+        protected array $fillable = ['name', 'status'];
+        public function scopeActive(\db\QueryBuilder $query): \db\QueryBuilder
+        {
+            return $query->where('status', '=', 'active');
+        }
+    };
+    $t->assertTrue(method_exists($model, 'scopeActive'));
+});
+
+// --- Seeder 数据填充测试 ---
+
+$runner->run('Seeder - 抽象类存在', function($t) {
+    $t->assertTrue(class_exists(\db\Seeder::class));
+    $ref = new \ReflectionClass(\db\Seeder::class);
+    $t->assertTrue($ref->isAbstract());
+    $t->assertTrue($ref->hasMethod('run'));
+    $t->assertTrue($ref->hasMethod('call'));
+    $t->assertTrue($ref->hasMethod('register'));
+    $t->assertTrue($ref->hasMethod('runAll'));
+});
+
+// --- 中间件别名/组测试 ---
+
+$runner->run('Router - aliasMiddleware 注册别名', function($t) {
+    $router = new \core\Router();
+    $router->aliasMiddleware('cors', \middleware\Cors::class);
+    $router->aliasMiddleware('csrf', \middleware\CsrfMiddleware::class);
+    $t->assertTrue(true);
+});
+
+$runner->run('Router - middlewareGroup 注册组', function($t) {
+    $router = new \core\Router();
+    $router->middlewareGroup('web', [\middleware\CsrfMiddleware::class]);
+    $router->middlewareGroup('api', [\middleware\Cors::class]);
+    $t->assertTrue(true);
+});
+
+$runner->run('Router - setGlobalMiddleware 设置全局中间件', function($t) {
+    $router = new \core\Router();
+    $router->setGlobalMiddleware([\middleware\Cors::class]);
+    $t->assertTrue(true);
+});
+
+// --- Request 类型过滤测试 ---
+
+$runner->run('Request - string 类型过滤', function($t) {
+    $_POST['name'] = '  John  ';
+    $request = new \core\Request();
+    $t->assertIsString($request->string('name'));
+});
+
+$runner->run('Request - integer 类型过滤', function($t) {
+    $_POST['age'] = '25';
+    $request = new \core\Request();
+    $t->assertIsInt($request->integer('age'));
+    $t->assertEquals(25, $request->integer('age'));
+});
+
+$runner->run('Request - float 类型过滤', function($t) {
+    $_POST['price'] = '19.99';
+    $request = new \core\Request();
+    $result = $request->float('price');
+    $t->assertTrue(is_float($result));
+    $t->assertEquals(19.99, $result);
+});
+
+$runner->run('Request - boolean 类型过滤', function($t) {
+    $_POST['active'] = 'true';
+    $request = new \core\Request();
+    $t->assertTrue($request->boolean('active'));
+    $_POST['disabled'] = '0';
+    $t->assertFalse($request->boolean('disabled'));
+});
+
+$runner->run('Request - arrayInput 类型过滤', function($t) {
+    $_POST['tags'] = ['php', 'framework'];
+    $request = new \core\Request();
+    $t->assertIsArray($request->arrayInput('tags'));
+    $t->assertEquals(['php', 'framework'], $request->arrayInput('tags'));
+});
+
+$runner->run('Request - merge 合并数据', function($t) {
+    $request = new \core\Request();
+    $request->merge(['extra' => 'value']);
+    $t->assertEquals('value', $request->post('extra'));
+});
+
+// --- ExceptionHandler 测试 ---
+
+$runner->run('ExceptionHandler - 类存在', function($t) {
+    $t->assertTrue(class_exists(\core\ExceptionHandler::class));
+});
+
+$runner->run('ExceptionHandler - shouldReport 过滤', function($t) {
+    $handler = new \core\ExceptionHandler(null, true);
+    $e = new \RuntimeException('test');
+    $t->assertTrue($handler->shouldReport($e));
+});
+
+$runner->run('ExceptionHandler - dontReport 忽略列表', function($t) {
+    $handler = new class(null, true) extends \core\ExceptionHandler {
+        protected array $dontReport = [\RuntimeException::class];
+    };
+    $e = new \RuntimeException('should skip');
+    $t->assertFalse($handler->shouldReport($e));
+});
+
 $runner->summary();

@@ -55,7 +55,7 @@ trait Macroable
                 continue;
             }
 
-            $closure = $method->getClosure($mixin);
+            $closure = $mixin->{$name}();
 
             static::macro($name, $closure);
         }
@@ -106,6 +106,33 @@ trait Macroable
 
         if ($macro instanceof \Closure) {
             $macro = $macro->bindTo($this, static::class);
+        }
+
+        return $macro(...$args);
+    }
+
+    /**
+     * 动态静态调用宏方法
+     *
+     * 当静态调用类中不存在的方法时，会尝试查找已注册的宏并执行。
+     *
+     * @param string $method 被调用的方法名
+     * @param array $args 传递给方法的参数列表
+     * @return mixed 宏方法的返回值
+     * @throws \BadMethodCallException 当指定名称的宏不存在时抛出异常
+     */
+    public static function __callStatic(string $method, array $args)
+    {
+        if (! static::hasMacro($method)) {
+            throw new \BadMethodCallException(
+                sprintf('方法 %s::%s 不存在', static::class, $method)
+            );
+        }
+
+        $macro = static::$macros[$method];
+
+        if ($macro instanceof \Closure) {
+            $macro = $macro->bindTo(null, static::class);
         }
 
         return $macro(...$args);

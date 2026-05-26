@@ -474,7 +474,7 @@ class Request
      */
     public function merge(array $data): self
     {
-        $this->postData = array_merge($this->postData, $data);
+        $this->post = array_merge($this->post, $data);
         return $this;
     }
 }

@@ -3,14 +3,18 @@ declare(strict_types=1);
 
 namespace core;
 
+use core\traits\Macroable;
+
 /**
  * 响应类
  * 
  * 封装 HTTP 响应，提供便捷的响应构建方法。
  * 支持 HTML、JSON、重定向等响应类型，并自动添加安全头。
+ * 通过 Macroable trait 支持运行时动态扩展方法。
  */
 class Response
 {
+    use Macroable;
     /** @var string 响应内容 */
     private string $content = '';
 

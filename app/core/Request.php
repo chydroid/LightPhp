@@ -3,14 +3,18 @@ declare(strict_types=1);
 
 namespace core;
 
+use core\traits\Macroable;
+
 /**
  * 请求类
  * 
  * 封装 HTTP 请求数据，提供便捷的访问方法。
  * 支持 GET、POST、JSON 请求数据的获取，以及文件上传处理。
+ * 通过 Macroable trait 支持运行时动态扩展方法。
  */
 class Request
 {
+    use Macroable;
     /** @var array GET 参数 */
     private array $get;
 
@@ -395,5 +399,82 @@ class Request
     public function url(): string
     {
         return $this->scheme() . '://' . $this->host() . $this->uri();
+    }
+
+    /**
+     * 获取输入值并转为字符串
+     * 
+     * @param string $key 参数名
+     * @param string $default 默认值
+     * @return string 字符串值
+     */
+    public function string(string $key, string $default = ''): string
+    {
+        return (string) $this->input($key, $default);
+    }
+
+    /**
+     * 获取输入值并转为整数
+     * 
+     * @param string $key 参数名
+     * @param int $default 默认值
+     * @return int 整数值
+     */
+    public function integer(string $key, int $default = 0): int
+    {
+        return (int) $this->input($key, $default);
+    }
+
+    /**
+     * 获取输入值并转为浮点数
+     * 
+     * @param string $key 参数名
+     * @param float $default 默认值
+     * @return float 浮点数值
+     */
+    public function float(string $key, float $default = 0.0): float
+    {
+        return (float) $this->input($key, $default);
+    }
+
+    /**
+     * 获取输入值并转为布尔值
+     * 
+     * @param string $key 参数名
+     * @param bool $default 默认值
+     * @return bool 布尔值
+     */
+    public function boolean(string $key, bool $default = false): bool
+    {
+        $value = $this->input($key, $default);
+        if (is_bool($value)) {
+            return $value;
+        }
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    /**
+     * 获取输入值并转为数组
+     * 
+     * @param string $key 参数名
+     * @param array $default 默认值
+     * @return array 数组值
+     */
+    public function arrayInput(string $key, array $default = []): array
+    {
+        $value = $this->input($key, $default);
+        return is_array($value) ? $value : $default;
+    }
+
+    /**
+     * 合并数据到请求
+     * 
+     * @param array $data 合并的数据
+     * @return self
+     */
+    public function merge(array $data): self
+    {
+        $this->postData = array_merge($this->postData, $data);
+        return $this;
     }
 }

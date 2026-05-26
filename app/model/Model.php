@@ -4,9 +4,11 @@ declare(strict_types=1);
 namespace model;
 
 use db\QueryBuilder;
+use traits\HasModelEvents;
 
 class Model
 {
+    use HasModelEvents;
     protected string $table = '';
     protected string $primaryKey = 'id';
     protected array $fillable = [];
@@ -88,9 +90,20 @@ class Model
         return $this->newQuery()->where($this->primaryKey, '=', $id)->update($data);
     }
 
+    /**
+     * 根据主键删除模型实例
+     * 
+     * @param int|string $id 主键值
+     * @return int 受影响行数
+     */
     public function delete(int|string $id): int
     {
-        return $this->newQuery()->where($this->primaryKey, '=', $id)->delete();
+        if (!$this->fireEvent('deleting')) {
+            return 0;
+        }
+        $result = $this->newQuery()->where($this->primaryKey, '=', $id)->delete();
+        $this->fireEvent('deleted');
+        return $result;
     }
 
     public function paginate(int $perPage = 15, int $page = 1): array
@@ -328,6 +341,13 @@ class Model
 
     public function getAttribute(string $key): mixed
     {
+        $getter = 'get' . str_replace('_', '', ucwords($key, '_')) . 'Attribute';
+        if (method_exists($this, $getter)) {
+            return $this->$getter(
+                array_key_exists($key, $this->attributes) ? $this->attributes[$key] : null
+            );
+        }
+
         if (array_key_exists($key, $this->attributes)) {
             return $this->castAttribute($key, $this->attributes[$key]);
         }
@@ -341,6 +361,11 @@ class Model
 
     public function setAttribute(string $key, mixed $value): void
     {
+        $setter = 'set' . str_replace('_', '', ucwords($key, '_')) . 'Attribute';
+        if (method_exists($this, $setter)) {
+            $this->$setter($value);
+            return;
+        }
         $this->attributes[$key] = $value;
     }
 
@@ -357,33 +382,53 @@ class Model
      */
     public function save(): int|string
     {
+        if (!$this->fireEvent('saving')) {
+            return 0;
+        }
+
         if (!$this->exists) {
+            if (!$this->fireEvent('creating')) {
+                return 0;
+            }
             $data = $this->filterFillable($this->attributes);
             $data = $this->syncTimestamps($data, 'create');
             $id = $this->newQuery()->insert($data);
             $this->attributes[$this->primaryKey] = $id;
             $this->exists = true;
+            $this->fireEvent('created');
+            $this->fireEvent('saved');
             return $id;
         }
 
         $pk = $this->attributes[$this->primaryKey] ?? null;
         if ($pk === null) {
+            if (!$this->fireEvent('creating')) {
+                return 0;
+            }
             $data = $this->filterFillable($this->attributes);
             $data = $this->syncTimestamps($data, 'create');
             $id = $this->newQuery()->insert($data);
             $this->attributes[$this->primaryKey] = $id;
             $this->exists = true;
+            $this->fireEvent('created');
+            $this->fireEvent('saved');
             return $id;
         }
 
+        if (!$this->fireEvent('updating')) {
+            return 0;
+        }
         $data = $this->filterFillable($this->attributes);
         unset($data[$this->primaryKey]);
         $data = $this->syncTimestamps($data, 'update');
-        return $this->newQuery()->where($this->primaryKey, '=', $pk)->update($data);
+        $result = $this->newQuery()->where($this->primaryKey, '=', $pk)->update($data);
+        $this->fireEvent('updated');
+        $this->fireEvent('saved');
+        return $result;
     }
 
     /**
-     * 根据主键删除模型实例
+     * 根据主键删除模型实例（静态调用）
      * 
      * @param int|string $id 主键值
      * @return int 受影响行数
@@ -391,7 +436,7 @@ class Model
     public static function deleteById(int|string $id): int
     {
         $instance = new static();
-        return $instance->newQuery()->where($instance->primaryKey, '=', $id)->delete();
+        return $instance->delete($id);
     }
 
     /**
@@ -511,6 +556,12 @@ class Model
             return call_user_func_array([$this->newQuery(), $method], $args);
         }
 
+        $scopeMethod = 'scope' . ucfirst($method);
+        if (method_exists($this, $scopeMethod)) {
+            array_unshift($args, $this->newQuery());
+            return call_user_func_array([$this, $scopeMethod], $args);
+        }
+
         throw new \BadMethodCallException(sprintf('Method %s::%s does not exist', static::class, $method));
     }
 
@@ -523,6 +574,12 @@ class Model
             'update', 'delete', 'paginate', 'select', 'with', 'eagerLoad'];
 
         if (!in_array($method, $allowedMethods, true)) {
+            $instance = new static();
+            $scopeMethod = 'scope' . ucfirst($method);
+            if (method_exists($instance, $scopeMethod)) {
+                array_unshift($args, $instance->newQuery());
+                return call_user_func_array([$instance, $scopeMethod], $args);
+            }
             throw new \BadMethodCallException(sprintf('Method %s::%s does not exist', static::class, $method));
         }
 

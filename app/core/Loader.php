@@ -6,17 +6,19 @@ namespace core;
 class Loader
 {
     private static array $prefixes = [
-        'core\\'         => APP_PATH . 'core/',
+        'core\\'          => APP_PATH . 'core/',
         'core\\console\\' => APP_PATH . 'core/console/',
-        'controller\\'   => APP_PATH . 'controller/',
-        'model\\'        => APP_PATH . 'model/',
-        'view\\'         => APP_PATH . 'view/',
-        'route\\'        => APP_PATH . 'route/',
-        'middleware\\'   => APP_PATH . 'middleware/',
-        'db\\'           => APP_PATH . 'db/',
-        'cache\\'        => APP_PATH . 'cache/',
-        'log\\'          => APP_PATH . 'log/',
-        'config\\'       => APP_PATH . 'config/',
+        'core\\traits\\'  => APP_PATH . 'core/traits/',
+        'controller\\'    => APP_PATH . 'controller/',
+        'model\\'         => APP_PATH . 'model/',
+        'view\\'          => APP_PATH . 'view/',
+        'route\\'         => APP_PATH . 'route/',
+        'middleware\\'    => APP_PATH . 'middleware/',
+        'db\\'            => APP_PATH . 'db/',
+        'cache\\'         => APP_PATH . 'cache/',
+        'log\\'           => APP_PATH . 'log/',
+        'config\\'        => APP_PATH . 'config/',
+        'traits\\'        => APP_PATH . 'traits/',
     ];
 
     private static bool $registered = false;

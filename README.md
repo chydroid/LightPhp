@@ -4,6 +4,8 @@
 
 **核心理念**：保持轻量级的同时，提供生产级功能和易用的开发体验。如果你熟悉 ThinkPHP 或 Laravel，上手本框架将非常顺利。
 
+**版本**：v2.0.0
+
 ---
 
 ## 目录
@@ -44,18 +46,29 @@
 - **MVC 架构** — 清晰的 Controller（控制器）/ Model（模型）/ View（视图）分层设计
 - **依赖注入容器** — 自动解析类依赖，支持别名绑定和单例模式，**PSR-11 兼容**
 - **中间件管道** — 洋葱模型（Onion Middleware），请求层层穿过中间件，前置/后置处理灵活
+- **Pipeline 管道** — 独立的管道类，可用于中间件或其他洋葱模型场景
 - **服务提供者** — 模块化的服务注册与引导机制，延迟加载，按需初始化
+- **异常处理器** — 报告/渲染分离，`$dontReport` 忽略列表，调试/生产双模式
 
 ### 路由与请求
 - **路由系统** — RESTful 风格路由、路由分组（group）、参数绑定、中间件链
+- **中间件别名/组** — 支持中间件别名映射、分组注册、全局中间件
 - **请求对象** — 封装 `$_GET`/`$_POST`/`$_FILES`/`$_SERVER` 等，提供安全便捷的输入获取方法
+- **请求类型过滤** — `string()`/`integer()`/`float()`/`boolean()`/`arrayInput()` 类型安全获取
+- **Macroable 宏** — Request/Response 支持运行时动态扩展方法
 
 ### 数据库与模型
 - **查询构建器（QueryBuilder）** — 链式调用构建 SQL，安全参数绑定，防止 SQL 注入
 - **ActiveRecord 模型** — 类似 Laravel Eloquent 的模型系统，属性访问、类型转换、JSON 序列化
+- **访问器/修改器** — `getFooAttribute()`/`setFooAttribute()` 自定义属性读写逻辑
+- **查询作用域** — `scopePopular()` 等方法封装常用查询条件
+- **模型事件** — creating/created/updating/updated/saving/saved/deleting/deleted 8种事件
+- **模型观察者** — Observer 类自动检测事件方法，统一管理模型生命周期钩子
+- **软删除** — SoftDelete trait，`withTrashed()`/`onlyTrashed()`/`restore()` 完整软删除支持
 - **关联关系** — hasOne / hasMany / belongsTo / belongsToMany 四种完整关联，支持预加载
 - **Schema Builder** — 流畅的表结构定义 API（Laravel Blueprint 风格），支持建表、改表、外键
 - **数据库迁移** — 团队协作的数据库版本管理（up/down/rollback）
+- **数据填充（Seeder）** — 种子数据注册与批量执行
 
 ### 模板引擎
 - **原生 PHP 视图** — 高性能的原生 PHP 模板，支持布局继承

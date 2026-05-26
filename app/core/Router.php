@@ -29,6 +29,74 @@ class Router
     /** @var array<string, array<string, int>> 编译后的正则缓存，含分组名信息 */
     private array $compiledRegexCache = [];
 
+    /** @var array<string, string|callable> 中间件别名映射 */
+    private array $middlewareAliases = [];
+
+    /** @var array<string, array<string|callable>> 中间件组 */
+    private array $middlewareGroups = [];
+
+    /** @var array<int, string|callable> 全局中间件 */
+    private array $globalMiddleware = [];
+
+    /**
+     * 注册中间件别名
+     * 
+     * @param string $name 别名
+     * @param string|callable $middleware 中间件类名或闭包
+     * @return self
+     */
+    public function aliasMiddleware(string $name, string|callable $middleware): self
+    {
+        $this->middlewareAliases[$name] = $middleware;
+        return $this;
+    }
+
+    /**
+     * 注册中间件组
+     * 
+     * @param string $name 组名
+     * @param array $middlewares 中间件列表
+     * @return self
+     */
+    public function middlewareGroup(string $name, array $middlewares): self
+    {
+        $this->middlewareGroups[$name] = $middlewares;
+        return $this;
+    }
+
+    /**
+     * 设置全局中间件
+     * 
+     * @param array $middlewares 中间件列表
+     * @return self
+     */
+    public function setGlobalMiddleware(array $middlewares): self
+    {
+        $this->globalMiddleware = $middlewares;
+        return $this;
+    }
+
+    /**
+     * 解析中间件（别名 → 类名，组 → 展开列表）
+     * 
+     * @param array $middlewares 中间件列表
+     * @return array 解析后的中间件列表
+     */
+    private function resolveMiddleware(array $middlewares): array
+    {
+        $resolved = [];
+        foreach ($middlewares as $mw) {
+            if (is_string($mw) && isset($this->middlewareAliases[$mw])) {
+                $resolved[] = $this->middlewareAliases[$mw];
+            } elseif (is_string($mw) && isset($this->middlewareGroups[$mw])) {
+                $resolved = array_merge($resolved, $this->resolveMiddleware($this->middlewareGroups[$mw]));
+            } else {
+                $resolved[] = $mw;
+            }
+        }
+        return $resolved;
+    }
+
     /**
      * 注册 GET 路由
      * 
@@ -263,7 +331,9 @@ class Router
             $params = $this->matchRoute($route['uri'], $uri);
             if ($params !== false) {
                 $handler = fn () => $this->executeHandler($route['handler'], $params);
-                return $this->executeMiddleware($route['middleware'] ?? [], $handler, $request);
+                $routeMiddleware = $this->resolveMiddleware($route['middleware'] ?? []);
+                $allMiddleware = array_merge($this->resolveMiddleware($this->globalMiddleware), $routeMiddleware);
+                return $this->executeMiddleware($allMiddleware, $handler, $request);
             }
         }
 

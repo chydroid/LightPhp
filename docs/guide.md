@@ -1124,7 +1124,7 @@ $validator = (new Validate())
     ]);
 
 // 执行验证
-if ($validator->fails($_POST)) {
+if (!$validator->validate($_POST)) {
     $errors = $validator->errors();
     // 返回：
     // ['name' => ['请填写姓名'], 'email' => ['邮箱格式不正确']]

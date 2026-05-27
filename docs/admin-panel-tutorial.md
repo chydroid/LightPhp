@@ -92,7 +92,7 @@ class AdminAuth
         '/api/admin/auth/login',
     ];
 
-    public function handle($request, callable $next)
+    public function handle(\core\Request $request, callable $next): mixed
     {
         $uri = $_SERVER['REQUEST_URI'] ?? '';
         $path = parse_url($uri, PHP_URL_PATH);
@@ -163,6 +163,16 @@ class AdminAuth
 }
 ```
 
+> 💡 **v2.0 中间件别名**：v2.0 新增了中间件别名注册功能，可以在路由中使用短名称代替完整类名：
+> ```php
+> $router->aliasMiddleware('admin.auth', \middleware\AdminAuth::class);
+>
+> // 使用别名
+> $router->group(['middleware' => ['admin.auth']], function($router) {
+>     // ...
+> });
+> ```
+
 ---
 
 ## 3. 后端开发-管理员模块
@@ -183,6 +193,12 @@ class Admin extends Model
         'status' => 'int',
     ];
     protected array $hidden = ['password'];
+
+    // v2.0 提示：可使用修改器自动哈希密码
+    // public function setPasswordAttribute(string $value): void
+    // {
+    //     $this->attributes['password'] = \core\Hash::make($value);
+    // }
 
     public function verifyPassword(string $password): bool
     {
@@ -532,7 +548,7 @@ class ProductController extends Controller
             return $this->error('Product not found', 404);
         }
 
-        Product::delete($id);
+        Product::deleteById($id);
 
         return $this->success([], 'Product deleted');
     }
@@ -663,7 +679,7 @@ class CategoryController extends Controller
             return $this->error('Cannot delete category with products', 422);
         }
 
-        Category::delete($id);
+        Category::deleteById($id);
 
         return $this->success([], 'Category deleted');
     }

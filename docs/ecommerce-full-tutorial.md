@@ -271,6 +271,17 @@ $router->group(['middleware' => [new \middleware\Cors([
 });
 ```
 
+> 💡 **v2.0 中间件别名**：v2.0 新增了中间件别名注册功能，可以在路由中使用短名称代替完整类名：
+> ```php
+> $router->aliasMiddleware('cors', \middleware\Cors::class);
+> $router->aliasMiddleware('auth', \middleware\Auth::class);
+>
+> // 使用别名
+> $router->group(['middleware' => ['cors', 'auth']], function($router) {
+>     // ...
+> });
+> ```
+
 ---
 
 ## 4. 后端开发-用户模块
@@ -294,6 +305,7 @@ class User extends Model
     ];
     protected array $hidden = ['password'];
 
+    // v2.0 修改器：设置密码时自动哈希加密
     public function setPasswordAttribute(string $value): void
     {
         $this->attributes['password'] = \core\Hash::make($value);
@@ -323,6 +335,7 @@ class AuthController extends Controller
 {
     public function register(Request $request): Response
     {
+        // v2.0 推荐使用类型过滤方法：$request->string('username')
         $data = $request->only(['username', 'email', 'password']);
 
         if (empty($data['username']) || empty($data['email']) || empty($data['password'])) {
@@ -666,6 +679,7 @@ class Product extends Model
         return new Category();
     }
 
+    // v2.0 访问器：读取 images 时自动将 JSON 字符串转为数组
     public function getImagesAttribute($value)
     {
         return json_decode($value ?? '[]', true) ?: [];
@@ -899,7 +913,7 @@ class CartController extends Controller
             return $this->error('Cart item not found', 404);
         }
 
-        CartItem::delete($cartItemId);
+        CartItem::deleteById($cartItemId);
 
         return $this->success([], 'Item removed');
     }

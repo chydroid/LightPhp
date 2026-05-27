@@ -4,7 +4,7 @@
 
 ## 概述
 
-LightPHP 使用自带的轻量级测试框架，测试文件全部集中在 `tests/` 目录下。当前共 **207 个单元测试**，覆盖了框架所有核心组件：
+LightPHP 使用自带的轻量级测试框架，测试文件全部集中在 `tests/` 目录下。当前共 **259 个单元测试**，覆盖了框架所有核心组件：
 
 | 测试模块 | 说明 | 测试数量 |
 |---------|------|---------|
@@ -97,7 +97,7 @@ LightPHP Unit Tests
 [PASS] FileCache::remember caches callback result
 [PASS] FileCache::increment/decrement
 
-Results: 207 passed, 0 failed
+Results: 259 passed, 0 failed
 All tests passed!
 ```
 
@@ -264,6 +264,93 @@ class TestCase
 | `FileCache::delete removes item` | 删除缓存项 |
 | `FileCache::remember caches callback result` | remember 方法 |
 | `FileCache::increment/decrement` | 计数器增减 |
+
+### 8. Pipeline 管道测试
+
+| 测试 | 说明 |
+|------|------|
+| `Pipeline basic flow` | 基本管道流程 |
+| `Pipeline onion model` | 洋葱模型执行顺序 |
+| `Pipeline via custom method` | 自定义管道方法 |
+| `Pipeline thenReturn` | thenReturn 方法 |
+| `Pipeline empty pipes` | 空管道处理 |
+
+### 9. Macroable 宏扩展测试
+
+| 测试 | 说明 |
+|------|------|
+| `Macroable register and call macro` | 注册和调用宏 |
+| `Macroable static macro call` | 静态宏调用 |
+| `Macroable mixin` | 混入注册 |
+| `Macroable hasMacro` | 检查宏是否存在 |
+| `Macroable flushMacros` | 清空宏 |
+| `Macroable __call throws for unknown` | 调用不存在宏抛异常 |
+| `Macroable __callStatic throws for unknown` | 静态调用不存在宏抛异常 |
+| `Macroable closure binds to instance` | 闭包绑定实例 |
+| `Macroable mixin with replace option` | 混入替换选项 |
+
+### 10. SoftDelete 软删除测试
+
+| 测试 | 说明 |
+|------|------|
+| `SoftDelete sets deleted_at` | 软删除设置 deleted_at |
+| `SoftDelete excludes trashed by default` | 默认排除已删除记录 |
+| `SoftDelete restore` | 恢复软删除记录 |
+
+### 11. HasModelEvents 模型事件测试
+
+| 测试 | 说明 |
+|------|------|
+| `Model event creating` | creating 事件 |
+| `Model event created` | created 事件 |
+| `Model observer` | 观察者模式 |
+| `Model event returns false prevents action` | 事件返回 false 阻止操作 |
+
+### 12. 访问器/修改器测试
+
+| 测试 | 说明 |
+|------|------|
+| `Getter accessor` | 访问器 |
+| `Setter mutator` | 修改器 |
+
+### 13. 查询作用域测试
+
+| 测试 | 说明 |
+|------|------|
+| `Query scope method` | 查询作用域方法 |
+
+### 14. Seeder 数据填充测试
+
+| 测试 | 说明 |
+|------|------|
+| `Seeder register and runAll` | 注册和批量运行 |
+
+### 15. 中间件别名/组测试
+
+| 测试 | 说明 |
+|------|------|
+| `Router aliasMiddleware` | 中间件别名注册 |
+| `Router middlewareGroup` | 中间件组注册 |
+| `Router resolveMiddleware` | 中间件解析 |
+
+### 16. Request 类型过滤测试
+
+| 测试 | 说明 |
+|------|------|
+| `Request string method` | 字符串类型过滤 |
+| `Request integer method` | 整数类型过滤 |
+| `Request float method` | 浮点数类型过滤 |
+| `Request boolean method` | 布尔值类型过滤 |
+| `Request arrayInput method` | 数组类型过滤 |
+| `Request merge method` | 合并数据 |
+
+### 17. ExceptionHandler 异常处理器测试
+
+| 测试 | 说明 |
+|------|------|
+| `ExceptionHandler report` | 异常报告 |
+| `ExceptionHandler render` | 异常渲染 |
+| `ExceptionHandler shouldReport` | 判断是否应报告 |
 
 ---
 

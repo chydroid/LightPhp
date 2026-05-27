@@ -39,6 +39,8 @@
 28. [Facade 与 ServiceProvider](#28-facade-与-serviceprovider)
 29. [Smarty 模板引擎（可选扩展）](#29-smarty-模板引擎可选扩展)
 30. [部署到生产环境](#30-部署到生产环境)
+31. [Pipeline 管道（v2.0 新增）](#31-pipeline-管道v20-新增)
+32. [Seeder 数据填充（v2.0 新增）](#32-seeder-数据填充v20-新增)
 
 ---
 
@@ -70,6 +72,7 @@ LightPHP 遵循以下设计原则：
 | **ORM** | hasOne/hasMany/belongsTo/belongsToMany 关联、预加载、类型转换 |
 | **模板** | 原生 PHP + Blade 风格编译器（缓存）+ Smarty（可选） |
 | **安全** | CSRF、CORS、Throttle 限流、AES-256-GCM 加密、bcrypt 哈希 |
+| **v2.0 新增** | Pipeline 洋葱管道、Macroable 宏扩展、模型事件/观察者、软删除、访问器/修改器、查询作用域、Seeder 数据填充、中间件别名/组/全局注册、Request 类型过滤、ExceptionHandler report/render 分离 |
 | **辅助** | 事件系统、集合类（40+ 方法）、门面模式、CLI 命令系统 |
 | **日志** | PSR-3 兼容（8 个日志级别）、日期分割 |
 
@@ -213,6 +216,7 @@ project/
 │   │   ├── console/           # CLI 命令系统
 │   │   ├── contract/          # 接口契约（PSR-3 / PSR-11 等）
 │   │   ├── exception/         # 异常层次
+│   │   ├── traits/            # 可复用 Trait（Macroable 宏扩展等）
 │   │   └── helpers.php        # 全局辅助函数
 │   ├── db/                    # 数据库层（Connection + QueryBuilder + Schema）
 │   ├── log/                   # 日志驱动
@@ -691,7 +695,178 @@ $json  = $post->toJson();    // JSON 字符串
 
 > ⚠️ **关于 `$fillable`**：如果 `$fillable` 为空数组，`create()` 无法写入任何字段。这是框架的安全机制——你必须显式声明哪些字段可以批量写入。
 
-### 6.5 查询构建器（QueryBuilder）
+### 6.5 访问器与修改器（v2.0 新增）
+
+访问器和修改器让你在读取或写入模型属性时自动执行转换逻辑，无需在控制器中手动处理。
+
+#### 访问器（Getter）
+
+在模型中定义 `getFooAttribute()` 方法，读取 `$model->foo` 时自动调用：
+
+```php
+class Product extends Model
+{
+    // 读取 $product->images 时自动将 JSON 字符串转为数组
+    public function getImagesAttribute($value): array
+    {
+        return json_decode($value ?? '[]', true) ?: [];
+    }
+
+    // 读取 $product->price 时自动格式化为两位小数
+    public function getPriceAttribute($value): string
+    {
+        return number_format((float) $value, 2, '.', '');
+    }
+}
+
+$product = Product::find(1);
+$images = $product->images;  // 返回数组，而非 JSON 字符串
+$price  = $product->price;   // 返回 "99.00" 格式化字符串
+```
+
+#### 修改器（Setter）
+
+在模型中定义 `setFooAttribute()` 方法，设置 `$model->foo = value` 时自动调用：
+
+```php
+class User extends Model
+{
+    // 设置密码时自动哈希加密
+    public function setPasswordAttribute(string $value): void
+    {
+        $this->attributes['password'] = \core\Hash::make($value);
+    }
+}
+
+$user = new User();
+$user->password = 'plain_text';  // 自动哈希，$this->attributes['password'] 已是加密值
+```
+
+> 💡 **命名规则**：属性名 `foo_bar` 对应方法名 `getFooBarAttribute()` / `setFooBarAttribute()`（驼峰转换）。
+
+### 6.6 查询作用域（v2.0 新增）
+
+查询作用域让你将常用的查询条件封装为模型方法，避免在控制器中重复编写相同的 WHERE 条件。
+
+```php
+class Post extends Model
+{
+    // 定义作用域：方法名以 scope 开头，参数自动注入 QueryBuilder
+    public function scopePublished($query)
+    {
+        return $query->where('status', '=', 1);
+    }
+
+    public function scopeRecent($query)
+    {
+        return $query->orderBy('created_at', 'DESC');
+    }
+
+    // 带参数的作用域
+    public function scopeOfType($query, string $type)
+    {
+        return $query->where('type', '=', $type);
+    }
+}
+
+// 使用：调用时省略 scope 前缀
+$posts = Post::published()->recent()->fetchAll();
+$articles = Post::ofType('article')->fetchAll();
+```
+
+> 💡 **原理**：模型的 `__call()` 和 `__callStatic()` 魔术方法在找不到对应方法时，会自动查找 `scopeXxx()` 方法，并将 QueryBuilder 实例作为第一个参数注入。
+
+### 6.7 模型事件与观察者（v2.0 新增）
+
+模型事件允许你在模型的增删改操作前后执行自定义逻辑，实现解耦。
+
+#### 支持的事件
+
+| 事件 | 触发时机 | 典型用途 |
+|------|---------|---------|
+| `creating` | 创建前 | 自动填充默认值 |
+| `created` | 创建后 | 发送通知、记录日志 |
+| `updating` | 更新前 | 数据变更审计 |
+| `updated` | 更新后 | 清除缓存 |
+| `saving` | 保存前（创建或更新） | 统一数据校验 |
+| `saved` | 保存后 | 统一后置处理 |
+| `deleting` | 删除前 | 检查是否可删除 |
+| `deleted` | 删除后 | 清理关联数据 |
+
+#### 注册事件监听
+
+```php
+use model\User;
+
+// 方式一：闭包监听
+User::onEvent('creating', function($user) {
+    $user->attributes['created_at'] = date('Y-m-d H:i:s');
+});
+
+User::onEvent('deleted', function($user) {
+    // 用户删除后清理关联数据
+    \model\UserProfile::where('user_id', '=', $user->id)->delete();
+});
+
+// 方式二：观察者类（推荐，逻辑更集中）
+class UserObserver
+{
+    public function creating($user) { /* 创建前 */ }
+    public function created($user)  { /* 创建后：发送欢迎邮件 */ }
+    public function updating($user) { /* 更新前 */ }
+    public function deleting($user) { /* 删除前：检查关联 */ }
+    public function deleted($user)  { /* 删除后：清理数据 */ }
+}
+
+User::observe(new UserObserver());
+```
+
+> 💡 **事件返回 `false` 可阻止操作**：如果在 `creating`/`updating`/`saving`/`deleting` 事件中返回 `false`，对应的操作将被取消。
+
+### 6.8 软删除（v2.0 新增）
+
+软删除不会真正从数据库删除记录，而是将 `deleted_at` 字段设为当前时间。查询时自动排除已软删除的记录。
+
+```php
+use traits\SoftDelete;
+
+class Post extends Model
+{
+    use SoftDelete;
+
+    // 默认使用 deleted_at 字段，可在模型中覆盖：
+    // protected string $deletedAtColumn = 'deleted_at';
+}
+
+// 软删除：设置 deleted_at 而非真正删除
+$post = Post::find(1);
+$post->delete($post->id);  // deleted_at 被设为当前时间
+
+// 查询时自动排除软删除记录
+$posts = Post::where('status', '=', 1)->fetchAll();  // 不含 deleted_at IS NOT NULL
+
+// 包含软删除记录
+$allPosts = Post::find(1)->withTrashed()->fetchAll();
+
+// 仅查询软删除记录
+$trashedPosts = Post::find(1)->onlyTrashed()->fetchAll();
+
+// 恢复软删除
+$post->restore();  // deleted_at 设为 null
+
+// 强制物理删除
+Post::forceDelete();
+Post::find(1)->delete(1);  // 真正从数据库删除
+
+// 检查是否已被软删除
+if ($post->trashed()) {
+    echo '该记录已被软删除';
+}
+```
+
+> ⚠️ **数据库要求**：使用软删除的表必须有 `deleted_at` 字段（DATETIME 类型，默认 NULL）。
+
+### 6.9 查询构建器（QueryBuilder）
 
 当你需要更灵活的数据库操作时，可以直接使用 QueryBuilder：
 
@@ -769,7 +944,7 @@ $db->table('users')->where('id', '=', 1)->delete();
 > - WHERE 操作符限定为白名单（`=`, `!=`, `<`, `>`, `<=`, `>=`, `LIKE`, `NOT LIKE`, `IN`, `NOT IN`），拒绝奇异的 SQL 操作符
 > - UPDATE/DELETE 不带 WHERE 会直接抛出异常，保护全表数据
 
-### 6.6 数据库事务
+### 6.10 数据库事务
 
 ```php
 $db = new Connection([...]);
@@ -986,6 +1161,66 @@ $router->group([
 });
 ```
 
+### 8.4 中间件别名、组与全局注册（v2.0 新增）
+
+v2.0 新增了中间件别名、中间件组和全局中间件的注册机制，让中间件管理更灵活。
+
+#### 中间件别名
+
+给中间件类注册一个短名称，在路由中使用时更简洁：
+
+```php
+$router = new Router();
+
+// 注册别名
+$router->aliasMiddleware('auth', \middleware\Auth::class);
+$router->aliasMiddleware('admin', \middleware\AdminAuth::class);
+$router->aliasMiddleware('throttle', \middleware\Throttle::class);
+
+// 在路由中使用别名（而非完整类名）
+$router->get('/profile', [UserController::class, 'profile'])
+    ->middleware(['auth']);
+
+$router->group(['middleware' => ['auth', 'admin']], function($router) {
+    $router->get('/dashboard', [AdminController::class, 'dashboard']);
+});
+```
+
+#### 中间件组
+
+将多个中间件打包成一组，按名称引用：
+
+```php
+// 注册中间件组
+$router->middlewareGroup('api', [
+    \middleware\Cors::class,
+    \middleware\Throttle::class,
+]);
+
+$router->middlewareGroup('web', [
+    \middleware\CsrfMiddleware::class,
+    \middleware\Auth::class,
+]);
+
+// 在路由中使用组名
+$router->group(['middleware' => ['api']], function($router) {
+    // 所有路由自动经过 Cors + Throttle 中间件
+    $router->get('/users', [UserController::class, 'index']);
+});
+```
+
+#### 全局中间件
+
+全局中间件在每个请求中都会执行，无需在路由中显式指定：
+
+```php
+$router->setGlobalMiddleware([
+    \middleware\Cors::class,
+]);
+```
+
+> 💡 **解析优先级**：全局中间件 → 路由中间件（先展开别名和组，再按顺序执行）。
+
 ---
 
 ## 9. 请求与响应
@@ -1022,6 +1257,57 @@ public function store(Request $request): \core\Response
     $ip        = $request->ip();                  // 客户端 IP
     $userAgent = $request->userAgent();           // User-Agent
     $token     = $request->header('Authorization'); // 请求头
+}
+```
+
+#### 类型过滤方法（v2.0 新增）
+
+Request 新增了类型安全的输入获取方法，自动将输入值转为指定类型：
+
+```php
+// 获取字符串（去除首尾空格）
+$name = $request->string('name');           // 默认 ''
+$name = $request->string('name', '匿名');   // 指定默认值
+
+// 获取整数
+$page = $request->integer('page');          // 默认 0
+$page = $request->integer('page', 1);       // 指定默认值
+
+// 获取浮点数
+$price = $request->float('price');          // 默认 0.0
+$price = $request->float('price', 0.01);    // 指定默认值
+
+// 获取布尔值
+$remember = $request->boolean('remember');  // 默认 false
+// '1', 'true', 'on' → true；其他 → false
+
+// 获取数组
+$ids = $request->arrayInput('ids');         // 默认 []
+$ids = $request->arrayInput('ids', [1]);    // 指定默认值
+
+// 合并额外数据到请求
+$request->merge(['user_id' => $userId]);
+// 之后可以通过 $request->input('user_id') 获取
+```
+
+> 💡 **为什么用类型过滤？** HTTP 请求的所有参数都是字符串类型。使用 `$request->integer('page')` 可以确保你拿到的是整数，避免 `"2"` 这样的字符串导致意外行为。
+
+#### 宏扩展（Macroable，v2.0 新增）
+
+Request 和 Response 类在 v2.0 中引入了 `Macroable` trait，允许你在运行时动态添加方法：
+
+```php
+use core\Request;
+
+// 动态添加方法
+Request::macro('userAgentIsMobile', function() {
+    $ua = $this->userAgent();
+    return (bool) preg_match('/Mobile|Android|iPhone/i', $ua);
+});
+
+// 使用
+if ($request->userAgentIsMobile()) {
+    return $this->view('mobile/home');
 }
 ```
 
@@ -1494,6 +1780,54 @@ throw new ValidationException([
 ```
 
 > 💡 **什么时候抛异常？** 当程序遇到了无法继续正确执行的情况（如路由未匹配到、数据库连不上、用户输入不合法等），应该抛出对应类型的异常，而不是返回一个默认的错误值。这样上层可以统一捕获和处理。
+
+### 18.3 ExceptionHandler 异常处理器（v2.0 新增）
+
+v2.0 新增了 `core\ExceptionHandler` 类，提供 report/render 分离的异常处理机制：
+
+```php
+use core\ExceptionHandler;
+
+// 创建异常处理器
+$handler = new ExceptionHandler($logger, $debug);
+
+// report — 记录异常到日志
+$handler->report($exception);
+
+// render — 将异常转为 HTTP 响应
+$response = $handler->render($request, $exception);
+```
+
+#### 不记录日志的异常
+
+通过 `$dontReport` 属性配置不需要记录日志的异常类型：
+
+```php
+class MyExceptionHandler extends ExceptionHandler
+{
+    protected array $dontReport = [
+        \core\exception\RouteNotFoundException::class,
+        \core\exception\ValidationException::class,
+    ];
+}
+```
+
+#### 不在响应中暴露的字段
+
+通过 `$dontFlash` 属性配置不应在调试响应中暴露的敏感字段：
+
+```php
+class MyExceptionHandler extends ExceptionHandler
+{
+    protected array $dontFlash = [
+        'password',
+        'password_confirmation',
+        'credit_card_number',
+    ];
+}
+```
+
+> 💡 **调试模式 vs 生产模式**：`$debug = true` 时，异常响应包含详细的堆栈跟踪和代码片段；`$debug = false` 时，只返回通用的 500 错误页面，不暴露内部信息。
 
 ---
 
@@ -2290,6 +2624,109 @@ return $view->display('user/list.tpl', ['users' => User::all()]);
 ### 30.3 Nginx 配置
 
 详见 [第 2.5 节 Nginx 配置](#25-nginx-生产环境配置)。
+
+---
+
+## 31. Pipeline 管道（v2.0 新增）
+
+Pipeline 实现了洋葱模型的管道模式，请求依次穿过每一层中间件到达核心，响应再反向传回。框架的中间件系统就是基于 Pipeline 实现的。
+
+> 💡 **Pipeline 的用途**：除了中间件，Pipeline 还可用于数据加工流水线（如文本过滤→格式化→缓存）、请求处理链等场景。
+
+### 31.1 基本用法
+
+```php
+use core\Pipeline;
+
+$result = (new Pipeline())
+    ->send($request)                          // 传入初始数据
+    ->through([                               // 定义管道层（中间件数组）
+        new AuthMiddleware(),
+        new ThrottleMiddleware(),
+        new CorsMiddleware(),
+    ])
+    ->then(function($request) {               // 核心处理逻辑
+        return new Response('OK');
+    });
+```
+
+### 31.2 自定义管道方法
+
+默认每层管道调用 `handle()` 方法，可通过 `via()` 修改：
+
+```php
+$result = (new Pipeline())
+    ->send($data)
+    ->through([$filter1, $filter2])
+    ->via('process')                          // 调用每层的 process() 方法
+    ->then(function($data) {
+        return $data;
+    });
+```
+
+### 31.3 thenReturn 方法
+
+不需要指定最终闭包时使用，最内层直接返回传入的数据：
+
+```php
+$result = (new Pipeline())
+    ->send($data)
+    ->through($pipes)
+    ->thenReturn();                           // 返回管道处理后的结果
+```
+
+---
+
+## 32. Seeder 数据填充（v2.0 新增）
+
+Seeder 用于向数据库填充初始数据或测试数据，常用于开发环境和自动化测试。
+
+### 32.1 创建 Seeder
+
+```php
+use db\Seeder;
+
+class UserSeeder extends Seeder
+{
+    public function run(): void
+    {
+        $this->db->table('users')->insert([
+            'username' => 'admin',
+            'email'    => 'admin@example.com',
+            'password' => \core\Hash::make('password'),
+        ]);
+    }
+}
+```
+
+### 32.2 注册和运行
+
+```php
+use db\Seeder;
+use db\Connection;
+
+$db = new Connection([...]);
+
+// 注册 Seeder 类
+Seeder::register(UserSeeder::class);
+Seeder::register(PostSeeder::class);
+
+// 运行所有已注册的 Seeder
+Seeder::runAll($db);
+```
+
+### 32.3 在 Seeder 中调用其他 Seeder
+
+```php
+class DatabaseSeeder extends Seeder
+{
+    public function run(): void
+    {
+        $this->call(UserSeeder::class);    // 先填充用户
+        $this->call(PostSeeder::class);    // 再填充文章
+    }
+}
+```
 
 ---
 

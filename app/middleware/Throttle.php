@@ -58,15 +58,11 @@ class Throttle
         $route = $route !== '' ? $route : '/';
         $ipHash = md5($ip);
         $routeHash = md5($route);
-        return 'throttle_' . $ipHash . '/' . $routeHash;
+        return 'throttle_' . $ipHash . '_' . $routeHash;
     }
 
     private function getCacheFile(string $key): string
     {
-        $dir = $this->storagePath . dirname($key);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
         return $this->storagePath . $key . '.data';
     }
 
@@ -135,7 +131,18 @@ class Throttle
 
     private function retryAfter(string $key): int
     {
-        return $this->decaySeconds;
+        $file = $this->getCacheFile($key);
+        if (!file_exists($file)) {
+            return $this->decaySeconds;
+        }
+        $data = @file_get_contents($file);
+        if ($data === false) return $this->decaySeconds;
+        $decoded = json_decode($data, true);
+        if (!is_array($decoded) || !isset($decoded['expire'])) {
+            return $this->decaySeconds;
+        }
+        $remaining = $decoded['expire'] - time();
+        return $remaining > 0 ? $remaining : $this->decaySeconds;
     }
 
     /**
@@ -145,15 +152,12 @@ class Throttle
     {
         $storagePath = rtrim(STORAGE_PATH, '/') . '/cache/';
         $ipHash = md5($ip);
-        $dir = $storagePath . 'throttle_' . $ipHash;
-        if (is_dir($dir)) {
-            $files = glob($dir . '/*.data');
-            if ($files !== false) {
-                foreach ($files as $file) {
-                    @unlink($file);
-                }
+        $prefix = 'throttle_' . $ipHash . '_';
+        $files = glob($storagePath . $prefix . '*.data');
+        if ($files !== false) {
+            foreach ($files as $file) {
+                @unlink($file);
             }
-            @rmdir($dir);
         }
     }
 }

@@ -10,6 +10,10 @@ require APP_PATH . 'core/Loader.php';
 require APP_PATH . 'core/helpers.php';
 \core\Loader::register();
 
+if (PHP_SAPI !== 'cli') {
+    exit('This script can only be run from the command line.');
+}
+
 use core\ApiDoc;
 
 echo "LightPHP API Documentation Generator\n";

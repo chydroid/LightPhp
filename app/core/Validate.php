@@ -123,7 +123,12 @@ class Validate
         
         if (str_contains($rule, ':')) {
             [$rule, $paramStr] = explode(':', $rule, 2);
-            $params = explode(',', $paramStr);
+            // regex 规则的参数不按逗号分割（正则中可能包含逗号）
+            if ($rule === 'regex') {
+                $params = [$paramStr];
+            } else {
+                $params = explode(',', $paramStr);
+            }
         }
 
         $value = $this->data[$field] ?? null;
@@ -280,6 +285,9 @@ class Validate
 
     private function validateDate(string $field, $value, array $params): bool
     {
+        if (!is_string($value)) {
+            return false;
+        }
         $format = $params[0] ?? 'Y-m-d';
         $d = \DateTime::createFromFormat($format, $value);
         return $d && $d->format($format) === $value;

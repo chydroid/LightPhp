@@ -1,3 +1,14 @@
+Options -Indexes
+
+# 禁止上传目录执行 PHP
+<IfModule mod_rewrite.c>
+    <DirectoryMatch "^.*/(uploads|upload)/.*">
+        <FilesMatch "\.ph(p[2-7]?|t|tml)$">
+            Require all denied
+        </FilesMatch>
+    </DirectoryMatch>
+</IfModule>
+
 RewriteEngine On
 RewriteBase /
 

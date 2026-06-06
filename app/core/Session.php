@@ -13,8 +13,20 @@ class Session
             return;
         }
 
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
+        if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+            // 设置安全的 session cookie 参数
+            $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+            @session_set_cookie_params([
+                'lifetime'  => 0,
+                'path'      => '/',
+                'secure'    => $isSecure,
+                'httponly'  => true,
+                'samesite'  => 'Lax',
+            ]);
+            @session_start();
+            self::$started = true;
+        } elseif (session_status() === PHP_SESSION_ACTIVE) {
             self::$started = true;
         }
     }
@@ -34,7 +46,7 @@ class Session
     public static function has(string $key): bool
     {
         self::start();
-        return isset($_SESSION[$key]);
+        return array_key_exists($key, $_SESSION);
     }
 
     public static function delete(string $key): void

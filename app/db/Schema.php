@@ -43,6 +43,7 @@ class Schema
 
     public function create(string $table, callable $callback): bool
     {
+        $table = $this->sanitizeName($table);
         $this->table = $table;
         $this->columns = [];
         $this->commands = [];
@@ -59,6 +60,7 @@ class Schema
 
     public function table(string $table, callable $callback): bool
     {
+        $table = $this->sanitizeName($table);
         $this->table = $table;
         $this->columns = [];
 
@@ -137,7 +139,7 @@ class Schema
         $parts[] = implode(",\n  ", array_merge($this->columns, $this->commands));
         $parts[] = ") ENGINE={$this->engine} DEFAULT CHARSET={$this->charset}";
         if ($this->comment !== '') {
-            $parts[2] .= " COMMENT='{$this->comment}'";
+            $parts[2] .= " COMMENT='" . str_replace("'", "''", $this->comment) . "'";
         }
         return implode("\n", $parts);
     }
@@ -199,6 +201,9 @@ class Blueprint
 
     public function __construct(string $table)
     {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $table)) {
+            throw new \InvalidArgumentException("Invalid table name: {$table}");
+        }
         $this->table = $table;
     }
 
@@ -358,6 +363,9 @@ class Blueprint
 
     public function after(string $column): self
     {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $column)) {
+            throw new \InvalidArgumentException("Invalid column name for AFTER: {$column}");
+        }
         return $this->modifyColumn("AFTER `{$column}`");
     }
 
@@ -365,25 +373,46 @@ class Blueprint
 
     public function primary(string|array $columns): self
     {
-        $cols = is_array($columns) ? implode('`, `', $columns) : $columns;
+        if (is_array($columns)) {
+            foreach ($columns as $col) {
+                if (!preg_match('/^[a-zA-Z0-9_]+$/', $col)) {
+                    throw new \InvalidArgumentException("Invalid primary key column: {$col}");
+                }
+            }
+            $cols = implode('`, `', $columns);
+        } else {
+            if (!preg_match('/^[a-zA-Z0-9_]+$/', $columns)) {
+                throw new \InvalidArgumentException("Invalid primary key column: {$columns}");
+            }
+            $cols = $columns;
+        }
         $this->commands[] = "PRIMARY KEY (`{$cols}`)";
         return $this;
     }
 
     public function foreign(string $column): self
     {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $column)) {
+            throw new \InvalidArgumentException("Invalid foreign key column: {$column}");
+        }
         $this->lastForeignKey = $column;
         return $this;
     }
 
     public function references(string $column): self
     {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $column)) {
+            throw new \InvalidArgumentException("Invalid reference column: {$column}");
+        }
         $this->lastForeignRef = $column;
         return $this;
     }
 
     public function on(string $table): self
     {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $table)) {
+            throw new \InvalidArgumentException("Invalid reference table: {$table}");
+        }
         if (isset($this->lastForeignKey, $this->lastForeignRef)) {
             $this->commands[] = "FOREIGN KEY (`{$this->lastForeignKey}`) REFERENCES `{$table}` (`{$this->lastForeignRef}`)";
         }
@@ -392,10 +421,15 @@ class Blueprint
 
     public function onDelete(string $action): self
     {
+        $allowed = ['CASCADE', 'SET NULL', 'NO ACTION', 'RESTRICT', 'SET DEFAULT'];
+        $upperAction = strtoupper($action);
+        if (!in_array($upperAction, $allowed, true)) {
+            throw new \InvalidArgumentException("Invalid ON DELETE action: {$action}");
+        }
         if (!empty($this->commands)) {
             $lastIdx = count($this->commands) - 1;
             if (str_contains($this->commands[$lastIdx], 'FOREIGN KEY')) {
-                $this->commands[$lastIdx] .= " ON DELETE {$action}";
+                $this->commands[$lastIdx] .= " ON DELETE {$upperAction}";
             }
         }
         return $this;
@@ -403,10 +437,15 @@ class Blueprint
 
     public function onUpdate(string $action): self
     {
+        $allowed = ['CASCADE', 'SET NULL', 'NO ACTION', 'RESTRICT', 'SET DEFAULT'];
+        $upperAction = strtoupper($action);
+        if (!in_array($upperAction, $allowed, true)) {
+            throw new \InvalidArgumentException("Invalid ON UPDATE action: {$action}");
+        }
         if (!empty($this->commands)) {
             $lastIdx = count($this->commands) - 1;
             if (str_contains($this->commands[$lastIdx], 'FOREIGN KEY')) {
-                $this->commands[$lastIdx] .= " ON UPDATE {$action}";
+                $this->commands[$lastIdx] .= " ON UPDATE {$upperAction}";
             }
         }
         return $this;
@@ -425,24 +464,39 @@ class Blueprint
 
     public function dropColumn(string $column): self
     {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $column)) {
+            throw new \InvalidArgumentException("Invalid column name: {$column}");
+        }
         $this->columns[] = "DROP COLUMN `{$column}`";
         return $this;
     }
 
     public function renameColumn(string $from, string $to): self
     {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $from)) {
+            throw new \InvalidArgumentException("Invalid column name: {$from}");
+        }
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $to)) {
+            throw new \InvalidArgumentException("Invalid column name: {$to}");
+        }
         $this->columns[] = "CHANGE COLUMN `{$from}` `{$to}`";
         return $this;
     }
 
     public function dropIndex(string $name): self
     {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $name)) {
+            throw new \InvalidArgumentException("Invalid index name: {$name}");
+        }
         $this->commands[] = "DROP INDEX `{$name}`";
         return $this;
     }
 
     public function dropForeign(string $name): self
     {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $name)) {
+            throw new \InvalidArgumentException("Invalid foreign key name: {$name}");
+        }
         $this->commands[] = "DROP FOREIGN KEY `{$name}`";
         return $this;
     }
@@ -451,6 +505,11 @@ class Blueprint
 
     private function addColumn(string $name, string $type): self
     {
+        // 验证列名（去除反引号后检查）
+        $bareName = trim($name, '`');
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $bareName)) {
+            throw new \InvalidArgumentException("Invalid column name: {$bareName}");
+        }
         $this->lastColumn = $name;
         $this->columns[] = "{$name} {$type}";
         return $this;
@@ -471,7 +530,7 @@ class Blueprint
 
     private function escapeQuote(string $value): string
     {
-        return str_replace("'", "''", $value);
+        return str_replace(["\\", "'"], ["\\\\", "''"], $value);
     }
 
     /** @return string[] */
@@ -514,6 +573,10 @@ class Migration
 
         foreach ($files as $file) {
             if (in_array($file, $ran, true)) {
+                continue;
+            }
+
+            if (!preg_match('/^\d{4}_\d{2}_\d{2}_\d{6}_\w+\.php$/', $file) && !preg_match('/^\d+_\w+\.php$/', $file)) {
                 continue;
             }
 
@@ -666,8 +729,13 @@ class Migration
     {
         $content = file_get_contents($this->migrationsPath . $file);
         if ($content === false) return '';
+        // 匹配 namespace 和 class 声明
+        $namespace = '';
+        if (preg_match('/namespace\s+([\w\\\\]+)/', $content, $nm)) {
+            $namespace = $nm[1] . '\\';
+        }
         if (preg_match('/class\s+(\w+)/', $content, $m)) {
-            return $m[1];
+            return $namespace . $m[1];
         }
         return '';
     }

@@ -434,7 +434,7 @@ class Router
      * @return mixed 响应结果
      * @throws \RuntimeException 当处理程序不可调用时
      */
-    private function executeHandler(callable|array $handler, array $params): mixed
+    private function executeHandler(callable|array $handler, array $params, Request $request): mixed
     {
         // 闭包直接执行
         if ($handler instanceof \Closure) {

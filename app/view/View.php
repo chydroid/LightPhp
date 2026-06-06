@@ -266,10 +266,14 @@ class View
         $path = str_replace('\\', '/', $path);
         $path = urldecode($path);
         $path = str_replace("\0", '', $path);
-        // 仅移除路径遍历模式 ../ 和 /..
-        while (str_contains($path, '../') || str_contains($path, '/..')) {
-            $path = str_replace(['../', '/..'], '', $path);
-        }
+        // 移除路径遍历
+        $path = preg_replace('#/\.\.(/|$)#', '/', $path);
+        $path = str_replace('../', '', $path);
+        // 防止连续斜杠绕过
+        do {
+            $prev = $path;
+            $path = str_replace('../', '', $path);
+        } while ($path !== $prev);
         return ltrim($path, '/');
     }
 

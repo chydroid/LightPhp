@@ -16,3 +16,20 @@
     php_flag display_errors Off
     php_value max_execution_time 60
 </IfModule>
+
+# 禁止访问敏感文件和目录
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "\.(env|json|lock|log|yml|yaml)$">
+    Require all denied
+</FilesMatch>
+
+# 禁止直接访问应用目录
+RedirectMatch 403 /app/
+RedirectMatch 403 /bin/
+RedirectMatch 403 /storage/
+RedirectMatch 403 /vendor/
+RedirectMatch 403 /database/
+RedirectMatch 403 /tests/

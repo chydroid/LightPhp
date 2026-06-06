@@ -266,6 +266,13 @@ class Blade
                 }
 
                 if (file_exists($cacheFile)) {
+                    // 验证缓存文件路径在预期目录内
+                    $realCachePath = realpath(dirname($cacheFile));
+                    $expectedCacheDir = realpath($this->cachePath);
+                    if ($realCachePath === false || $expectedCacheDir === false || !str_starts_with($realCachePath, $expectedCacheDir)) {
+                        trigger_error("Blade: Invalid include cache path: {$cacheFile}", E_USER_WARNING);
+                        return '';
+                    }
                     return '<?php extract(' . $vars . ', EXTR_SKIP); require \'' . str_replace('\\', '/', $cacheFile) . '\'; ?>';
                 }
 

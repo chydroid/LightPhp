@@ -12,6 +12,9 @@ class Cookie
 
     public static function set(string $key, mixed $value, int $expire = 0, string $path = '/', string $domain = '', bool $secure = false, bool $httponly = true, string $samesite = 'Lax'): bool
     {
+        if (!is_string($value) && !is_numeric($value)) {
+            $value = json_encode($value, JSON_UNESCAPED_UNICODE);
+        }
         $options = [
             'expires' => $expire > 0 ? time() + $expire : 0,
             'path' => $path,
@@ -21,7 +24,7 @@ class Cookie
             'samesite' => $samesite,
         ];
 
-        return setcookie($key, $value, $options);
+        return setcookie($key, (string) $value, $options);
     }
 
     public static function delete(string $key, string $path = '/', string $domain = '', bool $secure = false, bool $httponly = true, string $samesite = 'Lax'): bool
@@ -39,7 +42,7 @@ class Cookie
 
     public static function has(string $key): bool
     {
-        return isset($_COOKIE[$key]);
+        return array_key_exists($key, $_COOKIE);
     }
 
     public static function forever(string $key, mixed $value, string $path = '/', string $domain = '', bool $secure = false, bool $httponly = true): bool

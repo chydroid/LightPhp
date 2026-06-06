@@ -46,8 +46,7 @@ class OutputCache extends Middleware
 
         $cached = $this->cache->get($cacheKey);
         if ($cached !== null) {
-            $this->sendCachedResponse($cached);
-            return '';
+            return $this->buildCachedResponse($cached);
         }
 
         ob_start();
@@ -90,7 +89,7 @@ class OutputCache extends Middleware
         return $headers;
     }
 
-    private function sendCachedResponse(array $cached): void
+    private function buildCachedResponse(array $cached): string
     {
         if (!empty($cached['headers'])) {
             foreach ($cached['headers'] as $header) {
@@ -105,6 +104,6 @@ class OutputCache extends Middleware
         }
 
         header('X-Cache: HIT');
-        echo $cached['content'] ?? '';
+        return $cached['content'] ?? '';
     }
 }

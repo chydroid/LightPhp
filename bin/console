@@ -1,3 +1,4 @@
+#!/usr/bin/env php
 <?php
 declare(strict_types=1);
 
@@ -28,7 +29,7 @@ $console = new \core\console\Console('LightPHP Console', '1.0.0');
 
 // 注册内置命令
 $console->register(new class extends \core\console\Command {
-    protected string $signature = 'serve {port=8080}';
+    protected string $signature = 'serve {port=8080} {--host=localhost}';
     protected string $description = 'Start the development server';
 
     public function handle(): int
@@ -181,13 +182,18 @@ $console->register(new class extends \core\console\Command {
             return 1;
         }
 
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $table)) {
+            $this->error("Invalid table name: {$table}. Only letters, numbers, and underscores are allowed.");
+            return 1;
+        }
+
         $file = APP_PATH . "model/{$name}.php";
         if (file_exists($file)) {
             $this->warn("Model [{$name}] already exists at app/model/{$name}.php. Skipped.");
             return 0;
         }
 
-        $content = "<?php\ndeclare(strict_types=1);\n\nnamespace model;\n\nclass {$name} extends Model\n{\n    protected string \$table = '{$table}';\n    protected string \$primaryKey = 'id';\n    protected array \$fillable = [];\n    protected array \$hidden = [];\n    protected array \$casts = [];\n}\n";
+        $content = "<?php\ndeclare(strict_types=1);\n\nnamespace model;\n\nuse core\Model;\n\nclass {$name} extends Model\n{\n    protected string \$table = '{$table}';\n    protected string \$primaryKey = 'id';\n    protected array \$fillable = [];\n    protected array \$hidden = [];\n    protected array \$casts = [];\n}\n";
 
         if (!is_dir(APP_PATH . 'model/')) {
             mkdir(APP_PATH . 'model/', 0755, true);
@@ -264,6 +270,15 @@ $console->register(new class extends \core\console\Command {
         $name = $this->argument('name');
         $table = $this->argument('table') ?? strtolower($name);
 
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $name)) {
+            $this->error("Invalid migration name: {$name}. Only letters, numbers, and underscores are allowed.");
+            return 1;
+        }
+        if ($table !== null && !preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $table)) {
+            $this->error("Invalid table name: {$table}. Only letters, numbers, and underscores are allowed.");
+            return 1;
+        }
+
         $timestamp = date('YmdHis');
         $fileName = "{$timestamp}_{$name}.php";
 
@@ -313,12 +328,17 @@ $console->register(new class($app) extends \core\console\Command {
         $dbConfig = $this->_app->getConfig('database', []);
         $default = $dbConfig['default'] ?? 'mysql';
         $connection = $dbConfig['connections'][$default] ?? [];
-        $pdo = new \PDO(
-            "mysql:host={$connection['host']};port={$connection['port']};dbname={$connection['database']};charset={$connection['charset']}",
-            $connection['username'] ?? 'root',
-            $connection['password'] ?? '',
-            [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-        );
+        try {
+            $pdo = new \PDO(
+                "mysql:host={$connection['host']};port={$connection['port']};dbname={$connection['database']};charset={$connection['charset']}",
+                $connection['username'] ?? 'root',
+                $connection['password'] ?? '',
+                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
+            );
+        } catch (\PDOException $e) {
+            $this->error('Database connection failed: ' . $e->getMessage());
+            return 1;
+        }
 
         $migration = new \db\Migration($pdo, ROOT_PATH . 'database/migrations/');
         $migrated = $migration->run();
@@ -353,12 +373,17 @@ $console->register(new class($app) extends \core\console\Command {
         $dbConfig = $this->_app->getConfig('database', []);
         $default = $dbConfig['default'] ?? 'mysql';
         $connection = $dbConfig['connections'][$default] ?? [];
-        $pdo = new \PDO(
-            "mysql:host={$connection['host']};port={$connection['port']};dbname={$connection['database']};charset={$connection['charset']}",
-            $connection['username'] ?? 'root',
-            $connection['password'] ?? '',
-            [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-        );
+        try {
+            $pdo = new \PDO(
+                "mysql:host={$connection['host']};port={$connection['port']};dbname={$connection['database']};charset={$connection['charset']}",
+                $connection['username'] ?? 'root',
+                $connection['password'] ?? '',
+                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
+            );
+        } catch (\PDOException $e) {
+            $this->error('Database connection failed: ' . $e->getMessage());
+            return 1;
+        }
 
         $migration = new \db\Migration($pdo, ROOT_PATH . 'database/migrations/');
         $rolled = $migration->rollback((int) $steps);

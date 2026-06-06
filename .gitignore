@@ -16,3 +16,8 @@ storage/temp/*
 storage/views/*
 !storage/views/.gitkeep
 git_bak/
+
+# IDE and system files
+*.swp
+*.swo
+.git/COMMIT_MSG

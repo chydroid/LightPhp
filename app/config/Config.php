@@ -82,7 +82,7 @@ class Config
 
     /**
      * 从缓存文件加载配置（生产环境推荐）
-     * 合并到现有配置中，不覆盖已加载项
+     * 合并到现有配置中，已加载项优先（不覆盖）
      */
     public static function loadCached(string $cacheFile): bool
     {
@@ -95,7 +95,7 @@ class Config
             return false;
         }
 
-        self::$items = array_merge(self::$items, $cached);
+        self::$items = array_merge($cached, self::$items);
         return true;
     }
 

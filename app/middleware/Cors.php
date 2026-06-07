@@ -13,7 +13,7 @@ class Cors
     public function __construct(?array $config = null)
     {
         $this->config = $config ?? [
-            'allowed_origins' => ['*'],
+            'allowed_origins' => [],
             'allowed_methods' => ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
             'allowed_headers' => ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-TOKEN'],
             'exposed_headers' => [],
@@ -74,7 +74,7 @@ class Cors
         // 非 OPTIONS 请求且 Origin 不被允许时，拒绝请求
         if (!in_array('*', $this->config['allowed_origins'], true) && !$this->isOriginAllowed($origin)) {
             http_response_code(403);
-            exit;
+            return '';
         }
 
         return $next($request);

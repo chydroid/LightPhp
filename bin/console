@@ -21,7 +21,7 @@ require APP_PATH . 'core/helpers.php';
 
 // 初始化应用
 $app = new \core\Application();
-define('APP_DEBUG', $app->getConfig('app.debug', true));
+define('APP_DEBUG', $app->getConfig('app.debug', false));
 $container = $app->getContainer();
 
 // 初始化 Console
@@ -328,15 +328,20 @@ $console->register(new class($app) extends \core\console\Command {
         $dbConfig = $this->_app->getConfig('database', []);
         $default = $dbConfig['default'] ?? 'mysql';
         $connection = $dbConfig['connections'][$default] ?? [];
+        if (empty($connection['host']) || empty($connection['database'])) {
+            $this->error('Database configuration is incomplete. Please check config/database.php');
+            return 1;
+        }
         try {
             $pdo = new \PDO(
-                "mysql:host={$connection['host']};port={$connection['port']};dbname={$connection['database']};charset={$connection['charset']}",
+                "mysql:host={$connection['host']};port=" . ($connection['port'] ?? 3306) . ";dbname={$connection['database']};charset=" . ($connection['charset'] ?? 'utf8mb4'),
                 $connection['username'] ?? 'root',
                 $connection['password'] ?? '',
                 [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
             );
         } catch (\PDOException $e) {
-            $this->error('Database connection failed: ' . $e->getMessage());
+            $this->error('Database connection failed. Please check your database configuration.');
+            error_log('LightPHP Migration: PDO connection failed - ' . $e->getMessage());
             return 1;
         }
 
@@ -373,15 +378,20 @@ $console->register(new class($app) extends \core\console\Command {
         $dbConfig = $this->_app->getConfig('database', []);
         $default = $dbConfig['default'] ?? 'mysql';
         $connection = $dbConfig['connections'][$default] ?? [];
+        if (empty($connection['host']) || empty($connection['database'])) {
+            $this->error('Database configuration is incomplete. Please check config/database.php');
+            return 1;
+        }
         try {
             $pdo = new \PDO(
-                "mysql:host={$connection['host']};port={$connection['port']};dbname={$connection['database']};charset={$connection['charset']}",
+                "mysql:host={$connection['host']};port=" . ($connection['port'] ?? 3306) . ";dbname={$connection['database']};charset=" . ($connection['charset'] ?? 'utf8mb4'),
                 $connection['username'] ?? 'root',
                 $connection['password'] ?? '',
                 [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
             );
         } catch (\PDOException $e) {
-            $this->error('Database connection failed: ' . $e->getMessage());
+            $this->error('Database connection failed. Please check your database configuration.');
+            error_log('LightPHP Migration: PDO connection failed - ' . $e->getMessage());
             return 1;
         }
 

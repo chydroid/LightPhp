@@ -54,7 +54,7 @@ class MemcachedCache implements CacheInterface
 
     private function unserialize(string $value): mixed
     {
-        $result = @unserialize($value);
+        $result = @unserialize($value, ['allowed_classes' => false]);
         if ($result === false && $value !== serialize(false)) {
             return $value;
         }
@@ -96,6 +96,9 @@ class MemcachedCache implements CacheInterface
         }
         $fullKeys = array_map(fn($k) => $this->key($k), $keys);
         $result = $this->memcached->deleteMulti($fullKeys);
+        if (!is_array($result)) {
+            return false;
+        }
         return !in_array(false, $result, true);
     }
 
@@ -204,9 +207,13 @@ class MemcachedCache implements CacheInterface
     public function pull(string $key, mixed $default = null): mixed
     {
         $fullKey = $this->key($key);
-        $value = $this->get($key);
+        $value = $this->memcached->get($fullKey);
+        $notFound = $this->memcached->getResultCode() === \Memcached::RES_NOTFOUND;
+        if ($notFound) {
+            return $default;
+        }
         $this->memcached->delete($fullKey);
-        return $value !== null ? $value : $default;
+        return is_string($value) ? $this->unserialize($value) : $value;
     }
 
     public function tags(array $tags): TaggedCache

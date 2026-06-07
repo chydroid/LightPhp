@@ -53,10 +53,15 @@ class OutputCache extends Middleware
 
         $response = $next($request);
 
-        $output = ob_get_contents();
-        ob_end_flush();
+        $output = ob_get_clean();
 
-        $content = is_string($response) ? $response : $output;
+        $content = $output !== false ? $output : '';
+
+        if (is_object($response) && method_exists($response, 'getContent')) {
+            $content = $response->getContent();
+        } elseif (is_string($response)) {
+            $content = $response;
+        }
 
         if ($content !== '' && $content !== null) {
             $this->cache->set($cacheKey, [
@@ -71,7 +76,7 @@ class OutputCache extends Middleware
 
     private function buildCacheKey(\core\Request $request): string
     {
-        return $this->prefix . md5($request->uri() . '|' . serialize($request->get()));
+        return $this->prefix . md5($request->uri() . '|' . json_encode($request->get()));
     }
 
     /**
@@ -91,15 +96,13 @@ class OutputCache extends Middleware
 
     private function buildCachedResponse(array $cached): string
     {
+        // 响应头白名单：仅重放安全的响应头
+        $safeHeaders = ['Content-Type', 'Content-Language', 'X-Cache'];
         if (!empty($cached['headers'])) {
             foreach ($cached['headers'] as $header) {
-                if (
-                    stripos($header['name'], 'Set-Cookie') !== false ||
-                    stripos($header['name'], 'X-Debug') !== false
-                ) {
-                    continue;
+                if (in_array($header['name'], $safeHeaders, true)) {
+                    header($header['name'] . ': ' . $header['value']);
                 }
-                header($header['name'] . ': ' . $header['value']);
             }
         }
 

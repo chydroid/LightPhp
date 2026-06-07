@@ -44,6 +44,13 @@ class TaggedCache
 
     public function remember(string $key, int $ttl, callable $callback): mixed
     {
+        $sentinel = new \stdClass();
+        $value = $this->store->get($key, $sentinel);
+        if ($value !== $sentinel) {
+            return $value;
+        }
+
+        // 缓存未命中时才执行回调并附加标签
         $value = $this->store->remember($key, $ttl, $callback);
         $this->tagKey($key);
         return $value;

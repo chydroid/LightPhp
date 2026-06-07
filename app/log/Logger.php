@@ -64,16 +64,21 @@ class Logger implements LoggerInterface
         $interpolated = $this->interpolate($message, $context);
         $interpolated = str_replace(["\r\n", "\r", "\n"], ' ', $interpolated);
         $remaining = $this->remainingContext($message, $context);
+        $remainingJson = !empty($remaining) ? json_encode($remaining, JSON_UNESCAPED_UNICODE) : '';
+        $remainingJson = str_replace(["\r\n", "\r", "\n"], ' ', $remainingJson);
         $logLine = sprintf(
             "[%s] %s: %s%s\n",
             date('Y-m-d H:i:s'),
             strtoupper($level),
             $interpolated,
-            !empty($remaining) ? ' ' . json_encode($remaining, JSON_UNESCAPED_UNICODE) : ''
+            $remainingJson !== '' ? ' ' . $remainingJson : ''
         );
 
         $filename = $this->logPath . date('Y-m-d') . '.log';
-        file_put_contents($filename, $logLine, FILE_APPEND | LOCK_EX);
+        $result = @file_put_contents($filename, $logLine, FILE_APPEND | LOCK_EX);
+        if ($result === false) {
+            error_log("LightPHP Logger: Failed to write log to {$filename}");
+        }
     }
 
     /**

@@ -11,7 +11,7 @@ $router->get('/', [IndexController::class, 'index']);
 $router->get('/about', [IndexController::class, 'about']);
 $router->get('/contact', [IndexController::class, 'contact']);
 
-$router->group(['prefix' => '/api'], function($router) {
+$router->group(['prefix' => '/api', 'middleware' => ['cors']], function($router) {
     $router->get('/users', [UserController::class, 'index']);
     $router->get('/users/{id}', [UserController::class, 'show']);
     $router->post('/users', [UserController::class, 'store']);

@@ -13,7 +13,7 @@ $router->get('/hello/{name}', function($name) {
     return (new Response())->content('<h1>Hello, ' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '!</h1>');
 });
 
-$router->group(['prefix' => '/api'], function($router) {
+$router->group(['prefix' => '/api', 'middleware' => ['cors']], function($router) {
     $router->get('/users', [\controller\UserController::class, 'index']);
     $router->get('/users/{id}', [\controller\UserController::class, 'show']);
     $router->post('/users', [\controller\UserController::class, 'store']);

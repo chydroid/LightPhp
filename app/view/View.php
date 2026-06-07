@@ -83,6 +83,10 @@ class View
             throw new \RuntimeException("View [{$template}] not found at: {$file}");
         }
 
+        if (!$this->validatePath($file)) {
+            throw new \RuntimeException("View [{$template}] path traversal detected");
+        }
+
         $this->applyComposer($template);
 
         $data = array_merge($this->sharedData, $data);
@@ -100,7 +104,8 @@ class View
         ob_start();
         extract($__data, EXTR_SKIP);
         require $__file;
-        return ob_get_clean() ?: '';
+        $content = ob_get_clean();
+        return $content === false ? '' : $content;
     }
 
     /**
@@ -166,7 +171,10 @@ class View
             return;
         }
 
-        $content = ob_get_clean() ?: '';
+        $content = ob_get_clean();
+        if ($content === false) {
+            $content = '';
+        }
         if (!isset($this->sections[$this->currentSection])) {
             $this->sections[$this->currentSection] = '';
         }
@@ -216,7 +224,11 @@ class View
      */
     public function include(string $view, array $data = []): void
     {
+        // 父视图 render() 已转义数据，此处跳过转义避免双重转义
+        $prevAutoEscape = $this->autoEscape;
+        $this->autoEscape = false;
         echo $this->render($view, $data);
+        $this->autoEscape = $prevAutoEscape;
     }
 
     /**
@@ -274,7 +286,22 @@ class View
             $prev = $path;
             $path = str_replace('../', '', $path);
         } while ($path !== $prev);
+        // 额外防护：移除 ..\ 形式（Windows风格）
+        $path = str_replace('..\\', '', $path);
         return ltrim($path, '/');
+    }
+
+    /**
+     * 验证最终文件路径是否在视图目录内（防路径遍历）
+     */
+    private function validatePath(string $file): bool
+    {
+        $realPath = realpath($file);
+        $realViewPath = realpath($this->viewPath);
+        if ($realPath === false || $realViewPath === false) {
+            return false;
+        }
+        return str_starts_with($realPath, $realViewPath);
     }
 
     /**

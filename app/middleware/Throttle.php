@@ -96,6 +96,7 @@ class Throttle
 
         $fp = @fopen($file, 'c+');
         if ($fp === false) {
+            error_log("LightPHP Throttle: Failed to open cache file: {$file}");
             return;
         }
 

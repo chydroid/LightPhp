@@ -2,17 +2,21 @@
 <?php
 declare(strict_types=1);
 
+if (PHP_SAPI !== 'cli') {
+    exit('This script can only be run from the command line.');
+}
+
+define('ROOT_PATH', dirname(__DIR__) . '/');
 define('APP_PATH', __DIR__ . '/../app/');
+define('VIEW_PATH', APP_PATH . 'view/');
+define('SMARTY_TEMPLATE_PATH', APP_PATH . 'view/templates/');
 define('STORAGE_PATH', __DIR__ . '/../storage/');
+define('PUBLIC_PATH', __DIR__ . '/../public/');
 define('VENDOR_PATH', __DIR__ . '/../vendor/');
 
 require APP_PATH . 'core/Loader.php';
 require APP_PATH . 'core/helpers.php';
 \core\Loader::register();
-
-if (PHP_SAPI !== 'cli') {
-    exit('This script can only be run from the command line.');
-}
 
 use core\Generator;
 
@@ -52,6 +56,10 @@ switch ($command) {
             exit(1);
         }
         $table = $argv[2];
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $table)) {
+            echo "Error: Invalid table name: {$table}\n";
+            exit(1);
+        }
         $modelName = $argv[3] ?? null;
 
         echo "Generating Model for table '{$table}'...\n";
@@ -74,6 +82,10 @@ switch ($command) {
             exit(1);
         }
         $table = $argv[2];
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $table)) {
+            echo "Error: Invalid table name: {$table}\n";
+            exit(1);
+        }
         $controllerName = $argv[3] ?? null;
 
         echo "Generating Controller for table '{$table}'...\n";
@@ -96,6 +108,10 @@ switch ($command) {
             exit(1);
         }
         $table = $argv[2];
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $table)) {
+            echo "Error: Invalid table name: {$table}\n";
+            exit(1);
+        }
 
         echo "Generating Model and Controller for table '{$table}'...\n\n";
         $result = $generator->generateAll($table);

@@ -1,9 +1,9 @@
 <?php
 return [
     'name'     => 'LightPHP',
-    'env'      => 'development',
-    'debug'    => true,
-    'key'      => 'base64:change-me-to-a-random-32-char-string',
-    'timezone' => 'Asia/Shanghai',
+    'env'      => env('APP_ENV', 'production'),
+    'debug'    => env('APP_DEBUG', false),
+    'key'      => env('APP_KEY', ''),
+    'timezone' => env('APP_TIMEZONE', 'Asia/Shanghai'),
     'charset'  => 'utf-8',
 ];

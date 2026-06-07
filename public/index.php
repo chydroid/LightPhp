@@ -23,6 +23,14 @@ require APP_PATH . 'core/helpers.php';
 
 \core\Loader::register();
 
-$app = new \core\Application();
-
-$app->run();
+try {
+    $app = new \core\Application();
+    $app->run();
+} catch (\Throwable $e) {
+    if (defined('APP_DEBUG') && APP_DEBUG) {
+        throw $e;
+    }
+    http_response_code(500);
+    echo 'Internal Server Error';
+    error_log('LightPHP: Uncaught exception - ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+}

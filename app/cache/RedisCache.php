@@ -83,10 +83,12 @@ class RedisCache implements CacheInterface
     public function get(string $key, mixed $default = null): mixed
     {
         $fullKey = $this->key($key);
-        if (!$this->redis->exists($fullKey)) {
+        $value = $this->redis->get($fullKey);
+        // Redis GET returns false for non-existent keys (with JSON serializer)
+        if ($value === false && !$this->redis->exists($fullKey)) {
             return $default;
         }
-        return $this->redis->get($fullKey);
+        return $value;
     }
 
     /**
@@ -155,8 +157,12 @@ class RedisCache implements CacheInterface
      */
     public function clear(): bool
     {
-        $iterator = 0;
-        while ($keys = $this->redis->scan($iterator, $this->prefix . '*', 100)) {
+        $iterator = null;
+        while (true) {
+            $keys = $this->redis->scan($iterator, $this->prefix . '*', 100);
+            if ($keys === false) {
+                break;
+            }
             if (!empty($keys)) {
                 $this->redis->del($keys);
             }
@@ -223,10 +229,12 @@ class RedisCache implements CacheInterface
     public function increment(string $key, int $step = 1): int
     {
         $fullKey = $this->key($key);
-        if (!$this->has($key)) {
-            $this->redis->setnx($fullKey, 0);
+        $result = $this->redis->incrBy($fullKey, $step);
+        if ($result === 1) {
+            // Key was auto-created by Redis, set TTL
+            $this->redis->expire($fullKey, $this->defaultTtl);
         }
-        return (int) $this->redis->incrBy($fullKey, $step);
+        return (int) $result;
     }
 
     /**
@@ -239,10 +247,12 @@ class RedisCache implements CacheInterface
     public function decrement(string $key, int $step = 1): int
     {
         $fullKey = $this->key($key);
-        if (!$this->has($key)) {
-            $this->redis->setnx($fullKey, 0);
+        $result = $this->redis->decrBy($fullKey, $step);
+        if ($result === -$step) {
+            // Key was auto-created by Redis, set TTL
+            $this->redis->expire($fullKey, $this->defaultTtl);
         }
-        return (int) $this->redis->decrBy($fullKey, $step);
+        return (int) $result;
     }
 
     /**
@@ -311,10 +321,10 @@ class RedisCache implements CacheInterface
     public function pull(string $key, mixed $default = null): mixed
     {
         $fullKey = $this->key($key);
-        if (!$this->redis->exists($fullKey)) {
+        $value = $this->redis->get($fullKey);
+        if ($value === false && !$this->redis->exists($fullKey)) {
             return $default;
         }
-        $value = $this->redis->get($fullKey);
         $this->redis->del($fullKey);
         return $value;
     }

@@ -10,9 +10,10 @@ class Helper
         return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
     }
 
-    public static function old(string $key, mixed $default = ''): mixed
+    public static function old(string $key, mixed $default = ''): string
     {
-        return $_POST[$key] ?? $_GET[$key] ?? $default;
+        $value = $_POST[$key] ?? $_GET[$key] ?? $default;
+        return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
     }
 
     public static function dump(mixed $value): void
@@ -24,6 +25,10 @@ class Helper
 
     public static function asset(string $path): string
     {
+        // 防止协议前缀注入和路径遍历
+        if (preg_match('#^https?://#i', $path) || str_contains($path, '..')) {
+            return '';
+        }
         $base = rtrim($_SERVER['SCRIPT_NAME'] ?? '', '/');
         return $base . '/' . ltrim($path, '/');
     }
@@ -57,7 +62,8 @@ class Helper
 
     public static function json(mixed $value): string
     {
-        return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        $result = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        return $result === false ? '' : $result;
     }
 
     public static function isActive(string $path, string $active = 'active'): string

@@ -94,7 +94,10 @@ class Blade
         $__blade = $this;
         extract($data, EXTR_SKIP);
         require $cacheFile;
-        $content = ob_get_clean() ?: '';
+        $content = ob_get_clean();
+        if ($content === false) {
+            $content = '';
+        }
 
         if (isset($this->sections['__layout'])) {
             $layout = $this->sections['__layout'];
@@ -115,6 +118,15 @@ class Blade
     private function compile(string $template, string $cacheFile): void
     {
         $sourcePath = $this->templatePath . $template . '.blade.php';
+
+        // 防止路径遍历：验证模板路径在模板目录内
+        $realSourceDir = realpath(dirname($sourcePath));
+        $realTemplateDir = realpath($this->templatePath);
+        if ($realSourceDir === false || $realTemplateDir === false || !str_starts_with($realSourceDir, $realTemplateDir)) {
+            trigger_error("Blade: Template path traversal detected: {$template}", E_USER_WARNING);
+            return;
+        }
+
         $content = file_get_contents($sourcePath);
         if ($content === false) {
             trigger_error("Blade: Template source not found: {$sourcePath}", E_USER_WARNING);
@@ -122,7 +134,9 @@ class Blade
         }
 
         $compiled = $this->compileString($content);
-        file_put_contents($cacheFile, $compiled);
+        if (file_put_contents($cacheFile, $compiled, LOCK_EX) === false) {
+            trigger_error("Blade: Failed to write compiled template cache: {$cacheFile}", E_USER_WARNING);
+        }
     }
 
     /**
@@ -181,7 +195,6 @@ class Blade
             '@section\((.+?)\)'            => '<?php $__blade->startSection($1); ?>',
             '@endsection'                  => '<?php $__blade->endSection(); ?>',
             '@yield\((.+?)\)'              => '<?= $__blade->yieldSection($1) ?>',
-            '@include\((.+?)\)'            => '<?php $__blade->includeView($1); ?>',
             '@csrf'                        => '<?= \core\Session::token() ?>',
             '@method\((.+?)\)'             => '<input type="hidden" name="_method" value="$1">',
             '@php'                         => '<?php ',
@@ -261,6 +274,14 @@ class Blade
                 $cacheFile = $this->getCachePath($view);
                 $sourcePath = $this->templatePath . $view . '.blade.php';
 
+                // 防止路径遍历：验证 include 路径在模板目录内
+                $realIncludeDir = realpath(dirname($sourcePath));
+                $realTemplateDir = realpath($this->templatePath);
+                if ($realIncludeDir === false || $realTemplateDir === false || !str_starts_with($realIncludeDir, $realTemplateDir)) {
+                    trigger_error("Blade: Include path traversal detected: {$view}", E_USER_WARNING);
+                    return '';
+                }
+
                 if (file_exists($sourcePath) && (!$this->isCacheFresh($view, $cacheFile))) {
                     $this->compile($view, $cacheFile);
                 }
@@ -307,7 +328,12 @@ class Blade
         if (!file_exists($cacheFile) || !file_exists($sourcePath)) {
             return false;
         }
-        return filemtime($cacheFile) >= filemtime($sourcePath);
+        $cacheMtime = filemtime($cacheFile);
+        $sourceMtime = filemtime($sourcePath);
+        if ($cacheMtime === false || $sourceMtime === false) {
+            return false;
+        }
+        return $cacheMtime >= $sourceMtime;
     }
 
     // ─── 模板继承辅助 ───
@@ -325,7 +351,10 @@ class Blade
 
     public function endSection(): void
     {
-        $content = ob_get_clean() ?: '';
+        $content = ob_get_clean();
+        if ($content === false) {
+            $content = '';
+        }
         $name = array_pop($this->stack);
         if ($name === null) {
             return;

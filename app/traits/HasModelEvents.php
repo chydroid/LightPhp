@@ -58,6 +58,9 @@ trait HasModelEvents
     public static function observe(object|string $observer): void
     {
         if (is_string($observer)) {
+            if (!class_exists($observer)) {
+                throw new \InvalidArgumentException("Observer class does not exist: {$observer}");
+            }
             $observer = new $observer();
         }
 

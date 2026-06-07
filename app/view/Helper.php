@@ -62,7 +62,7 @@ class Helper
 
     public static function json(mixed $value): string
     {
-        $result = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        $result = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP);
         return $result === false ? '' : $result;
     }
 

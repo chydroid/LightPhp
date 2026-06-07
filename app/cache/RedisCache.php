@@ -189,7 +189,8 @@ class RedisCache implements CacheInterface
         }
 
         $lockKey = $this->key('lock:' . $key);
-        $locked = $this->redis->set($lockKey, 1, ['nx', 'ex' => 10]);
+        $lockValue = bin2hex(random_bytes(8));
+        $locked = $this->redis->set($lockKey, $lockValue, ['nx', 'ex' => 10]);
 
         if ($locked) {
             try {
@@ -201,7 +202,9 @@ class RedisCache implements CacheInterface
                 $this->set($key, $value, $ttl);
                 return $value;
             } finally {
-                $this->redis->del($lockKey);
+                // 使用 Lua 脚本原子释放锁，仅释放自己持有的锁
+                $script = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+                $this->redis->eval($script, [$lockKey, $lockValue], 1);
             }
         }
 

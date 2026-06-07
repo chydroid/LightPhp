@@ -37,7 +37,9 @@ class FileCache implements CacheInterface
         $this->defaultTtl = (int) ($config['expire'] ?? 3600);
 
         if (!is_dir($this->path)) {
-            @mkdir($this->path, 0755, true);
+            if (!mkdir($this->path, 0700, true) && !is_dir($this->path)) {
+                throw new \RuntimeException("Cannot create cache directory: {$this->path}");
+            }
         }
     }
 
@@ -105,7 +107,7 @@ class FileCache implements CacheInterface
         }
 
         $data = @json_decode($content, true);
-        if (!is_array($data) || !isset($data['value'])) {
+        if (!is_array($data) || !array_key_exists('value', $data)) {
             return null;
         }
 

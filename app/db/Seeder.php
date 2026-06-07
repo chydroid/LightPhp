@@ -14,8 +14,8 @@ abstract class Seeder
     /** @var \db\Connection 数据库连接 */
     protected \db\Connection $db;
 
-    /** @var array 已注册的种子类列表 */
-    protected static array $seeders = [];
+    /** @var array<string, string[]> 按类名分组的种子列表 */
+    private static array $seeders = [];
 
     /**
      * 构造函数
@@ -36,9 +36,13 @@ abstract class Seeder
      * 调用另一个种子类执行
      *
      * @param string $seederClass 种子类名
+     * @throws \InvalidArgumentException 当类不是Seeder子类时
      */
     public function call(string $seederClass): void
     {
+        if (!is_subclass_of($seederClass, self::class)) {
+            throw new \InvalidArgumentException("Class {$seederClass} is not a Seeder subclass.");
+        }
         $seeder = new $seederClass($this->db);
         $seeder->run();
     }
@@ -47,11 +51,19 @@ abstract class Seeder
      * 注册一个种子类
      *
      * @param string $seederClass 种子类名
+     * @throws \InvalidArgumentException 当类不是Seeder子类时
      */
     public static function register(string $seederClass): void
     {
-        if (!in_array($seederClass, static::$seeders, true)) {
-            static::$seeders[] = $seederClass;
+        if (!is_subclass_of($seederClass, self::class)) {
+            throw new \InvalidArgumentException("Class {$seederClass} is not a Seeder subclass.");
+        }
+        $caller = static::class;
+        if (!isset(self::$seeders[$caller])) {
+            self::$seeders[$caller] = [];
+        }
+        if (!in_array($seederClass, self::$seeders[$caller], true)) {
+            self::$seeders[$caller][] = $seederClass;
         }
     }
 
@@ -62,7 +74,9 @@ abstract class Seeder
      */
     public static function runAll(\db\Connection $db): void
     {
-        foreach (static::$seeders as $seederClass) {
+        $caller = static::class;
+        $seeders = self::$seeders[$caller] ?? [];
+        foreach ($seeders as $seederClass) {
             $seeder = new $seederClass($db);
             $seeder->run();
         }
@@ -75,6 +89,6 @@ abstract class Seeder
      */
     public static function getSeeders(): array
     {
-        return static::$seeders;
+        return self::$seeders[static::class] ?? [];
     }
 }

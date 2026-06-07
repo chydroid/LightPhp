@@ -57,7 +57,7 @@ class Connection implements ConnectionInterface
             $this->pdo = new \PDO($dsn, $username, $password, $options);
         } catch (\PDOException $e) {
             throw new \core\exception\DatabaseException(
-                'Database connection failed: ' . $e->getMessage(),
+                'Database connection failed. Please check your configuration.',
                 (int) $e->getCode(),
                 $e
             );
@@ -72,6 +72,16 @@ class Connection implements ConnectionInterface
     public function getPdo(): \PDO
     {
         return $this->pdo;
+    }
+
+    /**
+     * 检查是否在事务中
+     *
+     * @return bool 是否在事务中
+     */
+    public function inTransaction(): bool
+    {
+        return $this->pdo->inTransaction();
     }
 
     /**

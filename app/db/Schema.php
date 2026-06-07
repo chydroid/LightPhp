@@ -88,8 +88,10 @@ class Schema
     public function hasTable(string $table): bool
     {
         $table = $this->sanitizeName($table);
+        // 转义 LIKE 通配符，防止 _ 和 % 被解释为通配符
+        $escapedTable = str_replace(['\\', '_', '%'], ['\\\\', '\\_', '\\%'], $table);
         try {
-            $stmt = $this->pdo->query("SHOW TABLES LIKE '{$table}'");
+            $stmt = $this->pdo->query("SHOW TABLES LIKE '{$escapedTable}'");
             return $stmt !== false && $stmt->rowCount() > 0;
         } catch (\Throwable $e) {
             return false;
@@ -100,8 +102,10 @@ class Schema
     {
         $table = $this->sanitizeName($table);
         $column = $this->sanitizeName($column);
+        // 转义 LIKE 通配符，防止 _ 和 % 被解释为通配符
+        $escapedColumn = str_replace(['\\', '_', '%'], ['\\\\', '\\_', '\\%'], $column);
         try {
-            $stmt = $this->pdo->query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'");
+            $stmt = $this->pdo->query("SHOW COLUMNS FROM `{$table}` LIKE '{$escapedColumn}'");
             return $stmt !== false && $stmt->rowCount() > 0;
         } catch (\Throwable $e) {
             return false;
@@ -327,8 +331,13 @@ class Blueprint
         if ($value === null) {
             return $this->modifyColumn('DEFAULT NULL');
         }
-        if (is_string($value) && !str_starts_with($value, 'CURRENT_TIMESTAMP')) {
+        if (is_string($value)) {
+            $upper = strtoupper($value);
+            if (in_array($upper, ['CURRENT_TIMESTAMP', 'CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'], true)) {
+                return $this->modifyColumn("DEFAULT {$upper}");
+            }
             $value = "'" . $this->escapeQuote($value) . "'";
+            return $this->modifyColumn("DEFAULT {$value}");
         }
         return $this->modifyColumn("DEFAULT {$value}");
     }
@@ -413,7 +422,7 @@ class Blueprint
         if (!preg_match('/^[a-zA-Z0-9_]+$/', $table)) {
             throw new \InvalidArgumentException("Invalid reference table: {$table}");
         }
-        if (isset($this->lastForeignKey, $this->lastForeignRef)) {
+        if ($this->lastForeignKey !== '' && $this->lastForeignRef !== '') {
             $this->commands[] = "FOREIGN KEY (`{$this->lastForeignKey}`) REFERENCES `{$table}` (`{$this->lastForeignRef}`)";
         }
         return $this;
@@ -455,10 +464,11 @@ class Blueprint
 
     public function change(): self
     {
-        if ($this->lastColumn !== null) {
-            $idx = count($this->columns) - 1;
-            $this->columns[$idx] = 'MODIFY COLUMN ' . $this->columns[$idx];
+        if ($this->lastColumn === null || empty($this->columns)) {
+            throw new \RuntimeException('Cannot call change() without a preceding column definition.');
         }
+        $idx = count($this->columns) - 1;
+        $this->columns[$idx] = 'MODIFY COLUMN ' . $this->columns[$idx];
         return $this;
     }
 
@@ -580,7 +590,7 @@ class Migration
                 continue;
             }
 
-            require $this->migrationsPath . $file;
+            require_once $this->migrationsPath . $file;
             $class = $this->getClassFromFile($file);
 
             if (!class_exists($class)) {

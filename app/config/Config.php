@@ -90,12 +90,13 @@ class Config
             return false;
         }
 
+        define('LIGHTPHP_CONFIG_CACHE', true);
         $cached = require $cacheFile;
         if (!is_array($cached)) {
             return false;
         }
 
-        self::$items = array_merge($cached, self::$items);
+        self::$items = array_replace_recursive($cached, self::$items);
         return true;
     }
 
@@ -104,7 +105,7 @@ class Config
      */
     public static function cache(string $cacheFile): bool
     {
-        $content = '<?php return ' . var_export(self::$items, true) . ';';
+        $content = '<?php if(!defined(\'LIGHTPHP_CONFIG_CACHE\')){http_response_code(403);exit;} return ' . var_export(self::$items, true) . ';';
         $dir = dirname($cacheFile);
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);

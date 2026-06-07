@@ -390,22 +390,9 @@ class Model
             return 0;
         }
 
-        if (!$this->exists) {
-            if (!$this->fireEvent('creating')) {
-                return 0;
-            }
-            $data = $this->filterFillable($this->attributes);
-            $data = $this->syncTimestamps($data, 'create');
-            $id = $this->newQuery()->insert($data);
-            $this->attributes[$this->primaryKey] = $id;
-            $this->exists = true;
-            $this->fireEvent('created');
-            $this->fireEvent('saved');
-            return $id;
-        }
-
         $pk = $this->attributes[$this->primaryKey] ?? null;
-        if ($pk === null) {
+
+        if (!$this->exists || $pk === null) {
             if (!$this->fireEvent('creating')) {
                 return 0;
             }
@@ -495,7 +482,7 @@ class Model
             'float', 'double' => (float) $value,
             'bool', 'boolean' => (bool) $value,
             'array' => $value === null ? [] : (is_array($value) ? $value : (json_decode($value, true) ?? [])),
-            'json' => $value === null ? 'null' : (is_array($value) ? json_encode($value) : $value),
+            'json' => $value === null ? null : (is_array($value) ? json_encode($value) : $value),
             'date' => ($ts = strtotime((string) $value)) !== false ? date('Y-m-d', $ts) : null,
             'datetime' => ($ts = strtotime((string) $value)) !== false ? date($this->dateFormat, $ts) : null,
             default => $value
@@ -576,7 +563,7 @@ class Model
             'orderBy', 'groupBy', 'having', 'limit', 'leftJoin', 'rightJoin',
             'join', 'count', 'sum', 'avg', 'max', 'min', 'chunk', 'first',
             'fetch', 'fetchAll', 'value', 'all', 'find', 'findBy', 'create',
-            'update', 'delete', 'paginate', 'select', 'with', 'eagerLoad'];
+            'update', 'delete', 'paginate', 'select', 'eagerLoad'];
 
         if (!in_array($method, $allowedMethods, true)) {
             $instance = new static();

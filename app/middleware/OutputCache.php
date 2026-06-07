@@ -50,10 +50,11 @@ class OutputCache extends Middleware
         }
 
         ob_start();
-
-        $response = $next($request);
-
-        $output = ob_get_clean();
+        try {
+            $response = $next($request);
+        } finally {
+            $output = ob_get_clean();
+        }
 
         $content = $output !== false ? $output : '';
 
@@ -76,7 +77,12 @@ class OutputCache extends Middleware
 
     private function buildCacheKey(\core\Request $request): string
     {
-        return $this->prefix . md5($request->uri() . '|' . json_encode($request->get()));
+        $path = parse_url($request->uri(), PHP_URL_PATH) ?: '/';
+        $params = $request->get();
+        if (is_array($params)) {
+            ksort($params);
+        }
+        return $this->prefix . md5($path . '|' . json_encode($params));
     }
 
     /**

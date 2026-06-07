@@ -127,7 +127,8 @@ class QueryBuilder
             return "`{$column}`";
         }
 
-        return $column;
+        // 不再回退返回原始值，防止SQL注入
+        throw new \InvalidArgumentException("Invalid column name: {$column}");
     }
 
     /**
@@ -179,6 +180,10 @@ class QueryBuilder
         // 支持 where('column', 'value') 形式
         if ($value === null && $operator !== null) {
             $value = $operator;
+            $operator = '=';
+        }
+        // 确保 operator 始终为字符串
+        if ($operator === null) {
             $operator = '=';
         }
 
@@ -475,10 +480,6 @@ class QueryBuilder
             }
         }
 
-        if ($this->forUpdate) {
-            $sql .= " FOR UPDATE";
-        }
-
         if ($this->lock) {
             $sql .= " {$this->lock}";
         }
@@ -561,17 +562,19 @@ class QueryBuilder
 
     public function fetch(): ?array
     {
-        $this->limit(1);
-        $sql = $this->buildSelect();
+        $clone = clone $this;
+        $clone->limit = 1;
+        $clone->offset = 0;
+        $sql = $clone->buildSelect();
         $cached = $this->getCacheFor($sql);
         if ($cached !== null) {
             return $cached[0] ?? null;
         }
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($this->bindings);
+        $stmt->execute($clone->bindings);
         $result = $stmt->fetch();
         $this->setCacheFor($sql, $result !== false ? [$result] : []);
-        return $result ?: null;
+        return $result !== false ? $result : null;
     }
 
     public function first(): ?array
@@ -610,7 +613,7 @@ class QueryBuilder
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
         $result = $stmt->fetch();
-        return (int) ($result['__count'] ?? 0);
+        return (int) (is_array($result) ? ($result['__count'] ?? 0) : 0);
     }
 
     public function sum(string $column): float
@@ -624,7 +627,7 @@ class QueryBuilder
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
         $result = $stmt->fetch();
-        return (float) ($result['__sum'] ?? 0);
+        return (float) (is_array($result) ? ($result['__sum'] ?? 0) : 0);
     }
 
     public function avg(string $column): float
@@ -638,7 +641,7 @@ class QueryBuilder
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
         $result = $stmt->fetch();
-        return (float) ($result['__avg'] ?? 0);
+        return (float) (is_array($result) ? ($result['__avg'] ?? 0) : 0);
     }
 
     public function max(string $column): mixed
@@ -652,7 +655,7 @@ class QueryBuilder
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
         $result = $stmt->fetch();
-        return $result['__max'] ?? null;
+        return is_array($result) ? ($result['__max'] ?? null) : null;
     }
 
     public function min(string $column): mixed
@@ -666,7 +669,7 @@ class QueryBuilder
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
         $result = $stmt->fetch();
-        return $result['__min'] ?? null;
+        return is_array($result) ? ($result['__min'] ?? null) : null;
     }
 
     public function insert(array $data): int

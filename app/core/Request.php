@@ -325,6 +325,19 @@ class Request
      */
     public function ip(): string
     {
+        if (!empty($this->server['HTTP_X_FORWARDED_FOR'])) {
+            $ips = explode(',', $this->server['HTTP_X_FORWARDED_FOR']);
+            $ip = trim($ips[0]);
+            if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                return $ip;
+            }
+        }
+        if (!empty($this->server['HTTP_X_REAL_IP'])) {
+            $ip = trim($this->server['HTTP_X_REAL_IP']);
+            if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                return $ip;
+            }
+        }
         return $this->server['REMOTE_ADDR'] ?? '0.0.0.0';
     }
 
@@ -400,7 +413,12 @@ class Request
      */
     public function url(): string
     {
-        return $this->scheme() . '://' . $this->host() . $this->uri();
+        $url = $this->scheme() . '://' . $this->host();
+        $port = $this->port();
+        if (($this->scheme() === 'http' && $port !== 80) || ($this->scheme() === 'https' && $port !== 443)) {
+            $url .= ':' . $port;
+        }
+        return $url . $this->uri();
     }
 
     /**

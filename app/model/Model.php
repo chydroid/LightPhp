@@ -56,6 +56,10 @@ class Model
 
     public function findBy(string $column, mixed $value): ?static
     {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $column)) {
+            throw new \InvalidArgumentException("Invalid column name: {$column}");
+        }
+
         $row = $this->newQuery()->where($column, '=', $value)->fetch();
         return $row ? $this->newFromBuilder($row) : null;
     }
@@ -482,7 +486,7 @@ class Model
 
     protected function castAttribute(string $key, mixed $value): mixed
     {
-        if (!isset($this->casts[$key]) || $value === null) {
+        if (!isset($this->casts[$key])) {
             return $value;
         }
 
@@ -490,8 +494,8 @@ class Model
             'int', 'integer' => (int) $value,
             'float', 'double' => (float) $value,
             'bool', 'boolean' => (bool) $value,
-            'array' => is_array($value) ? $value : (json_decode($value, true) ?? []),
-            'json' => is_array($value) ? json_encode($value) : $value,
+            'array' => $value === null ? [] : (is_array($value) ? $value : (json_decode($value, true) ?? [])),
+            'json' => $value === null ? 'null' : (is_array($value) ? json_encode($value) : $value),
             'date' => ($ts = strtotime((string) $value)) !== false ? date('Y-m-d', $ts) : null,
             'datetime' => ($ts = strtotime((string) $value)) !== false ? date($this->dateFormat, $ts) : null,
             default => $value

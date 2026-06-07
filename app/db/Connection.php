@@ -53,7 +53,15 @@ class Connection implements ConnectionInterface
             \PDO::ATTR_EMULATE_PREPARES => false,
         ];
 
-        $this->pdo = new \PDO($dsn, $username, $password, $options);
+        try {
+            $this->pdo = new \PDO($dsn, $username, $password, $options);
+        } catch (\PDOException $e) {
+            throw new \core\exception\DatabaseException(
+                'Database connection failed: ' . $e->getMessage(),
+                (int) $e->getCode(),
+                $e
+            );
+        }
     }
 
     /**

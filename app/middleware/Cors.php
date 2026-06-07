@@ -64,7 +64,7 @@ class Cors
             }
 
             http_response_code(204);
-            exit;
+            return '';
         }
 
         if (!empty($this->config['exposed_headers'])) {
@@ -87,6 +87,11 @@ class Cors
         }
 
         $allowed = $this->config['allowed_origins'];
+
+        // 有凭证时，不允许通配符匹配
+        if (!empty($this->config['supports_credentials'])) {
+            return in_array($origin, $allowed, true);
+        }
 
         if (in_array('*', $allowed, true)) {
             return true;

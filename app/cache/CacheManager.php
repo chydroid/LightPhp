@@ -130,6 +130,14 @@ class CacheManager
      */
     public function __call(string $method, array $args): mixed
     {
-        return $this->driver()->$method(...$args);
+        $driver = $this->driver();
+        if (!method_exists($driver, $method)) {
+            throw new \BadMethodCallException(sprintf(
+                'Method %s::%s does not exist',
+                get_class($driver),
+                $method
+            ));
+        }
+        return $driver->$method(...$args);
     }
 }

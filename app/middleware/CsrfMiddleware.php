@@ -26,7 +26,6 @@ class CsrfMiddleware extends Middleware
         $sessionToken = Session::token();
 
         if ($token === null || $sessionToken === '' || !hash_equals($sessionToken, $token)) {
-            http_response_code(419);
             return Response::json(['code' => 419, 'message' => 'CSRF token mismatch'], 419);
         }
 

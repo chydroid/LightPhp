@@ -62,6 +62,7 @@ class Logger implements LoggerInterface
         }
 
         $interpolated = $this->interpolate($message, $context);
+        $interpolated = str_replace(["\r\n", "\r", "\n"], ' ', $interpolated);
         $remaining = $this->remainingContext($message, $context);
         $logLine = sprintf(
             "[%s] %s: %s%s\n",
@@ -208,7 +209,7 @@ class Logger implements LoggerInterface
         $remaining = [];
         foreach ($context as $key => $value) {
             if (is_array($value) || (is_object($value) && !method_exists($value, '__toString'))) {
-                $remaining[$key] = is_object($value) ? get_class($value) : 'array';
+                $remaining[$key] = is_object($value) ? get_class($value) : ['__type' => 'array', '__count' => count($value)];
             } elseif (str_contains($message, '{' . $key . '}')) {
                 continue;
             } else {

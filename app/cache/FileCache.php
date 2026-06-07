@@ -362,7 +362,6 @@ class FileCache implements CacheInterface
         } finally {
             flock($fp, LOCK_UN);
             fclose($fp);
-            @unlink($lockFile);
         }
     }
 
@@ -390,7 +389,6 @@ class FileCache implements CacheInterface
         } finally {
             flock($fp, LOCK_UN);
             fclose($fp);
-            @unlink($lockFile);
         }
     }
 
@@ -418,7 +416,6 @@ class FileCache implements CacheInterface
         } finally {
             flock($fp, LOCK_UN);
             fclose($fp);
-            @unlink($lockFile);
         }
     }
 

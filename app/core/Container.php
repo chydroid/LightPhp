@@ -93,7 +93,7 @@ class Container implements PsrContainerInterface
     public function instance(string $abstract, mixed $instance): void
     {
         $this->instances[$abstract] = $instance;
-        $this->bindings[$abstract] = fn () => $instance;
+        $this->bindings[$abstract] = fn ($container) => $instance;
     }
 
     /**
@@ -212,7 +212,7 @@ class Container implements PsrContainerInterface
                 try {
                     $dependencies[] = $this->get($type->getName());
                     continue;
-                } catch (\RuntimeException $e) {
+                } catch (\Throwable $e) {
                 }
             }
 

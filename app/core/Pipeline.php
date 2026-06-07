@@ -30,6 +30,11 @@ class Pipeline
     private string $method = 'handle';
 
     /**
+     * 容器实例，用于依赖注入
+     */
+    private ?Container $container = null;
+
+    /**
      * 设置通过管道传递的对象
      *
      * @param mixed $passable 通过管道传递的对象（通常是请求对象）
@@ -64,6 +69,19 @@ class Pipeline
     public function via(string $method): self
     {
         $this->method = $method;
+
+        return $this;
+    }
+
+    /**
+     * 设置容器实例，用于依赖注入
+     *
+     * @param Container $container 容器实例
+     * @return self 返回自身以支持链式调用
+     */
+    public function viaContainer(Container $container): self
+    {
+        $this->container = $container;
 
         return $this;
     }
@@ -117,7 +135,7 @@ class Pipeline
     {
         return fn (\Closure $stack, mixed $pipe) => function (mixed $passable) use ($stack, $pipe) {
             if (is_string($pipe) && class_exists($pipe)) {
-                $instance = new $pipe();
+                $instance = $this->container ? $this->container->get($pipe) : new $pipe();
                 return $instance->{$this->method}($passable, $stack);
             }
             if (is_callable($pipe)) {

@@ -59,6 +59,9 @@ class QueryBuilder
     /** @var bool 是否启用缓存 */
     private bool $cacheEnabled = false;
 
+    /** @var bool 是否为 raw SQL 模式 */
+    private bool $isRaw = false;
+
     /** @var string[] 允许的 SQL 操作符 */
     private const ALLOWED_OPERATORS = ['=', '!=', '<>', '<', '>', '<=', '>=', 'LIKE', 'NOT LIKE', 'IN', 'NOT IN', 'BETWEEN', 'IS', 'IS NOT'];
 
@@ -319,7 +322,7 @@ class QueryBuilder
 
         $placeholder = ':h_' . count($this->bindings);
         $this->bindings[$placeholder] = $value;
-        $this->having = "HAVING `{$column}` {$operator} {$placeholder}";
+        $this->having = "HAVING " . $this->sanitizeColumn($column) . " {$operator} {$placeholder}";
         return $this;
     }
 
@@ -338,7 +341,12 @@ class QueryBuilder
 
     public function lock(string $lock): self
     {
-        $this->lock = $lock;
+        $allowed = ['FOR UPDATE', 'LOCK IN SHARE MODE', 'FOR SHARE'];
+        $upperLock = strtoupper(trim($lock));
+        if (!in_array($upperLock, $allowed, true)) {
+            throw new \InvalidArgumentException("Invalid lock clause: {$lock}");
+        }
+        $this->lock = $upperLock;
         return $this;
     }
 
@@ -426,6 +434,7 @@ class QueryBuilder
 
     public function raw(string $sql, array $bindings = []): self
     {
+        $this->isRaw = true;
         $this->where = [$sql];
         $this->bindings = $bindings;
         return $this;
@@ -433,6 +442,10 @@ class QueryBuilder
 
     private function buildSelect(): string
     {
+        if ($this->isRaw) {
+            return $this->where[0] ?? '';
+        }
+
         $sql = "SELECT {$this->select} FROM `{$this->table}`";
 
         foreach ($this->joins as $join) {
@@ -754,6 +767,7 @@ class QueryBuilder
         $this->cacheKey = null;
         $this->cacheTtl = null;
         $this->cacheEnabled = false;
+        $this->isRaw = false;
         return $this;
     }
 }

@@ -55,6 +55,10 @@ class Generator
 
     public function generateModel(string $table, string $modelName = null): string
     {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $table)) {
+            throw new \InvalidArgumentException("Invalid table name: {$table}");
+        }
+
         $modelName = $modelName ?: $this->tableToModelName($table);
         $columns = $this->getTableColumns($table);
         $primaryKey = $this->getPrimaryKey($columns);
@@ -70,6 +74,8 @@ class Generator
 declare(strict_types=1);
 
 namespace {$namespace};
+
+use core\Model;
 
 class {$modelName} extends Model
 {
@@ -190,7 +196,9 @@ PHP;
         $modelName = $modelName ?: $this->tableToModelName($table);
         $path = $this->getFilePath('model', $modelName);
         $this->ensureDirectory(dirname($path));
-        file_put_contents($path, $content);
+        if (file_put_contents($path, $content) === false) {
+            throw new \RuntimeException("Failed to write model file: {$path}");
+        }
         return $path;
     }
 
@@ -200,7 +208,9 @@ PHP;
         $controllerName = $controllerName ?: $this->tableToControllerName($table);
         $path = $this->getFilePath('controller', $controllerName);
         $this->ensureDirectory(dirname($path));
-        file_put_contents($path, $content);
+        if (file_put_contents($path, $content) === false) {
+            throw new \RuntimeException("Failed to write controller file: {$path}");
+        }
         return $path;
     }
 

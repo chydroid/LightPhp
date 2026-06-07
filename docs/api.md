@@ -194,6 +194,10 @@ $posts = $user->posts();     // ⚡ 从缓存取
 
 > 💡 **模型 ≈ 数据库表的 PHP 对象**。操作模型就是操作数据库记录，不再需要手写 SQL。
 
+> ⚠️ **返回值说明**：`Model::find($id)` / `Model::findBy(...)` 返回 **模型实例**（支持 `$user->id` 的属性访问）；`Model::where(...)->fetchAll()` / `->fetch()` / `->first()` 返回的是 **关联数组**（可使用 `$row['id']`）。需要把模型转为数组请调用 `->toArray()`。
+>
+> 同时，`Model` 的大部分方法也可通过 `__callStatic` 静态调用（如 `User::find(1)` 等价于 `(new User())->find(1)`），仅 `setDb`、`eagerLoad`、`deleteById` 是真正的静态方法。
+
 ### 定义模型
 
 ```php
@@ -291,8 +295,14 @@ $user->save();  // 自动判断是插入还是更新
 ### 删除——移除记录
 
 ```php
-// 主键删除
-User::destroy(1);
+// 主键删除（实例方法）
+(new User())->delete(1);
+
+// 静态调用方式（通过 __callStatic 转发到实例）
+User::delete(1);
+
+// 静态快捷方式 deleteById
+User::deleteById(1);
 
 // 条件删除（⚠️ 必须带 WHERE 条件）
 User::where('id', '=', 1)->delete();
@@ -311,8 +321,8 @@ User::whereNotNull('email')->fetchAll();
 // WHERE BETWEEN
 User::whereBetween('age', 18, 60)->fetchAll();
 
-// OR 条件组
-User::whereOr(['status' => 0, 'status' => ['=', 2]])->fetchAll();
+// OR 条件组（每项一个条件，operator 可省略默认为 =）
+User::whereOr(['status' => 0, 'role' => ['=', 'admin']])->fetchAll();
 
 // 原生 SQL（需谨慎使用）
 User::where('id', '>', 0)
@@ -332,6 +342,8 @@ User::table('users')
 `Request` 类封装了所有 HTTP 请求相关的信息，让你安全地获取用户输入。
 
 > 💡 **为什么用 Request 而不是直接访问 `$_GET`/`$_POST`？** Request 提供了统一的获取方式（GET 和 POST 统一从 `all()` 获取），内置了安全的取子集和排除功能，让代码更规范和安全。
+
+> ⚠️ **调用方式**：`Request` 是**实例方法**风格。控制器方法签名声明 `Request $request` 时注入实例；非控制器场景下，可通过 `new Request()` 创建或通过框架注入（容器 / Facade）。下面的 `$request->` 形式请按上下文替换为对应的实例引用。
 
 ```php
 use core\Request;

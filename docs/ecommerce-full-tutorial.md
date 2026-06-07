@@ -1,5 +1,7 @@
 # LightPHP 电商系统开发实战
 
+> ⚠️ **模型访问模式说明**：本教程中 `Model::find($id)`、`Model::findBy(...)` 等方法返回 **模型实例**（支持 `__get`），请使用 `$model->id` 而非 `$model['id']`；而 `Model::where(...)->fetchAll()` / `->fetch()` / `->first()` 返回的是 **关联数组**，可使用 `$row['id']`。当需要把模型实例转为数组时，调用 `->toArray()`。
+
 ## 目录
 
 1. [项目概述](#1-项目概述)

@@ -827,6 +827,8 @@ User::observe(new UserObserver());
 
 软删除不会真正从数据库删除记录，而是将 `deleted_at` 字段设为当前时间。查询时自动排除已软删除的记录。
 
+> ⚠️ **重要**：软删除方法是**实例方法**而非静态方法。需要先 `new Post()` 或 `Post::find(1)` 获取实例再调用。
+
 ```php
 use traits\SoftDelete;
 
@@ -839,24 +841,26 @@ class Post extends Model
 }
 
 // 软删除：设置 deleted_at 而非真正删除
-$post = Post::find(1);
-$post->delete($post->id);  // deleted_at 被设为当前时间
+$post = new Post();
+$post->delete(1);     // deleted_at 被设为当前时间
 
 // 查询时自动排除软删除记录
-$posts = Post::where('status', '=', 1)->fetchAll();  // 不含 deleted_at IS NOT NULL
+$posts = Post::all(); // 不含 deleted_at IS NOT NULL
 
 // 包含软删除记录
-$allPosts = Post::find(1)->withTrashed()->fetchAll();
+$allPosts = (new Post())->withTrashed()->fetchAll();
 
 // 仅查询软删除记录
-$trashedPosts = Post::find(1)->onlyTrashed()->fetchAll();
+$trashed = (new Post())->onlyTrashed()->fetchAll();
 
 // 恢复软删除
-$post->restore();  // deleted_at 设为 null
+$post = Post::find(1);
+if ($post && $post->trashed()) {
+    $post->restore(); // deleted_at 设为 null
+}
 
-// 强制物理删除
-Post::forceDelete();
-Post::find(1)->delete(1);  // 真正从数据库删除
+// 强制物理删除（绕过 deleted_at 检查）
+(new Post())->force()->delete(1);  // 真正从数据库删除
 
 // 检查是否已被软删除
 if ($post->trashed()) {

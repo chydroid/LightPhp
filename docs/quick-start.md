@@ -1,6 +1,6 @@
-# LightPHP v2.0.0 快速上手指南
+# LightPHP v2.0.2 快速上手指南
 
-本指南将帮助你快速上手 LightPHP v2.0.0，涵盖所有核心功能的代码示例。
+本指南将帮助你快速上手 LightPHP v2.0.2，涵盖所有核心功能的代码示例。
 
 ---
 
@@ -530,6 +530,8 @@ $recentAdmins = User::admin()->recent()->limit(10)->fetchAll();
 
 ## 10. 软删除 (v2.0.0 新增)
 
+> ⚠️ **重要**：软删除是**实例方法**而非静态方法。需要先获取或创建模型实例再调用。
+
 ```php
 use traits\SoftDelete;
 
@@ -539,29 +541,33 @@ class Post extends Model
     protected string $table = 'posts';
 }
 
-// 普通删除 → 软删除（设置 deleted_at）
-Post::delete(1);
+// ===== 软删除（默认） =====
+$post = new Post();
+$post->delete(1);  // 设置 deleted_at 而非真正删除
 
-// 查询自动排除已软删除的记录
-$posts = Post::all();  // WHERE deleted_at IS NULL
+// ===== 查询 =====
+$posts = Post::all();                       // 自动排除已软删除的记录
 
 // 包含已软删除的记录
-$allPosts = (new Post)->withTrashed()->fetchAll();
+$allPosts = (new Post())->withTrashed()->fetchAll();
 
 // 仅查询已软删除的记录
-$trashed = (new Post)->onlyTrashed()->fetchAll();
+$trashed = (new Post())->onlyTrashed()->fetchAll();
 
-// 恢复软删除
+// ===== 恢复软删除 =====
 $post = Post::find(1);
-if ($post->trashed()) {
+if ($post && $post->trashed()) {
     $post->restore();
 }
 
-// 强制永久删除
-Post::forceDelete();
-Post::delete(1);  // 真正的 DELETE
-Post::softDelete();  // 恢复软删除模式
+// ===== 强制物理删除 =====
+(new Post())->force()->delete(1);           // 真正 DELETE FROM posts WHERE id=1
+
+// 检查是否已被软删除
+$isTrashed = $post->trashed();
 ```
+
+> ⚠️ **数据库要求**：使用软删除的表必须有 `deleted_at` 字段（DATETIME 类型，默认 NULL）。
 
 ---
 
@@ -569,17 +575,20 @@ Post::softDelete();  // 恢复软删除模式
 
 ### 定义中间件
 
+> 💡 **结构说明**：中间件是普通类（无需继承基类），只需要实现 `handle(Request $request, callable $next): mixed` 方法即可。中间件放在 `app/middleware/` 目录下。
+
 ```php
 namespace middleware;
 
 use core\Request;
+use core\Response;
 
-class AuthMiddleware extends Middleware
+class AuthMiddleware
 {
     public function handle(Request $request, callable $next): mixed
     {
         if (!isset($_SESSION['user_id'])) {
-            return \core\Response::json(['message' => '未登录'], 401);
+            return Response::json(['message' => '未登录'], 401);
         }
         return $next($request);
     }

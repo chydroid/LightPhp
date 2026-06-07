@@ -4,29 +4,42 @@
 
 ## 概述
 
-LightPHP 使用自带的轻量级测试框架，测试文件全部集中在 `tests/` 目录下。当前共 **259 个单元测试**，覆盖了框架所有核心组件：
+LightPHP 使用自带的轻量级测试框架，测试文件全部集中在 `tests/` 目录下。当前共 **173 个测试用例**，覆盖了框架所有核心组件：
 
 | 测试模块 | 说明 | 测试数量 |
 |---------|------|---------|
-| Env | 环境变量加载与读取 | 3 |
-| Cookie | Cookie 的设置、获取、删除 | 4 |
-| Hash | 密码哈希、加密解密 | 5 |
-| Session | 会话数据的读写 | 5 |
-| Validate | 16 种验证规则全覆盖 | 18 |
-| Request | HTTP 请求参数的处理 | 9 |
-| FileCache | 文件缓存的增删改查 | 5 |
-| Container | 依赖注入容器（PSR-11） | 8 |
-| Router | 路由注册、匹配、中间件 | 12 |
-| Response | HTTP 响应构建 | 7 |
-| EventDispatcher | 事件监听与触发 | 13 |
-| Collection | 数组集合操作 | 28 |
-| Facade | 门面模式 | 6 |
-| ServiceProvider | 服务提供者 | 4 |
-| Blade | 模板编译引擎 | 12 |
-| Command | CLI 命令系统 | 15 |
-| Schema | 数据库迁移建表 | 8 |
-| Middleware | CORS、Throttle 中间件 | 10 |
-| Others | 其他核心功能 | 35 |
+| Router | 路由注册、匹配、参数、中间件、别名、组 | 7 |
+| Container | 依赖注入容器（PSR-11） | 6 |
+| Request | HTTP 请求参数与方法、类型过滤 | 7 |
+| Response | HTTP 响应构建 | 1 |
+| Validate | 验证规则与 passes/fails | 6 |
+| Session | 会话读写、删除、Flash | 3 |
+| Cookie | Cookie 静态方法与安全选项 | 2 |
+| Hash | 密码哈希、AES 加密解密 | 3 |
+| Env | 环境变量加载、读取、批量 | 2 |
+| Model | ORM 方法、访问器、修改器、作用域、关联 | 11 |
+| View | 视图自动转义 | 2 |
+| Middleware | 抽象类、CSRF、CORS、Throttle | 4 |
+| FileCache | 文件缓存、标签集成、pull、批量操作 | 8 |
+| ApiDoc | API 文档生成、Markdown、JSON | 3 |
+| EventDispatcher | 事件监听、触发、优先级、订阅 | 9 |
+| Collection | 数组集合 map/filter/groupBy 等 | 30 |
+| Facade | 门面模式与容器解析 | 2 |
+| ServiceProvider | 服务提供者抽象与注册 | 2 |
+| Blade | 模板编译、指令、echo 转义 | 6 |
+| Command/Console | CLI 命令签名、参数、选项、注册 | 7 |
+| Schema/Blueprint | 数据库迁移建表、字段定义 | 6 |
+| Application | 容器配置、事件、Provider 注册 | 3 |
+| Exception | 异常层级与处理器 | 4 |
+| Pipeline | 管道洋葱模型、via、thenReturn | 5 |
+| Macroable | 宏注册、调用、mixin、flush | 10 |
+| SoftDelete | 软删除 trait、trashed、force 切换 | 3 |
+| HasModelEvents | 模型事件、观察者、返回 false 取消 | 4 |
+| Seeder | 数据填充抽象类 | 1 |
+| RedisCache | 类结构、接口契约、完整功能 | 5 |
+| MemcachedCache | 类结构、接口契约、完整功能 | 5 |
+| TaggedCache | 标签化缓存、flush、批量 | 10 |
+| **合计** | | **173** |
 
 > 💡 **单元测试 vs 集成测试**：单元测试是测试单个函数/方法的正确性（例如"Hash::make 能生成 bcrypt 哈希吗？"）；集成测试是测试多个模块协同工作的正确性（例如"用户注册接口能正确处理 POST 请求吗？"）。当前项目以单元测试为主，覆盖了框架所有独立功能点。
 

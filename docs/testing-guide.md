@@ -193,177 +193,75 @@ class TestCase
 
 ## 测试覆盖范围
 
-### 1. 环境变量测试（Env）
+`tests/run_tests.php` 包含 173 个测试用例，覆盖框架所有核心模块。下表给出每个模块的代表性测试场景与目的：
 
-| 测试 | 说明 |
-|------|------|
-| `Env::load loads .env file` | 加载 .env 文件 |
-| `Env::get returns value` | 获取环境变量值 |
-| `Env::get returns default for missing key` | 缺失键返回默认值 |
+### 1. 核心组件测试
 
-### 2. Cookie 测试
+- **Router（7）**：基础路由注册、路由分组、参数匹配、middleware 方法、aliasMiddleware、middlewareGroup、setGlobalMiddleware
+- **Container（6）**：bind/singleton/has、自动依赖解析、实例方法（instance）
+- **Request（7）**：method/isPost、string/integer/float/boolean/arrayInput 类型过滤、merge 数据合并
+- **Response（1）**：JSON 响应构建
+- **Application（3）**：setConfig（支持点分键）、getEvents、registerProvider
 
-| 测试 | 说明 |
-|------|------|
-| `Cookie::set and get` | 设置和获取 Cookie |
-| `Cookie::get returns default for missing key` | 缺失键返回默认值 |
-| `Cookie::has returns true for existing cookie` | 检查 Cookie 是否存在 |
-| `Cookie::delete removes cookie` | 删除 Cookie |
+### 2. 数据校验与安全
 
-### 3. 加密哈希测试（Hash）
+- **Validate（6）**：required/email、min/max、passes/fails、unique 规则（抛异常）
+- **Hash（3）**：bcrypt 哈希与 verify、AES 加密解密、错误数据返回 null
+- **Session（3）**：set/get/delete、Flash set/get
+- **Cookie（2）**：静态方法存在性、delete 安全参数
+- **Env（2）**：load/get/默认值、has/all 批量读取
 
-| 测试 | 说明 |
-|------|------|
-| `Hash::make creates bcrypt hash` | 创建 bcrypt 哈希 |
-| `Hash::verify correct password` | 验证正确密码 |
-| `Hash::verify incorrect password` | 验证错误密码 |
-| `Hash::encrypt and decrypt` | 加密和解密 |
-| `Hash::decrypt invalid data returns null` | 解密无效数据返回 null |
+### 3. 缓存体系（28）
 
-### 4. Session 测试
+- **FileCache（8）**：has、remember、increment/decrement、tags、attachTag/flushByTag、pull、deleteMany、setMany/many
+- **TaggedCache（10）**：set/get/has/delete、remember、many/setMany、flush、tags 追加、默认值
+- **RedisCache（5）**：类结构、扩展未安装抛异常、接口契约、connection、完整功能
+- **MemcachedCache（5）**：类结构、扩展未安装抛异常、接口契约、connection、完整功能
 
-| 测试 | 说明 |
-|------|------|
-| `Session::set and get` | 设置和获取 Session |
-| `Session::get returns default for missing key` | 缺失键返回默认值 |
-| `Session::has returns true for existing key` | 检查 Session 是否存在 |
-| `Session::delete removes key` | 删除 Session 键 |
-| `Session::token generates token` | 生成 CSRF Token |
+### 4. 数据库与模型（22）
 
-### 5. 验证器测试（Validate）
+- **Model（8）**：静态方法、getForeignKey、ORM 方法（hasOne/hasMany/belongsTo/belongsToMany/eagerLoad）、toArray/toJson、with/LoadRelation、访问器（getNameAttribute）、修改器（setEmailAttribute）、查询作用域（scopeActive）
+- **Schema/Blueprint（6）**：Schema/Blueprint/Migration 类存在、setConnection、hasTable/hasColumn、字段定义、rename、truncate
+- **SoftDelete（3）**：trait 存在、trashed 方法、forceDelete/softDelete 模式切换
+- **HasModelEvents（4）**：trait 存在、onEvent、fireEvent 返回 false 取消、observe 观察者
+- **Seeder（1）**：抽象类与 run/register/call/runAll 方法
 
-| 测试 | 说明 |
-|------|------|
-| `Validate::required rule` | 必填验证 |
-| `Validate::email rule` | 邮箱验证 |
-| `Validate::min rule` | 最小值验证 |
-| `Validate::max rule` | 最大值验证 |
-| `Validate::numeric rule` | 数字验证 |
-| `Validate::integer rule` | 整数验证 |
-| `Validate::float rule` | 浮点数验证 |
-| `Validate::url rule` | URL 验证 |
-| `Validate::ip rule` | IP 地址验证 |
-| `Validate::alpha rule` | 字母验证 |
-| `Validate::alphaNum rule` | 字母数字验证 |
-| `Validate::in rule` | 列表包含验证 |
-| `Validate::notIn rule` | 列表排除验证 |
-| `Validate::regex rule` | 正则验证 |
-| `Validate::date rule` | 日期格式验证 |
-| `Validate::confirmed rule` | 确认字段验证 |
-| `Validate::passes returns true for valid data` | passes 方法 |
-| `Validate::fails returns true for invalid data` | fails 方法 |
-| `Validate::firstError returns first error` | 获取首个错误 |
+### 5. 中间件与管道（13）
 
-### 6. 请求测试（Request）
+- **Middleware（4）**：抽象类与 handle 方法、CsrfMiddleware、CORS、Throttle
+- **Pipeline（5）**：基本洋葱模型、thenReturn 直接返回、空管道、via 自定义方法名、中间件可修改请求/响应
+- **ExceptionHandler（3）**：类存在、shouldReport 过滤、dontReport 忽略列表
+- **Exception（1）**：FrameworkException 异常层级结构
 
-| 测试 | 说明 |
-|------|------|
-| `Request::get returns query param` | 获取查询参数 |
-| `Request::post returns post param` | 获取 POST 参数 |
-| `Request::all returns all input` | 获取所有输入 |
-| `Request::only returns selected fields` | 获取指定字段 |
-| `Request::except excludes fields` | 排除指定字段 |
-| `Request::has checks field existence` | 检查字段是否存在 |
-| `Request::method returns request method` | 获取请求方法 |
-| `Request::isAjax detects AJAX` | 检测 AJAX 请求 |
-| `Request::isGet/isPost checks method` | 检查请求方法类型 |
+### 6. 事件、容器与契约（14）
 
-### 7. 缓存测试（FileCache）
+- **EventDispatcher（9）**：listen/dispatch、wildcard、hasListeners、stop propagation、until、priority、forget、flush、subscribe
+- **Facade（2）**：类存在、容器未设置时抛 RuntimeException
+- **ServiceProvider（2）**：抽象类与 register/boot、子类持有容器
+- **Contracts（1）**：CacheInterface/LoggerInterface/ConnectionInterface 存在
 
-| 测试 | 说明 |
-|------|------|
-| `FileCache::set and get` | 设置和获取缓存 |
-| `FileCache::has checks existence` | 检查缓存是否存在 |
-| `FileCache::delete removes item` | 删除缓存项 |
-| `FileCache::remember caches callback result` | remember 方法 |
-| `FileCache::increment/decrement` | 计数器增减 |
+### 7. 集合与函数式（30）
 
-### 8. Pipeline 管道测试
+**Collection**：basic、map、filter、filter 无回调、where、whereIn、pluck、pluck with key、only、except、sum、avg、min/max、sortBy、take、skip、first/last、first with callback、groupBy、keyBy、contains、isEmpty/isNotEmpty、unique、reduce、each、tap、pipe、json serialize、array access、countable
 
-| 测试 | 说明 |
-|------|------|
-| `Pipeline basic flow` | 基本管道流程 |
-| `Pipeline onion model` | 洋葱模型执行顺序 |
-| `Pipeline via custom method` | 自定义管道方法 |
-| `Pipeline thenReturn` | thenReturn 方法 |
-| `Pipeline empty pipes` | 空管道处理 |
+### 8. 视图与模板（8）
 
-### 9. Macroable 宏扩展测试
+- **View（2）**：自动转义 HTML、withoutAutoEscape 关闭转义
+- **Blade（6）**：类与 render/compileString 存在、echo 转义编译、原始 echo、if/foreach 指令编译、自定义 directive
 
-| 测试 | 说明 |
-|------|------|
-| `Macroable register and call macro` | 注册和调用宏 |
-| `Macroable static macro call` | 静态宏调用 |
-| `Macroable mixin` | 混入注册 |
-| `Macroable hasMacro` | 检查宏是否存在 |
-| `Macroable flushMacros` | 清空宏 |
-| `Macroable __call throws for unknown` | 调用不存在宏抛异常 |
-| `Macroable __callStatic throws for unknown` | 静态调用不存在宏抛异常 |
-| `Macroable closure binds to instance` | 闭包绑定实例 |
-| `Macroable mixin with replace option` | 混入替换选项 |
+### 9. CLI 控制台（7）
 
-### 10. SoftDelete 软删除测试
+**Command/Console**：signature 解析、argument 解析、option 解析、默认参数、register/list、unknown command 返回 1、signature with defaults
 
-| 测试 | 说明 |
-|------|------|
-| `SoftDelete sets deleted_at` | 软删除设置 deleted_at |
-| `SoftDelete excludes trashed by default` | 默认排除已删除记录 |
-| `SoftDelete restore` | 恢复软删除记录 |
+### 10. 扩展机制（8）
 
-### 11. HasModelEvents 模型事件测试
+**Macroable**：注册并调用、hasMacro、flushMacros、闭包绑定 $this、mixin 批量注册、mixin 不覆盖模式、调用不存在宏抛异常、Response 宏扩展（csv）
 
-| 测试 | 说明 |
-|------|------|
-| `Model event creating` | creating 事件 |
-| `Model event created` | created 事件 |
-| `Model observer` | 观察者模式 |
-| `Model event returns false prevents action` | 事件返回 false 阻止操作 |
+### 11. API 文档（3）
 
-### 12. 访问器/修改器测试
+**ApiDoc**：generate 返回数组、toMarkdown 包含标题、toJson 是合法 JSON
 
-| 测试 | 说明 |
-|------|------|
-| `Getter accessor` | 访问器 |
-| `Setter mutator` | 修改器 |
-
-### 13. 查询作用域测试
-
-| 测试 | 说明 |
-|------|------|
-| `Query scope method` | 查询作用域方法 |
-
-### 14. Seeder 数据填充测试
-
-| 测试 | 说明 |
-|------|------|
-| `Seeder register and runAll` | 注册和批量运行 |
-
-### 15. 中间件别名/组测试
-
-| 测试 | 说明 |
-|------|------|
-| `Router aliasMiddleware` | 中间件别名注册 |
-| `Router middlewareGroup` | 中间件组注册 |
-| `Router resolveMiddleware` | 中间件解析 |
-
-### 16. Request 类型过滤测试
-
-| 测试 | 说明 |
-|------|------|
-| `Request string method` | 字符串类型过滤 |
-| `Request integer method` | 整数类型过滤 |
-| `Request float method` | 浮点数类型过滤 |
-| `Request boolean method` | 布尔值类型过滤 |
-| `Request arrayInput method` | 数组类型过滤 |
-| `Request merge method` | 合并数据 |
-
-### 17. ExceptionHandler 异常处理器测试
-
-| 测试 | 说明 |
-|------|------|
-| `ExceptionHandler report` | 异常报告 |
-| `ExceptionHandler render` | 异常渲染 |
-| `ExceptionHandler shouldReport` | 判断是否应报告 |
+> 💡 **覆盖率说明**：以上覆盖范围从 `tests/run_tests.php` 中的 `$runner->run(...)` 用例直接整理得出，与代码实现完全一致。如果新增功能，请同步添加对应测试用例。
 
 ---
 

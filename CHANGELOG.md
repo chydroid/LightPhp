@@ -2,6 +2,20 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.0.3] - 2026-06-07
+
+### 文档 (Documentation)
+
+- **docs 目录 MD 文件全面审查与修正** — 对 `docs/` 目录下所有 Markdown 文档进行系统检查，确保与 v2.0.2 代码实现保持一致。
+  - `quick-start.md` — 版本号更新至 v2.0.2，修正 SoftDelete API（强调实例方法），移除中间件错误的基类继承示例
+  - `guide.md` — 修正 SoftDelete 章节的 API 用法，强调 `$model->delete()` 实例方法
+  - `testing-guide.md` — 测试数从 259 更新为 173，修正测试覆盖表格，替换过时的 TestRunner 示例
+  - `api.md` — 修复不存在的 `Model::destroy()` 为 `delete()` / `deleteById()`，修正 whereOr 示例，添加 Request/Model 返回值说明
+  - `ecommerce-full-tutorial.md` — 添加模型访问模式说明（实例 vs 关联数组）
+  - `admin-panel-tutorial.md` — 添加模型访问模式说明（实例 vs 关联数组）
+
+---
+
 ## [2.0.2] - 2026-06-07
 
 ### 运行时 Bug 修复 (Bug Fixes)

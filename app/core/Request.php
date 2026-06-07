@@ -45,7 +45,7 @@ class Request
         $this->post = $_POST;
         $this->server = $_SERVER;
         $this->headers = $this->parseHeaders();
-        $this->rawContent = file_get_contents('php://input');
+        $this->rawContent = file_get_contents('php://input') ?: '';
         $this->files = $_FILES;
         $this->parseJson();
     }

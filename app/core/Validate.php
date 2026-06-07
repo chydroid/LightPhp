@@ -138,6 +138,8 @@ class Validate
             if (!$this->$ruleMethod($field, $value, $params)) {
                 $this->addError($field, $rule, $params);
             }
+        } else {
+            trigger_error("Validate: Unknown validation rule '{$rule}' for field '{$field}'", E_USER_WARNING);
         }
     }
 
@@ -204,6 +206,9 @@ class Validate
 
     private function validateMin(string $field, $value, array $params): bool
     {
+        if (empty($params)) {
+            return false;
+        }
         $min = (int) $params[0];
         if (is_numeric($value)) return $value >= $min;
         if (is_string($value)) return mb_strlen($value) >= $min;
@@ -213,6 +218,9 @@ class Validate
 
     private function validateMax(string $field, $value, array $params): bool
     {
+        if (empty($params)) {
+            return false;
+        }
         $max = (int) $params[0];
         if (is_numeric($value)) return $value <= $max;
         if (is_string($value)) return mb_strlen($value) <= $max;

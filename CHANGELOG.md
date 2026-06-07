@@ -2,6 +2,36 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.0.2] - 2026-06-07
+
+### 运行时 Bug 修复 (Bug Fixes)
+
+- **[严重] Router 控制器 Request 注入丢失中间件修改** — 控制器方法通过类型提示注入 `Request` 时，代码创建 `new Request()` 而非使用 `dispatch()` 传入的请求对象。现已将 `$request` 传递到 `executeHandler()`，让中间件对请求的修改在控制器中可见。 (`app/core/Router.php`)
+- **[严重] Router 路由正则定界符冲突** — 自定义正则 `{#}` 与定界符 `#` 冲突，攻击者可利用导致正则注入。现改用 `~` 作为定界符避免与自定义正则中的 `#` 冲突。 (`app/core/Router.php`)
+- **[严重] Generator 代码生成注入风险** — `phpArray()` 拼接值未转义反斜杠/单引号，攻击者可通过特殊字符注入 PHP 代码。现已对值做 `str_replace` 转义。 (`app/core/Generator.php`)
+- **[中等] Generator 填充字段未检测自定义主键** — `getFillableColumns()` 硬编码排除 `id` 字段，使用 UUID 或自定义主键时会被错误识别为可填充字段。现已通过 `getPrimaryKey()` 动态获取主键名。 (`app/core/Generator.php`)
+- **[中等] Generator tinyint(1) 未识别为 bool** — MySQL 中 `tinyint(1)` 通常用作 boolean，但被识别为 int 类型。现已添加 `tinyint(1)` → `bool` 的映射。 (`app/core/Generator.php`)
+- **[中等] Collection pluck() 键名冲突** — `pluck()` 和 `keyBy()` 在键为数字时使用 `count($results)` 兜底，可能与已有键冲突。现改用唯一字符串占位符。 (`app/core/Collection.php`)
+- **[中等] Collection offsetExists 对 null 返回 false** — `isset()` 对 null 值返回 false，与 `get()` 行为不一致。现改为 `array_key_exists()` 统一语义。 (`app/core/Collection.php`)
+- **[中等] Validate min/max 缺参数** — `min`/`max` 缺少参数时直接读取 `$params[0]` 触发 `Error`。现已添加 `empty($params)` 检查。 (`app/core/Validate.php`)
+- **[中等] Validate 未知规则静默忽略** — 拼写错误的规则（如 `require` 写成 `requir`）不会触发任何错误。现已添加 `trigger_error()` 警告。 (`app/core/Validate.php`)
+- **[中等] ExceptionHandler currentRequest 为空时崩溃** — `shouldReturnJson()` 在 `currentRequest` 为 null 时抛出 `TypeError`。现已添加 null 检查。 (`app/core/ExceptionHandler.php`)
+- **[中等] Session 启动失败无感知** — `session_start()` 失败时 `self::$started` 仍被设为 true，导致后续操作静默失败。现已记录日志。 (`app/core/Session.php`)
+- **[中等] Session destroy() 缺少 samesite** — `setcookie()` 老式参数不支持 samesite。现改用数组参数格式并保留 samesite。 (`app/core/Session.php`)
+- **[中等] Upload finfo 资源泄漏** — `finfo_file()` 抛异常时 `finfo_close()` 不会被调用。现已使用 `try-finally` 确保资源释放。 (`app/core/Upload.php`)
+- **[低] Request php://input 失败为 null** — `file_get_contents()` 失败时 `rawContent` 为 null，下游 json 解码报错。现已使用 `?: ''` 兜底。 (`app/core/Request.php`)
+- **[低] Pipeline passable 未初始化** — 未调用 `send()` 时 `$passable` 未初始化。现已设为默认 `null`。 (`app/core/Pipeline.php`)
+- **[低] Env file() 失败崩溃** — `.env` 文件不可读时 `file()` 返回 false 进入 foreach 触发警告。现已添加 false 检查。 (`app/core/Env.php`)
+- **[改进] database.php 支持环境变量** — 数据库连接配置改为通过 `env()` 读取 `.env`，便于不同环境部署。 (`app/config/database.php`)
+- **[改进] TestRunner assert 抛出异常** — 之前失败时仅 echo 不抛异常，循环测试会继续执行掩盖错误。现已改为抛 `RuntimeException` 让单测立即失败。 (`tests/run_tests.php`)
+
+### 测试 (Tests)
+
+- 修复了 TestRunner assert 行为，确保测试失败时立即中断
+- 累计测试用例：300+（包含本轮新增/调整）
+
+---
+
 ## [2.0.1] - 2026-06-07
 
 ### 安全修复 (Security)

@@ -15,7 +15,7 @@ class Pipeline
     /**
      * 通过管道传递的对象（通常是请求对象）
      */
-    private mixed $passable;
+    private mixed $passable = null;
 
     /**
      * 管道数组（中间件数组）

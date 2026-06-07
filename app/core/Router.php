@@ -330,7 +330,7 @@ class Router
 
             $params = $this->matchRoute($route['uri'], $uri);
             if ($params !== false) {
-                $handler = fn () => $this->executeHandler($route['handler'], $params);
+                $handler = fn () => $this->executeHandler($route['handler'], $params, $request);
                 $routeMiddleware = $this->resolveMiddleware($route['middleware'] ?? []);
                 $allMiddleware = array_merge($this->resolveMiddleware($this->globalMiddleware), $routeMiddleware);
                 return $this->executeMiddleware($allMiddleware, $handler, $request);
@@ -363,7 +363,8 @@ class Router
             $compiled = (string) preg_replace('/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/', '(?<$1>[^/]+)', $pattern);
             // 支持自定义正则表达式 {param:regex}
             $compiled = (string) preg_replace('/\{([a-zA-Z_][a-zA-Z0-9_]*):([^\}]+)\}/', '(?<$1>$2)', $compiled);
-            $regex = '#^' . $compiled . '$#';
+            // 使用 ~ 作为定界符避免与自定义正则中的 # 冲突
+            $regex = '~^' . $compiled . '$~';
             $this->compiledRoutes[$pattern] = $regex;
         }
 

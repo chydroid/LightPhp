@@ -1,15 +1,15 @@
 <?php
 return [
-    'default' => 'mysql',
+    'default' => env('DB_CONNECTION', 'mysql'),
     'connections' => [
         'mysql' => [
-            'host'     => '127.0.0.1',
-            'port'     => 3306,
-            'database' => 'test',
-            'username' => 'root',
-            'password' => '',
-            'charset'  => 'utf8mb4',
+            'host'     => env('DB_HOST', '127.0.0.1'),
+            'port'     => env('DB_PORT', 3306),
+            'database' => env('DB_DATABASE', 'test'),
+            'username' => env('DB_USERNAME', 'root'),
+            'password' => env('DB_PASSWORD', ''),
+            'charset'  => env('DB_CHARSET', 'utf8mb4'),
         ],
     ],
-    'prefix' => '',
+    'prefix' => env('DB_PREFIX', ''),
 ];

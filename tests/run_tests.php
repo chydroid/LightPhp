@@ -26,7 +26,7 @@ class TestRunner
         } else {
             $this->failed++;
             $this->failures[] = $message ?: 'Assertion failed';
-            echo "  ✗ {$message}\n";
+            throw new \RuntimeException($message ?: 'Assertion failed');
         }
     }
 

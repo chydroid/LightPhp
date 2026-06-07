@@ -124,7 +124,7 @@ class ExceptionHandler
         $statusCode = $e->getHttpStatusCode();
         $message = $e->getMessage();
 
-        if ($this->shouldReturnJson($this->currentRequest)) {
+        if ($this->currentRequest !== null && $this->shouldReturnJson($this->currentRequest)) {
             return Response::json([
                 'error' => [
                     'code' => $statusCode,
@@ -151,7 +151,7 @@ class ExceptionHandler
      */
     public function renderException(\Throwable $e): Response
     {
-        if ($this->shouldReturnJson($this->currentRequest)) {
+        if ($this->currentRequest !== null && $this->shouldReturnJson($this->currentRequest)) {
             $data = [
                 'error' => [
                     'code' => 500,

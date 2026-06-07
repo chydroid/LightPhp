@@ -70,7 +70,7 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
         foreach ($this->items as $item) {
             $itemValue = $item[$value] ?? null;
             if ($key !== null) {
-                $results[$item[$key] ?? count($results)] = $itemValue;
+                $results[$item[$key] ?? '__pluck_key_' . count($results)] = $itemValue;
             } else {
                 $results[] = $itemValue;
             }
@@ -212,7 +212,7 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
     {
         $results = [];
         foreach ($this->items as $item) {
-            $results[$item[$key] ?? count($results)] = $item;
+            $results[$item[$key] ?? '__keyby_key_' . count($results)] = $item;
         }
         return new static($results);
     }
@@ -301,7 +301,7 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
 
     public function offsetExists(mixed $offset): bool
     {
-        return isset($this->items[$offset]);
+        return array_key_exists($offset, $this->items);
     }
 
     public function offsetGet(mixed $offset): mixed

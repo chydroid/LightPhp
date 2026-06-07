@@ -156,12 +156,15 @@ class Upload
     private function getRealMimeType(): string
     {
         if (function_exists('finfo_open')) {
-            $finfo = @finfo_open(FILEINFO_MIME_TYPE);
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
             if ($finfo === false) {
                 return 'application/octet-stream';
             }
-            $mimeType = finfo_file($finfo, $this->file['tmp_name']);
-            finfo_close($finfo);
+            try {
+                $mimeType = finfo_file($finfo, $this->file['tmp_name']);
+            } finally {
+                finfo_close($finfo);
+            }
             return $mimeType ?: 'application/octet-stream';
         }
 

@@ -260,9 +260,10 @@ PHP;
     private function getFillableColumns(array $columns): array
     {
         $fillable = [];
+        $pk = $this->getPrimaryKey($columns);
         foreach ($columns as $column) {
             $field = $column['Field'];
-            if ($field === 'id' || $field === 'created_at' || $field === 'updated_at') {
+            if ($field === $pk || $field === 'created_at' || $field === 'updated_at') {
                 continue;
             }
             $fillable[] = $field;
@@ -286,6 +287,10 @@ PHP;
     {
         $type = strtolower($type);
 
+        // tinyint(1) is commonly used for boolean in MySQL
+        if ($type === 'tinyint(1)') {
+            return 'bool';
+        }
         if (strpos($type, 'int') !== false) {
             return 'int';
         }
@@ -462,15 +467,12 @@ PHP;
 
         $items = [];
         foreach ($arr as $key => $value) {
-            if (is_int($key)) {
-                $items[] = "'{$value}'";
+            $escapedValue = str_replace(["\\", "'"], ["\\\\", "\\'"], (string) $value);
+            if (is_int($key) && !$assoc) {
+                $items[] = "'{$escapedValue}'";
             } else {
-                $items[] = "'{$key}' => '{$value}'";
+                $items[] = "'{$key}' => '{$escapedValue}'";
             }
-        }
-
-        if ($assoc) {
-            return '[' . implode(', ', $items) . ']';
         }
 
         return '[' . implode(', ', $items) . ']';

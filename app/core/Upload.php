@@ -17,6 +17,14 @@ class Upload
         $this->file = $file;
     }
 
+    /** @var string[] 危险扩展名黑名单（即使未配置 allowedExtensions 也始终拒绝） */
+    private const DANGEROUS_EXTENSIONS = [
+        'php', 'phtml', 'php3', 'php4', 'php5', 'phar',
+        'pht', 'phps', 'shtml', 'htaccess', 'htpasswd',
+        'jsp', 'jspx', 'asp', 'aspx', 'cgi', 'pl', 'py',
+        'sh', 'bash', 'bat', 'cmd', 'ps1',
+    ];
+
     public static function file(string $name): ?self
     {
         if (!isset($_FILES[$name]) || $_FILES[$name]['error'] === UPLOAD_ERR_NO_FILE) {
@@ -110,6 +118,13 @@ class Upload
                 $this->error = 'File extension not allowed';
                 return false;
             }
+        }
+
+        // 始终拒绝危险扩展名（无论 allowedExtensions 配置）
+        $ext = strtolower($this->getExtension());
+        if (in_array($ext, self::DANGEROUS_EXTENSIONS, true)) {
+            $this->error = 'Dangerous file extension not allowed';
+            return false;
         }
 
         if ($this->maxSize > 0 && $this->file['size'] > $this->maxSize) {

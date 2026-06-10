@@ -62,9 +62,9 @@ class Response
      */
     public static function json(array $data, int $statusCode = 200): self
     {
-        $encoded = json_encode($data, JSON_UNESCAPED_UNICODE);
+        $encoded = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP);
         if ($encoded === false) {
-            $encoded = json_encode(['error' => 'JSON encoding failed'], JSON_UNESCAPED_UNICODE);
+            $encoded = json_encode(['error' => 'JSON encoding failed'], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP);
         }
         $response = new self($encoded, $statusCode);
         $response->header('Content-Type', 'application/json; charset=utf-8');

@@ -2,6 +2,27 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.1.0] - 2026-06-10
+
+### 安全修复 (Security Fixes)
+
+- **[CRITICAL] Upload::validate() 缺少危险扩展名黑名单** — 未配置 `allowedExtensions` 时，可上传 `.php`、`.phar`、`.htaccess` 等可执行文件。修复：添加硬编码的危险扩展名黑名单，始终拒绝 `php/phtml/phar/htaccess/jsp/asp/sh` 等扩展名
+- **[HIGH] Response::json() 缺少 JSON_HEX 安全标志** — `json_encode` 未使用 `JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP`，当 JSON 响应被嵌入 HTML `<script>` 标签时可能导致 XSS 攻击。修复：与 `Helper::json()` 和 Blade `@json` 保持一致，添加安全标志
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] OutputCache::buildCachedResponse() 返回类型不一致** — 返回 `string` 而非 `Response` 对象，与中间件链契约不一致。修复：改为返回 `Response` 对象
+- **[HIGH] Cors 中间件凭证+通配符拒绝逻辑缺陷** — 当 `allowed_origins=['*']` 且 `supports_credentials=true` 时，不匹配的 Origin 请求不会被拒绝。修复：统一使用 `isOriginAllowed()` 检查
+- **[MEDIUM] EventDispatcher::until() 异常误判** — 监听器抛出异常时，异常对象被当作非 null 返回值。修复：跳过 `\Throwable` 实例
+- **[MEDIUM] Env::load() 引号值后注释解析错误** — 如 `KEY="val" # comment` 时引号不被剥离。修复：改用 `strpos` 查找闭合引号
+- **[MEDIUM] Router::handleNotFound() null 链式访问** — config 为 null 时链式数组访问导致 PHP warning。修复：提取变量并检查 `is_array()`
+- **[MEDIUM] Blueprint::unsigned() 生成无效 SQL** — UNSIGNED 插入列名和类型之间。修复：移除 `$insertAfterName` 参数
+- **[LOW] Blade::getCachePath() md5 残留** — 违反项目 sha256 标准。修复：替换为 `hash('sha256', ...)`
+- **[LOW] View::extend() 缺少路径验证** — 可能导致布局文件路径遍历。修复：添加 `validatePath()` 检查
+- **[LOW] View::include() autoEscape 状态泄漏** — 异常时 `$this->autoEscape` 不会被恢复。修复：使用 try-finally 模式
+
+---
+
 ## [2.0.9] - 2026-06-10
 
 ### 缺陷修复 (Bug Fixes)

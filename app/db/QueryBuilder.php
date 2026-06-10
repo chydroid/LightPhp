@@ -585,8 +585,9 @@ class QueryBuilder
     public function value(string $column): mixed
     {
         $this->validateColumnName($column);
-        $this->select = "`{$column}`";
-        $result = $this->fetch();
+        $clone = clone $this;
+        $clone->select = "`{$column}`";
+        $result = $clone->fetch();
         return $result !== null ? ($result[$column] ?? null) : null;
     }
 

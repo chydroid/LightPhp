@@ -2,6 +2,16 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.0.7] - 2026-06-07
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] SoftDelete::delete() 事件逻辑** — 删除失败时（`$result === 0`）仍触发 `deleted` 事件，与 Model::delete() 同类BUG。修复：仅在实际影响行数 > 0 时触发
+- **[MEDIUM] QueryBuilder::value() 实例污染** — `value()` 直接修改 `$this->select`，后续调用受影响。修复：使用 `clone` 隔离
+- **[MEDIUM] Router HEAD 请求不匹配 GET 路由** — HTTP 规范要求 HEAD 请求应匹配 GET 路由，当前返回 404。修复：dispatch 中 HEAD 自动匹配 GET
+
+---
+
 ## [2.0.6] - 2026-06-07
 
 ### 安全加固 (Security)

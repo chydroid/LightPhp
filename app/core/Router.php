@@ -324,7 +324,10 @@ class Router
         }
 
         foreach ($this->routes as $route) {
-            if ($route['method'] !== $method) {
+            // HEAD 请求应匹配 GET 路由（HTTP 规范）
+            $methodMatch = $route['method'] === $method
+                || ($method === 'HEAD' && $route['method'] === 'GET');
+            if (!$methodMatch) {
                 continue;
             }
 

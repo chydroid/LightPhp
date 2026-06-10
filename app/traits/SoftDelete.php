@@ -140,7 +140,9 @@ trait SoftDelete
             $result = $this->db()->where($this->primaryKey, '=', $id)->update(['deleted_at' => date($this->dateFormat)]);
         }
 
-        $this->fireEvent('deleted');
+        if ($result > 0) {
+            $this->fireEvent('deleted');
+        }
         return $result;
     }
 }

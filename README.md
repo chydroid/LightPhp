@@ -8,7 +8,7 @@
 
 [![PHP Version](https://img.shields.io/badge/PHP-8.0%2B-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0.6-8b5cf6?style=for-the-badge)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.0.7-8b5cf6?style=for-the-badge)](CHANGELOG.md)
 [![Tests](https://img.shields.io/badge/tests-300%2B-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
 [![Security](https://img.shields.io/badge/audited-6_rounds-f43f5e?style=for-the-badge&logo=shield)](CHANGELOG.md)
 

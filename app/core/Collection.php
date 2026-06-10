@@ -38,7 +38,7 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
     {
         $keys = array_keys($this->items);
         $values = array_map($callback, $this->items, $keys);
-        return new static(array_combine($keys, $values));
+        return new static(empty($keys) ? [] : array_combine($keys, $values));
     }
 
     public function filter(?callable $callback = null): self

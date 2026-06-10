@@ -2,6 +2,15 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.0.8] - 2026-06-10
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] Model::save() 更新分支事件逻辑** — `save()` 更新分支在 `$result === 0`（无实际更新）时仍触发 `updated`/`saved` 事件，与 `delete()` 同类BUG。修复：仅在实际影响行数 > 0 时触发
+- **[MEDIUM] Collection::map() 空数组兼容** — `array_combine()` 在 PHP 8+ 对空数组返回 `false`，导致 `map()` 对空集合返回损坏对象。修复：添加 `empty($keys)` 守卫
+
+---
+
 ## [2.0.7] - 2026-06-07
 
 ### 缺陷修复 (Bug Fixes)

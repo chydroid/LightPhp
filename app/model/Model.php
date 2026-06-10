@@ -416,8 +416,10 @@ class Model
         unset($data[$this->primaryKey]);
         $data = $this->syncTimestamps($data, 'update');
         $result = $this->newQuery()->where($this->primaryKey, '=', $pk)->update($data);
-        $this->fireEvent('updated');
-        $this->fireEvent('saved');
+        if ($result > 0) {
+            $this->fireEvent('updated');
+            $this->fireEvent('saved');
+        }
         return $result;
     }
 

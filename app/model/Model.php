@@ -107,7 +107,9 @@ class Model
             return 0;
         }
         $result = $this->newQuery()->where($this->primaryKey, '=', $id)->delete();
-        $this->fireEvent('deleted');
+        if ($result > 0) {
+            $this->fireEvent('deleted');
+        }
         return $result;
     }
 

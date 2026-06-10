@@ -56,8 +56,8 @@ class Throttle
         $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
         $route = (string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
         $route = $route !== '' ? $route : '/';
-        $ipHash = md5($ip);
-        $routeHash = md5($route);
+        $ipHash = hash('sha256', $ip);
+        $routeHash = hash('sha256', $route);
         return 'throttle_' . $ipHash . '_' . $routeHash;
     }
 
@@ -152,7 +152,7 @@ class Throttle
     public static function clear(string $ip): void
     {
         $storagePath = rtrim(STORAGE_PATH, '/') . '/cache/';
-        $ipHash = md5($ip);
+        $ipHash = hash('sha256', $ip);
         $prefix = 'throttle_' . $ipHash . '_';
         $files = glob($storagePath . $prefix . '*.data');
         if ($files !== false) {

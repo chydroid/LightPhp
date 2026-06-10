@@ -51,7 +51,7 @@ class FileCache implements CacheInterface
      */
     private function getFile(string $key): string
     {
-        return $this->path . md5($key) . '.cache';
+        return $this->path . hash('sha256', $key) . '.cache';
     }
 
     /**
@@ -62,7 +62,7 @@ class FileCache implements CacheInterface
      */
     private function getTagFile(string $tag): string
     {
-        return $this->path . 'tag_' . md5($tag) . '.json';
+        return $this->path . 'tag_' . hash('sha256', $tag) . '.json';
     }
 
     /**

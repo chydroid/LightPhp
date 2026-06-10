@@ -2,6 +2,19 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.0.6] - 2026-06-07
+
+### 安全加固 (Security)
+
+- **[HIGH] 全局 md5→sha256 统一** — OutputCache、Throttle、FileCache 中残留的 `md5()` 全部替换为 `sha256()`，与项目安全标准保持一致
+
+### 缺陷修复 (Bug Fixes)
+
+- **[MEDIUM] Model::delete() 事件逻辑** — 删除失败时（`$result === 0`）不应触发 `deleted` 事件。修复：仅在实际删除行数 > 0 时触发
+- **[LOW] Generator 模板命名空间** — 生成的模型模板 `use core\Model` 应为 `use model\Model`
+
+---
+
 ## [2.0.5] - 2026-06-07
 
 ### 代码质量 (Code Quality)

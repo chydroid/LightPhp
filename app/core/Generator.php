@@ -75,7 +75,7 @@ declare(strict_types=1);
 
 namespace {$namespace};
 
-use core\Model;
+use model\Model;
 
 class {$modelName} extends Model
 {

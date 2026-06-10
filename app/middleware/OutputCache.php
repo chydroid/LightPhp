@@ -83,7 +83,7 @@ class OutputCache extends Middleware
         if (is_array($params)) {
             ksort($params);
         }
-        return $this->prefix . md5($path . '|' . json_encode($params));
+        return $this->prefix . hash('sha256', $path . '|' . json_encode($params));
     }
 
     /**

@@ -36,9 +36,26 @@ class Env
 
                 // 处理引号包裹的值：提取引号内的内容，忽略引号后的注释
                 if (str_starts_with($value, '"')) {
-                    $closingPos = strpos($value, '"', 1);
+                    $value = substr($value, 1);
+                    $closingPos = false;
+                    $searchPos = 0;
+                    while (($pos = strpos($value, '"', $searchPos)) !== false) {
+                        // 检查前面的反斜杠数量，奇数表示转义
+                        $backslashes = 0;
+                        $checkPos = $pos - 1;
+                        while ($checkPos >= 0 && $value[$checkPos] === '\\') {
+                            $backslashes++;
+                            $checkPos--;
+                        }
+                        if ($backslashes % 2 === 0) {
+                            $closingPos = $pos;
+                            break;
+                        }
+                        $searchPos = $pos + 1;
+                    }
                     if ($closingPos !== false) {
-                        $value = substr($value, 1, $closingPos - 1);
+                        $value = substr($value, 0, $closingPos);
+                        $value = str_replace('\\"', '"', $value);
                     }
                 } elseif (str_starts_with($value, "'")) {
                     $closingPos = strpos($value, "'", 1);
@@ -85,7 +102,11 @@ class Env
         }
 
         if (isset($_ENV[$key])) {
-            return $_ENV[$key];
+            $val = $_ENV[$key];
+            if ($val === 'true') return true;
+            if ($val === 'false') return false;
+            if ($val === 'null') return null;
+            return $val;
         }
 
         return $default;

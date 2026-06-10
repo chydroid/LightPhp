@@ -16,13 +16,13 @@ class CsrfMiddleware extends Middleware
             return $next($request);
         }
 
-        $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+        $method = strtoupper($request->method());
 
         if (in_array($method, ['GET', 'HEAD', 'OPTIONS'], true)) {
             return $next($request);
         }
 
-        $token = $_POST['_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? null;
+        $token = $request->post('_token') ?? $request->header('X-CSRF-TOKEN');
         $sessionToken = Session::token();
 
         if ($token === null || $sessionToken === null || $sessionToken === '' || $token === '' || !hash_equals((string) $sessionToken, (string) $token)) {

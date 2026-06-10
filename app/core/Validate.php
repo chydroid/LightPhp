@@ -315,13 +315,11 @@ class Validate
 
     private function validateUnique(string $field, $value, array $params): bool
     {
-        $this->addError($field, 'unique', $params);
         return false;
     }
 
     private function validateExists(string $field, $value, array $params): bool
     {
-        $this->addError($field, 'exists', $params);
         return false;
     }
 

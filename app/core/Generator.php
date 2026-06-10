@@ -60,6 +60,9 @@ class Generator
         }
 
         $modelName = $modelName ?: $this->tableToModelName($table);
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $modelName)) {
+            throw new \InvalidArgumentException("Invalid model name: {$modelName}");
+        }
         $columns = $this->getTableColumns($table);
         $primaryKey = $this->getPrimaryKey($columns);
         $fillable = $this->getFillableColumns($columns);
@@ -91,7 +94,14 @@ PHP;
 
     public function generateController(string $table, string $controllerName = null, bool $withModel = true): string
     {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $table)) {
+            throw new \InvalidArgumentException("Invalid table name: {$table}");
+        }
+
         $controllerName = $controllerName ?: $this->tableToControllerName($table);
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $controllerName)) {
+            throw new \InvalidArgumentException("Invalid controller name: {$controllerName}");
+        }
         $modelName = $this->tableToModelName($table);
         $columns = $this->getTableColumns($table);
         $fillable = $this->getFillableColumns($columns);
@@ -119,10 +129,10 @@ use {$modelNamespace}\\{$modelName};
 
 class {$controllerName} extends Controller
 {
-    public function index(): \\core\\Response
+    public function index(Request \$request): \\core\\Response
     {
-        \$page = (int) (\$_GET['page'] ?? 1);
-        \$perPage = (int) (\$_GET['per_page'] ?? 15);
+        \$page = (int) \$request->get('page', 1);
+        \$perPage = (int) \$request->get('per_page', 15);
 
         \${$modelName} = new {$modelName}();
         \$result = \${$modelName}->paginate(\$perPage, \$page);

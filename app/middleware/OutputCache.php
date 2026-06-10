@@ -65,9 +65,17 @@ class OutputCache extends Middleware
             $content = $response;
         }
 
-        if ($content !== '' && $content !== null) {
+        $shouldCache = $content !== '' && $content !== null;
+        if ($shouldCache && is_object($response) && method_exists($response, 'getStatusCode')) {
+            $code = $response->getStatusCode();
+            $shouldCache = $code >= 200 && $code < 400;
+        }
+        if ($shouldCache) {
+            $statusCode = is_object($response) && method_exists($response, 'getStatusCode')
+                ? $response->getStatusCode() : 200;
             $this->cache->set($cacheKey, [
                 'content'    => $content,
+                'status'     => $statusCode,
                 'headers'    => $this->collectHeaders(),
                 'created_at' => time(),
             ], $this->ttl);
@@ -104,7 +112,8 @@ class OutputCache extends Middleware
     private function buildCachedResponse(array $cached): \core\Response
     {
         $content = $cached['content'] ?? '';
-        $response = \core\Response::make($content);
+        $statusCode = $cached['status'] ?? 200;
+        $response = \core\Response::make($content, $statusCode);
 
         // 响应头白名单：仅重放安全的响应头
         $safeHeaders = ['Content-Type', 'Content-Language', 'X-Cache'];

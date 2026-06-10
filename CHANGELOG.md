@@ -2,6 +2,39 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.3.0] - 2026-06-10
+
+### 安全修复 (Security Fixes)
+
+- **[CRITICAL] Response::redirect() 开放重定向漏洞** — 不验证 URL，攻击者可构造 `//evil.com` 重定向。修复：只允许相对路径
+- **[HIGH] Generator 代码注入** — `modelName`/`controllerName` 未验证，恶意类名可注入代码到生成的 PHP 文件。修复：添加正则验证
+- **[HIGH] Upload 双扩展名绕过** — `shell.php.jpg` 只检查最后扩展名 `jpg`，某些 Web 服务器会执行 `.php.jpg`。修复：检查所有扩展名
+- **[HIGH] OutputCache 缓存错误响应** — 4xx/5xx 响应被缓存，后端恢复后仍返回错误。修复：只缓存 2xx/3xx 响应
+- **[MEDIUM] Throttle 绕过 Request::ip()** — 直接使用 `$_SERVER['REMOTE_ADDR']`，反向代理后限流失效。修复：使用 `$request->ip()`
+- **[MEDIUM] Session 盲信 X-Forwarded-Proto** — 客户端可伪造该头影响 secure 标志。修复：仅使用 `$_SERVER['HTTPS']`
+- **[MEDIUM] CsrfMiddleware 直接访问 $_SERVER/$_POST** — 绕过 Request 封装层。修复：使用 `$request->method()`/`$request->post()`/`$request->header()`
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] OutputCache 未保存状态码** — 缓存回放时始终返回 200，404 页面变为 200。修复：保存并恢复状态码
+- **[HIGH] Request::all() JSON 请求丢失 POST 数据** — 有 JSON 时只合并 get+json 忽略 post。修复：合并 get+post+json
+- **[MEDIUM] Request::merge() 不合并到 json** — JSON 请求调用 merge 后数据不可见。修复：同时合并到 json
+- **[MEDIUM] Throttle::hit() flock() 返回值未检查** — 锁获取失败仍继续读写，高并发下数据损坏。修复：检查返回值
+- **[MEDIUM] Middleware::shouldSkip() URI 尾斜杠未归一化** — `/admin/` 无法匹配 pattern `/admin`。修复：rtrim URI
+- **[MEDIUM] Container::flush() 未重置 building/aliasResolving** — 异常后调用 flush 无法重置状态。修复：添加重置
+- **[MEDIUM] Env 双引号值不支持转义引号** — `"hello\"world"` 被截断为 `hello\`。修复：正确处理 `\"` 转义
+- **[MEDIUM] Env::get() 从 $_ENV 取值不做类型转换** — 与 self::$vars 类型不一致。修复：添加 bool/null 转换
+- **[MEDIUM] ExceptionHandler TypeError 返回 500** — TypeError/ArgumentCountError 应返回 400。修复：添加专门处理
+- **[MEDIUM] Application::handleException() 直接访问 $_SERVER** — 应使用 Request::ip()。修复：通过容器获取 Request
+- **[MEDIUM] Generator 模板使用 $_GET** — 应使用 `$request->get()`。修复：替换为 Request 对象
+- **[MEDIUM] Router 自定义正则 ReDoS** — 无长度限制的恶意正则可导致拒绝服务。修复：限制 64 字符
+- **[LOW] Captcha 验证码非恒定时间比较** — 存在时序攻击风险。修复：使用 `hash_equals()`
+- **[LOW] Cookie secure 默认 false** — HTTPS 站点易遗漏。修复：自动推断为 null 时根据 HTTPS 状态决定
+- **[LOW] Helper::old() 直接访问 $_POST/$_GET** — 绕过 Request 封装。修复：通过容器获取 Request
+- **[LOW] Validate unique/exists 重复添加错误** — 与 applyRule() 双重添加。修复：移除方法内 addError 调用
+
+---
+
 ## [2.2.0] - 2026-06-10
 
 ### 安全修复 (Security Fixes)

@@ -107,6 +107,16 @@ class ExceptionHandler
             return $this->renderHttpException($e);
         }
 
+        if ($e instanceof \TypeError || $e instanceof \ArgumentCountError) {
+            $message = $this->debug ? $e->getMessage() : '请求参数类型错误';
+            if ($this->currentRequest !== null && $this->shouldReturnJson($this->currentRequest)) {
+                return Response::json(['error' => ['code' => 400, 'message' => $message]], 400);
+            }
+            return new Response($this->debug
+                ? $this->buildDebugHtml(400, $e->getMessage(), $e)
+                : $this->buildProductionHtml(400, $message), 400);
+        }
+
         return $this->renderException($e);
     }
 

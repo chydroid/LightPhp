@@ -364,8 +364,18 @@ class Router
         if ($regex === null) {
             // 将 {param} 转换为命名捕获组
             $compiled = (string) preg_replace('/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/', '(?<$1>[^/]+)', $pattern);
-            // 支持自定义正则表达式 {param:regex}
-            $compiled = (string) preg_replace('/\{([a-zA-Z_][a-zA-Z0-9_]*):([^\}]+)\}/', '(?<$1>$2)', $compiled);
+            // 支持自定义正则表达式 {param:regex}，限制正则长度防止ReDoS
+            $compiled = (string) preg_replace_callback(
+                '/\{([a-zA-Z_][a-zA-Z0-9_]*):([^\}]+)\}/',
+                function ($m) {
+                    $regex = $m[2];
+                    if (strlen($regex) > 64) {
+                        throw new \InvalidArgumentException("Route regex too long for parameter '{$m[1]}'");
+                    }
+                    return "(?<{$m[1]}>{$regex})";
+                },
+                $compiled
+            );
             // 使用 ~ 作为定界符避免与自定义正则中的 # 冲突
             $regex = '~^' . $compiled . '$~';
             $this->compiledRoutes[$pattern] = $regex;

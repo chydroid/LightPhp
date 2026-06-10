@@ -15,8 +15,7 @@ class Session
 
         if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
             // 设置安全的 session cookie 参数
-            $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-                || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+            $isSecure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
             @session_set_cookie_params([
                 'lifetime'  => 0,
                 'path'      => '/',

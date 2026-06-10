@@ -286,7 +286,9 @@ class Application
 
         $isDebug = $this->getConfig('app.debug', false);
         $allowedIps = ['127.0.0.1', '::1'];
-        $clientIp = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $clientIp = $this->container->has('request')
+            ? $this->container->get('request')->ip()
+            : ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
         $showTrace = $isDebug && in_array($clientIp, $allowedIps, true);
 
         $errorView = $this->getConfig('app.error_views.500');

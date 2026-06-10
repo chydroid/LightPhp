@@ -289,5 +289,7 @@ class Container implements PsrContainerInterface
         $this->aliases = [];
         $this->reflectionCache = [];
         $this->constructorParamCache = [];
+        $this->building = [];
+        $this->aliasResolving = [];
     }
 }

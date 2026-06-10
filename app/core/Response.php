@@ -80,6 +80,11 @@ class Response
      */
     public static function redirect(string $url, int $statusCode = 302): self
     {
+        // 防止开放重定向：只允许相对路径
+        if (!preg_match('#^/[^/]?#', $url)) {
+            throw new \InvalidArgumentException('Redirect URL must be a relative path');
+        }
+
         $response = new self('', $statusCode);
         $response->header('Location', $url);
         return $response;
@@ -195,6 +200,16 @@ class Response
     public function getContent(): string
     {
         return $this->content;
+    }
+
+    /**
+     * 获取 HTTP 状态码
+     *
+     * @return int 状态码
+     */
+    public function getStatusCode(): int
+    {
+        return $this->statusCode;
     }
 
     /**

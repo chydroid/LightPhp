@@ -37,7 +37,7 @@ class Captcha
     public static function verify(string $input, ?string $sessionCode = null): bool
     {
         $code = $sessionCode ?? Session::get(self::$key, '');
-        $result = strtolower($input) === $code;
+        $result = hash_equals($code, strtolower($input));
 
         if ($result && $sessionCode === null) {
             self::clear();

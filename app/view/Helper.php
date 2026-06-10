@@ -12,7 +12,12 @@ class Helper
 
     public static function old(string $key, mixed $default = ''): string
     {
-        $value = $_POST[$key] ?? $_GET[$key] ?? $default;
+        $container = \core\Container::getInstance();
+        if ($container !== null && $container->has('request')) {
+            $value = $container->get('request')->input($key, $default);
+        } else {
+            $value = $_POST[$key] ?? $_GET[$key] ?? $default;
+        }
         return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
     }
 

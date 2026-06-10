@@ -33,7 +33,7 @@ class Throttle
      */
     public function handle(\core\Request $request, callable $next): mixed
     {
-        $key = $this->resolveKey();
+        $key = $this->resolveKey($request);
 
         if ($this->tooManyAttempts($key)) {
             $retryAfter = $this->retryAfter($key);
@@ -51,10 +51,10 @@ class Throttle
         return $next($request);
     }
 
-    private function resolveKey(): string
+    private function resolveKey(\core\Request $request): string
     {
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-        $route = (string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+        $ip = $request->ip();
+        $route = (string) parse_url($request->uri(), PHP_URL_PATH);
         $route = $route !== '' ? $route : '/';
         $ipHash = hash('sha256', $ip);
         $routeHash = hash('sha256', $route);
@@ -101,7 +101,9 @@ class Throttle
         }
 
         try {
-            flock($fp, LOCK_EX);
+            if (!flock($fp, LOCK_EX)) {
+                return;
+            }
 
             $content = stream_get_contents($fp);
             $attempts = 0;

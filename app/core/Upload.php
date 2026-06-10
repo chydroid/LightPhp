@@ -216,7 +216,18 @@ class Upload
 
     public function getExtension(): string
     {
-        return pathinfo($this->file['name'] ?? '', PATHINFO_EXTENSION);
+        $filename = $this->file['name'] ?? '';
+        // 检查所有扩展名，拒绝包含危险扩展名的文件（防止双扩展名绕过）
+        $parts = explode('.', $filename);
+        if (count($parts) > 1) {
+            array_shift($parts); // 移除主文件名部分
+            foreach ($parts as $ext) {
+                if (in_array(strtolower($ext), self::DANGEROUS_EXTENSIONS, true)) {
+                    return ''; // 返回空扩展名，使验证失败
+                }
+            }
+        }
+        return strtolower(pathinfo($filename, PATHINFO_EXTENSION));
     }
 
     private function getErrorMessage(int $errorCode): string

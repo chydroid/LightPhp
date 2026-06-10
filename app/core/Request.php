@@ -276,7 +276,7 @@ class Request
     public function all(): array
     {
         if ($this->json !== null) {
-            return array_merge($this->get, $this->json);
+            return array_merge($this->get, $this->post, $this->json);
         }
         return array_merge($this->get, $this->post);
     }
@@ -517,6 +517,9 @@ class Request
      */
     public function merge(array $data): self
     {
+        if ($this->json !== null) {
+            $this->json = array_merge($this->json, $data);
+        }
         $this->post = array_merge($this->post, $data);
         return $this;
     }

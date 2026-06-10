@@ -315,12 +315,14 @@ class Validate
 
     private function validateUnique(string $field, $value, array $params): bool
     {
-        throw new \RuntimeException('unique validation rule requires database access. Implement in a subclass or use a custom rule.');
+        $this->addError($field, 'unique', $params);
+        return false;
     }
 
     private function validateExists(string $field, $value, array $params): bool
     {
-        throw new \RuntimeException('exists validation rule requires database access. Implement in a subclass or use a custom rule.');
+        $this->addError($field, 'exists', $params);
+        return false;
     }
 
     /**

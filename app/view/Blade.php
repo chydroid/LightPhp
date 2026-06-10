@@ -77,6 +77,9 @@ class Blade
      */
     public function render(string $template, array $data = []): string
     {
+        $this->sections = [];
+        $this->stack = [];
+
         $cacheFile = $this->getCachePath($template);
 
         if (!$this->isCacheFresh($template, $cacheFile)) {
@@ -201,7 +204,7 @@ class Blade
             '@endphp'                      => '?>',
             '@if\((.+?)\)'                 => '<?php if ($1): ?>',
             '@elseif\((.+?)\)'             => '<?php elseif ($1): ?>',
-            '@else'                        => '<?php else: ?>',
+            '@else(?!\w)'                    => '<?php else: ?>',
             '@endif'                       => '<?php endif; ?>',
             '@unless\((.+?)\)'             => '<?php if (!($1)): ?>',
             '@endunless'                   => '<?php endif; ?>',

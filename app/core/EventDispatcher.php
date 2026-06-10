@@ -99,19 +99,23 @@ class EventDispatcher
     }
 
     /**
-     * 触发事件（直到某个监听器返回非null值）
+     * 触发事件（直到某个监听器返回非null值时停止传播）
      */
     public function until(string $event, mixed ...$payload): mixed
     {
-        $results = $this->dispatch($event, ...$payload);
-        foreach ($results as $result) {
-            if ($result instanceof \Throwable) {
+        $listeners = $this->getListenersForEvent($event);
+
+        foreach ($listeners as $listener) {
+            try {
+                $result = $listener($event, ...$payload);
+            } catch (\Throwable $e) {
                 continue;
             }
             if ($result !== null) {
                 return $result;
             }
         }
+
         return null;
     }
 

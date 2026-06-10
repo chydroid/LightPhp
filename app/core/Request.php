@@ -122,7 +122,13 @@ class Request
         if ($key === null) {
             return $this->json ?? $this->post;
         }
-        return $this->json[$key] ?? $this->post[$key] ?? $default;
+        if ($this->json !== null && array_key_exists($key, $this->json)) {
+            return $this->json[$key];
+        }
+        if (array_key_exists($key, $this->post)) {
+            return $this->post[$key];
+        }
+        return $default;
     }
 
     /**
@@ -134,13 +140,13 @@ class Request
      */
     public function input(string $key, $default = null)
     {
-        if (isset($this->post[$key])) {
+        if (array_key_exists($key, $this->post)) {
             return $this->post[$key];
         }
-        if (isset($this->json[$key])) {
+        if (array_key_exists($key, $this->json ?? [])) {
             return $this->json[$key];
         }
-        if (isset($this->get[$key])) {
+        if (array_key_exists($key, $this->get)) {
             return $this->get[$key];
         }
         return $default;
@@ -318,27 +324,44 @@ class Request
         return $this->rawContent;
     }
 
+    /** @var array 可信代理 IP 列表 */
+    private static array $trustedProxies = [];
+
+    /**
+     * 设置可信代理 IP 列表
+     * 只有来自可信代理的 X-Forwarded-For 头才会被信任
+     */
+    public static function setTrustedProxies(array $proxies): void
+    {
+        self::$trustedProxies = $proxies;
+    }
+
     /**
      * 获取客户端 IP 地址
-     * 
+     *
      * @return string IP 地址
      */
     public function ip(): string
     {
-        if (!empty($this->server['HTTP_X_FORWARDED_FOR'])) {
-            $ips = explode(',', $this->server['HTTP_X_FORWARDED_FOR']);
-            $ip = trim($ips[0]);
-            if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                return $ip;
+        $remoteAddr = $this->server['REMOTE_ADDR'] ?? '0.0.0.0';
+
+        if (!empty(self::$trustedProxies) && in_array($remoteAddr, self::$trustedProxies, true)) {
+            if (!empty($this->server['HTTP_X_FORWARDED_FOR'])) {
+                $ips = explode(',', $this->server['HTTP_X_FORWARDED_FOR']);
+                $ip = trim($ips[0]);
+                if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                    return $ip;
+                }
+            }
+            if (!empty($this->server['HTTP_X_REAL_IP'])) {
+                $ip = trim($this->server['HTTP_X_REAL_IP']);
+                if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                    return $ip;
+                }
             }
         }
-        if (!empty($this->server['HTTP_X_REAL_IP'])) {
-            $ip = trim($this->server['HTTP_X_REAL_IP']);
-            if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                return $ip;
-            }
-        }
-        return $this->server['REMOTE_ADDR'] ?? '0.0.0.0';
+
+        return $remoteAddr;
     }
 
     /**

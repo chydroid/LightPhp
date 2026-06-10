@@ -405,6 +405,7 @@ class Blueprint
             throw new \InvalidArgumentException("Invalid foreign key column: {$column}");
         }
         $this->lastForeignKey = $column;
+        $this->lastForeignRef = '';
         return $this;
     }
 
@@ -422,9 +423,10 @@ class Blueprint
         if (!preg_match('/^[a-zA-Z0-9_]+$/', $table)) {
             throw new \InvalidArgumentException("Invalid reference table: {$table}");
         }
-        if ($this->lastForeignKey !== '' && $this->lastForeignRef !== '') {
-            $this->commands[] = "FOREIGN KEY (`{$this->lastForeignKey}`) REFERENCES `{$table}` (`{$this->lastForeignRef}`)";
+        if ($this->lastForeignKey === '' || $this->lastForeignRef === '') {
+            throw new \RuntimeException('foreign() and references() must be called before on()');
         }
+        $this->commands[] = "FOREIGN KEY (`{$this->lastForeignKey}`) REFERENCES `{$table}` (`{$this->lastForeignRef}`)";
         return $this;
     }
 
@@ -716,6 +718,7 @@ class Migration
     /** @return array<int, array<string, mixed>> */
     private function getLastBatch(int $steps): array
     {
+        $steps = max(1, $steps);
         $batches = $this->pdo->query("SELECT DISTINCT batch FROM migrations ORDER BY batch DESC LIMIT {$steps}");
         if ($batches === false) return [];
         $batchNums = $batches->fetchAll(\PDO::FETCH_COLUMN);

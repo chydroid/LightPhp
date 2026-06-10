@@ -38,11 +38,24 @@ class Connection implements ConnectionInterface
     private function connect(): void
     {
         $host = $this->config['host'] ?? '127.0.0.1';
-        $port = $this->config['port'] ?? 3306;
+        $port = (int) ($this->config['port'] ?? 3306);
         $database = $this->config['database'] ?? 'test';
         $username = $this->config['username'] ?? 'root';
         $password = $this->config['password'] ?? '';
         $charset = $this->config['charset'] ?? 'utf8mb4';
+
+        if (!preg_match('/^[a-zA-Z0-9._-]+$/', $host)) {
+            throw new \InvalidArgumentException("Invalid database host: {$host}");
+        }
+        if ($port < 1 || $port > 65535) {
+            throw new \InvalidArgumentException("Invalid database port: {$port}");
+        }
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $database)) {
+            throw new \InvalidArgumentException("Invalid database name: {$database}");
+        }
+        if (!preg_match('/^[a-zA-Z0-9_-]+$/', $charset)) {
+            throw new \InvalidArgumentException("Invalid charset: {$charset}");
+        }
 
         $this->database = $database;
         $dsn = "mysql:host={$host};port={$port};dbname={$database};charset={$charset}";

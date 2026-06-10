@@ -74,6 +74,9 @@ class View
      */
     public function render(string $template, array $data = []): string
     {
+        $this->sections = [];
+        $this->currentSection = '';
+
         $file = $this->viewPath . $this->normalizePath($template);
         if (!str_ends_with($file, '.php')) {
             $file .= '.php';
@@ -105,6 +108,7 @@ class View
         extract($__data, EXTR_SKIP);
         require $__file;
         $content = ob_get_clean();
+        $this->renderData = [];
         return $content === false ? '' : $content;
     }
 

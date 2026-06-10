@@ -451,6 +451,10 @@ class QueryBuilder
             return $this->where[0] ?? '';
         }
 
+        if ($this->table === '') {
+            throw new \RuntimeException('No table name specified for the query.');
+        }
+
         $sql = "SELECT {$this->select} FROM `{$this->table}`";
 
         foreach ($this->joins as $join) {
@@ -489,6 +493,10 @@ class QueryBuilder
 
     private function buildInsert(array $data): string
     {
+        if ($this->table === '') {
+            throw new \RuntimeException('No table name specified for the query.');
+        }
+
         $columns = [];
         $placeholders = [];
 
@@ -510,6 +518,10 @@ class QueryBuilder
 
     private function buildUpdate(array $data): string
     {
+        if ($this->table === '') {
+            throw new \RuntimeException('No table name specified for the query.');
+        }
+
         if (empty($this->where)) {
             throw new \RuntimeException('UPDATE query requires at least one WHERE condition for safety.');
         }
@@ -532,6 +544,10 @@ class QueryBuilder
 
     private function buildDelete(): string
     {
+        if ($this->table === '') {
+            throw new \RuntimeException('No table name specified for the query.');
+        }
+
         if (empty($this->where)) {
             throw new \RuntimeException('DELETE query requires at least one WHERE condition for safety.');
         }

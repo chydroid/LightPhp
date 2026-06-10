@@ -64,10 +64,15 @@ trait SoftDelete
             return false;
         }
 
+        if (!$this->fireEvent('restoring')) {
+            return false;
+        }
+
         $result = $this->db()->where($this->primaryKey, '=', $pk)->update(['deleted_at' => null]);
 
         if ($result > 0) {
             $this->attributes['deleted_at'] = null;
+            $this->fireEvent('restored');
             return true;
         }
 

@@ -40,6 +40,14 @@ class Loader
             if (strncmp($prefix, $class, $len) === 0) {
                 $relativeClass = substr($class, $len);
                 $file = $path . str_replace('\\', '/', $relativeClass) . '.php';
+
+                // 防止路径遍历：验证解析后的真实路径仍在预期目录内
+                $realBase = realpath($path);
+                $realFile = realpath($file);
+                if ($realBase === false || $realFile === false || !str_starts_with($realFile, $realBase)) {
+                    continue;
+                }
+
                 if (file_exists($file)) {
                     require $file;
                     return;

@@ -19,7 +19,7 @@ class Upload
 
     /** @var string[] 危险扩展名黑名单（即使未配置 allowedExtensions 也始终拒绝） */
     private const DANGEROUS_EXTENSIONS = [
-        'php', 'phtml', 'php3', 'php4', 'php5', 'phar',
+        'php', 'phtml', 'php3', 'php4', 'php5', 'php7', 'php8', 'phar',
         'pht', 'phps', 'shtml', 'htaccess', 'htpasswd',
         'jsp', 'jspx', 'asp', 'aspx', 'cgi', 'pl', 'py',
         'sh', 'bash', 'bat', 'cmd', 'ps1',

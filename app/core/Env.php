@@ -61,7 +61,7 @@ class Env
                 self::$vars[$key] = $value;
 
                 if (!isset($_ENV[$key])) {
-                    $_ENV[$key] = $value;
+                    $_ENV[$key] = $originalValue;
                     putenv("{$key}={$originalValue}");
                 }
             }

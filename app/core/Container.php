@@ -123,6 +123,9 @@ class Container implements PsrContainerInterface
     /** @var array<string, bool> 别名解析路径追踪，防止循环引用 */
     private array $aliasResolving = [];
 
+    /** @var array<string, bool> 构建路径追踪，防止循环依赖 */
+    private array $building = [];
+
     /**
      * 解析服务
      * 
@@ -179,6 +182,13 @@ class Container implements PsrContainerInterface
      */
     private function build(string $class, array $parameters = []): object
     {
+        if (isset($this->building[$class])) {
+            $chain = implode(' -> ', array_keys($this->building)) . ' -> ' . $class;
+            throw new \RuntimeException("Circular dependency detected: {$chain}");
+        }
+        $this->building[$class] = true;
+
+        try {
         // 使用反射缓存提高性能
         if (!isset($this->reflectionCache[$class])) {
             $this->reflectionCache[$class] = new \ReflectionClass($class);
@@ -229,6 +239,9 @@ class Container implements PsrContainerInterface
         }
 
         return $reflection->newInstanceArgs($dependencies);
+        } finally {
+            unset($this->building[$class]);
+        }
     }
 
     /**

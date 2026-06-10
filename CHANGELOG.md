@@ -2,6 +2,37 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.2.0] - 2026-06-10
+
+### 安全修复 (Security Fixes)
+
+- **[CRITICAL] HasModelEvents 事件监听器跨模型共享** — 所有使用 `HasModelEvents` trait 的模型共享同一份 `$eventListeners` 和 `$observers`，导致为 User 注册的事件在 Post 上也会触发。修复：使用 `static::class` 作为键隔离不同模型的事件
+- **[CRITICAL] Request::ip() IP 欺骗漏洞** — 无条件信任 `X-Forwarded-For` 和 `X-Real-IP` 头，攻击者可伪造 IP 绕过限流和访问控制。修复：默认仅使用 `REMOTE_ADDR`，添加可信代理配置
+- **[HIGH] Loader::autoload() 路径遍历漏洞** — 类名中的 `..` 可导致加载预期目录之外的文件。修复：验证 `realpath` 在预期目录内
+- **[HIGH] ExceptionHandler 生产环境消息泄露** — `HttpException::getMessage()` 直接输出给用户，可能泄露内部信息。修复：生产环境使用状态码对应的安全消息
+- **[HIGH] CsrfMiddleware token 不轮换** — 验证通过后 token 不变，可被重放攻击。修复：验证通过后调用 `Session::regenerateToken()`
+- **[HIGH] Upload 危险扩展名不完整** — 缺少 `php7`/`php8` 扩展名。修复：添加到黑名单
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] QueryBuilder 空表名生成无效 SQL** — `buildSelect/Insert/Update/Delete()` 未检查空表名。修复：添加空表名检查并抛出异常
+- **[HIGH] Connection DSN 注入风险** — 配置值未验证直接拼接到 DSN。修复：验证 host/port/database/charset 格式
+- **[HIGH] Schema::foreign() 外键状态管理** — `foreign()` 不重置 `lastForeignRef`，`on()` 静默失败。修复：`foreign()` 重置状态，`on()` 缺少前置条件时抛异常
+- **[HIGH] Schema::getLastBatch() 负数/零值** — `$steps` 为负数或零时生成无效 SQL。修复：`max(1, $steps)`
+- **[HIGH] View/Blade sections 跨渲染数据泄漏** — 多次 `render()` 调用之间 sections 不清理，导致前一个视图的 section 泄漏到下一个。修复：`render()` 开始时清理 sections
+- **[HIGH] EventDispatcher::until() 不提前停止** — 先执行所有监听器再找非 null 结果，违反"直到"语义。修复：逐个执行，遇到非 null 立即返回
+- **[MEDIUM] Request::input()/post() null 值穿透** — `isset()` 对 null 返回 false，导致 JSON 中显式设为 null 的字段穿透到下一层。修复：改用 `array_key_exists()`
+- **[MEDIUM] Container 循环依赖无限递归** — A→B→A 导致 Fatal error 而非有意义的异常。修复：添加 `$building` 追踪，检测循环时抛出异常
+- **[MEDIUM] SoftDelete::restore() 不触发事件** — 与 `delete()` 行为不一致。修复：添加 `restoring`/`restored` 事件
+- **[MEDIUM] Validate::validateUnique/Exists 抛异常** — 应返回 false 标记验证失败，而非抛出 RuntimeException。修复：调用 `addError()` 并返回 false
+- **[MEDIUM] Env::load() $_ENV 类型不一致** — 类型转换后的值（bool/null）直接存入 `$_ENV`，与 `set()` 行为不一致。修复：存入原始字符串值
+- **[MEDIUM] SmartyView::endsection() ob_get_clean false** — 未处理 `ob_get_clean()` 返回 `false` 的情况。修复：添加 false 检查
+- **[LOW] Blade @else 正则缺少词边界** — 可能误匹配 `@elsewhere` 等自定义指令。修复：添加 `(?!\w)` 负向前瞻
+- **[LOW] View::render() renderData 未清理** — 渲染完成后 renderData 残留在内存中。修复：`ob_get_clean()` 后清理
+- **[LOW] ConnectionInterface 缺少方法声明** — `inTransaction()` 和 `getDatabase()` 未在接口中声明。修复：添加到接口
+
+---
+
 ## [2.1.0] - 2026-06-10
 
 ### 安全修复 (Security Fixes)

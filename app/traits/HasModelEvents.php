@@ -17,20 +17,29 @@ trait HasModelEvents
     /**
      * 已注册的事件监听器
      *
-     * 键为事件名称，值为该事件下的回调数组。
+     * 外层键为模型类名，内层键为事件名称，值为该事件下的回调数组。
+     * 使用模型类名隔离，防止不同模型的事件监听器互相干扰。
      *
-     * @var array<string, callable[]>
+     * @var array<string, array<string, callable[]>>
      */
     private static array $eventListeners = [];
 
     /**
      * 已注册的观察者实例
      *
-     * 键为观察者类名，值为观察者对象实例。
+     * 外层键为模型类名，内层键为观察者类名，值为观察者对象实例。
      *
-     * @var array<string, object>
+     * @var array<string, array<string, object>>
      */
     private static array $observers = [];
+
+    /**
+     * 获取当前模型的事件存储键
+     */
+    private static function eventKey(): string
+    {
+        return static::class;
+    }
 
     /**
      * 注册事件监听器
@@ -43,7 +52,8 @@ trait HasModelEvents
      */
     public static function onEvent(string $event, callable $callback): void
     {
-        static::$eventListeners[$event][] = $callback;
+        $key = static::eventKey();
+        static::$eventListeners[$key][$event][] = $callback;
     }
 
     /**
@@ -64,19 +74,20 @@ trait HasModelEvents
             $observer = new $observer();
         }
 
+        $key = static::eventKey();
         $className = $observer::class;
 
-        if (isset(static::$observers[$className])) {
+        if (isset(static::$observers[$key][$className])) {
             return;
         }
 
-        static::$observers[$className] = $observer;
+        static::$observers[$key][$className] = $observer;
 
         $events = ['creating', 'created', 'updating', 'updated', 'saving', 'saved', 'deleting', 'deleted'];
 
         foreach ($events as $event) {
             if (method_exists($observer, $event)) {
-                static::$eventListeners[$event][] = [$observer, $event];
+                static::$eventListeners[$key][$event][] = [$observer, $event];
             }
         }
     }
@@ -89,8 +100,8 @@ trait HasModelEvents
      */
     public static function flushEventListeners(): void
     {
-        static::$eventListeners = [];
-        static::$observers = [];
+        $key = static::eventKey();
+        unset(static::$eventListeners[$key], static::$observers[$key]);
     }
 
     /**
@@ -105,7 +116,8 @@ trait HasModelEvents
      */
     public function fireEvent(string $event): bool
     {
-        $listeners = static::$eventListeners[$event] ?? [];
+        $key = static::eventKey();
+        $listeners = static::$eventListeners[$key][$event] ?? [];
 
         foreach ($listeners as $callback) {
             if (call_user_func($callback, $this) === false) {

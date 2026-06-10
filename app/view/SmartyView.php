@@ -69,6 +69,9 @@ class SmartyView
     {
         if ($this->sectionBlock !== null) {
             $content = ob_get_clean();
+            if ($content === false) {
+                $content = '';
+            }
             $this->sections[$this->sectionBlock] = $content;
             $this->smarty->assign($this->sectionBlock, $content);
             $this->sectionBlock = null;

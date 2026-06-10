@@ -29,6 +29,9 @@ class CsrfMiddleware extends Middleware
             return Response::json(['code' => 419, 'message' => 'CSRF token mismatch'], 419);
         }
 
+        // 验证通过后重新生成 token，防止 token 重放攻击
+        Session::regenerateToken();
+
         return $next($request);
     }
 }

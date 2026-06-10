@@ -128,6 +128,16 @@ class Session
         return self::get('_token');
     }
 
+    /**
+     * 重新生成 CSRF token
+     * 在每次验证通过后调用，防止 token 重放攻击
+     */
+    public static function regenerateToken(): void
+    {
+        self::start();
+        self::set('_token', bin2hex(random_bytes(32)));
+    }
+
     public static function id(): string
     {
         self::start();

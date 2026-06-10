@@ -119,10 +119,21 @@ class ExceptionHandler
      * @param \core\exception\HttpException $e HTTP 异常实例
      * @return \core\Response HTTP 响应
      */
+    /** @var array<int, string> HTTP 状态码对应的默认安全消息 */
+    private const SAFE_MESSAGES = [
+        400 => '请求无效',
+        401 => '未授权',
+        403 => '禁止访问',
+        404 => '资源未找到',
+        405 => '请求方法不允许',
+        422 => '请求参数无效',
+        429 => '请求过于频繁',
+    ];
+
     public function renderHttpException(HttpException $e): Response
     {
         $statusCode = $e->getHttpStatusCode();
-        $message = $e->getMessage();
+        $message = $this->debug ? $e->getMessage() : (self::SAFE_MESSAGES[$statusCode] ?? '请求处理失败');
 
         if ($this->currentRequest !== null && $this->shouldReturnJson($this->currentRequest)) {
             return Response::json([
@@ -134,7 +145,7 @@ class ExceptionHandler
         }
 
         $content = $this->debug
-            ? $this->buildDebugHtml($statusCode, $message, $e)
+            ? $this->buildDebugHtml($statusCode, $e->getMessage(), $e)
             : $this->buildProductionHtml($statusCode, $message);
 
         return new Response($content, $statusCode);

@@ -132,6 +132,12 @@ class Validate
         }
 
         $value = $this->data[$field] ?? null;
+
+        // 非必填字段值为 null/空字符串时，跳过除 required 外的所有验证规则
+        if ($rule !== 'required' && ($value === null || $value === '')) {
+            return;
+        }
+
         $ruleMethod = 'validate' . ucfirst($rule);
 
         if (method_exists($this, $ruleMethod)) {

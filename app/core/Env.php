@@ -34,6 +34,14 @@ class Env
                 $key = trim($key);
                 $value = trim($value);
 
+                // 移除行内注释（# 后的内容），但保留引号内的 #
+                if (!str_starts_with($value, '"') && !str_starts_with($value, "'")) {
+                    $commentPos = strpos($value, ' #');
+                    if ($commentPos !== false) {
+                        $value = trim(substr($value, 0, $commentPos));
+                    }
+                }
+
                 if (str_starts_with($value, '"') && str_ends_with($value, '"')) {
                     $value = substr($value, 1, -1);
                 } elseif (str_starts_with($value, "'") && str_ends_with($value, "'")) {

@@ -357,7 +357,7 @@ class QueryBuilder
 
     public function cache(string $key, int $ttl = 3600): self
     {
-        $this->cacheKey = 'query_' . md5($key);
+        $this->cacheKey = 'query_' . hash('sha256', $key);
         $this->cacheTtl = $ttl;
         $this->cacheEnabled = true;
         return $this;
@@ -401,7 +401,7 @@ class QueryBuilder
             return null;
         }
 
-        if ($data['sql'] !== md5($sql)) {
+        if ($data['sql'] !== hash('sha256', $sql)) {
             return null;
         }
 
@@ -421,7 +421,7 @@ class QueryBuilder
 
         $cacheFile = STORAGE_PATH . 'cache/' . $this->cacheKey . '.php';
         $data = [
-            'sql'    => md5($sql),
+            'sql'    => hash('sha256', $sql),
             'expire' => ($this->cacheTtl ?? 3600) > 0 ? time() + ($this->cacheTtl ?? 3600) : 0,
             'value'  => $result,
         ];
@@ -723,8 +723,9 @@ class QueryBuilder
         $totalPages = (int) ceil($total / $perPage);
         $page = max(1, $page);
 
-        $this->limit($perPage, ($page - 1) * $perPage);
-        $items = $this->fetchAll();
+        $clone = clone $this;
+        $clone->limit($perPage, ($page - 1) * $perPage);
+        $items = $clone->fetchAll();
 
         return [
             'items' => $items,

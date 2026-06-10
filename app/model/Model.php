@@ -90,6 +90,7 @@ class Model
     public function update(int|string $id, array $data): int
     {
         $data = $this->filterFillable($data);
+        unset($data[$this->primaryKey]);
         $data = $this->syncTimestamps($data, 'update');
         return $this->newQuery()->where($this->primaryKey, '=', $id)->update($data);
     }

@@ -2,6 +2,18 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.0.5] - 2026-06-07
+
+### 代码质量 (Code Quality)
+
+- **[HIGH] QueryBuilder::paginate() 实例污染** — `paginate()` 调用 `$this->limit()` 修改了当前 QueryBuilder 实例，重复调用时状态被污染。修复：使用 `clone` 隔离分页查询
+- **[HIGH] Model::update() 主键泄漏** — `update()` 未从更新数据中移除主键，若主键在 `$fillable` 中会被意外修改。修复：添加 `unset($data[$this->primaryKey])`
+- **[MEDIUM] QueryBuilder 缓存哈希算法** — 查询缓存键和 SQL 校验使用 `md5()`，与项目安全标准不一致。修复：统一使用 `sha256`
+- **[MEDIUM] Validate 非必填字段误报** — 非必填字段值为 `null`/空字符串时仍执行其他验证规则（如 email、min），导致误报。修复：空值时跳过非 required 规则
+- **[MEDIUM] Env 行内注释支持** — `.env` 文件不支持 `KEY=value # comment` 格式，`#` 后内容被当作值。修复：解析时移除行内注释
+
+---
+
 ## [2.0.4] - 2026-06-07
 
 ### 缺陷修复 (Bug Fixes)

@@ -72,7 +72,8 @@ class Cors
         }
 
         // 非 OPTIONS 请求且 Origin 不被允许时，拒绝请求
-        if (!in_array('*', $this->config['allowed_origins'], true) && !$this->isOriginAllowed($origin)) {
+        // 没有 Origin 头的请求（同源请求）不需要 CORS 检查
+        if ($origin !== '' && !$this->isOriginAllowed($origin)) {
             http_response_code(403);
             return '';
         }

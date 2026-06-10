@@ -344,7 +344,7 @@ class Blueprint
 
     public function unsigned(): self
     {
-        return $this->modifyColumn('UNSIGNED', true);
+        return $this->modifyColumn('UNSIGNED');
     }
 
     public function unique(): self

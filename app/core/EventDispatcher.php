@@ -105,6 +105,9 @@ class EventDispatcher
     {
         $results = $this->dispatch($event, ...$payload);
         foreach ($results as $result) {
+            if ($result instanceof \Throwable) {
+                continue;
+            }
             if ($result !== null) {
                 return $result;
             }

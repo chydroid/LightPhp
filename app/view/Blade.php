@@ -312,7 +312,7 @@ class Blade
      */
     private function getCachePath(string $template): string
     {
-        return $this->cachePath . md5($template) . '.php';
+        return $this->cachePath . hash('sha256', $template) . '.php';
     }
 
     /**

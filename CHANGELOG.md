@@ -2,6 +2,22 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.0.9] - 2026-06-10
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] OutputCache::buildCachedResponse() 返回类型不一致** — 返回 `string` 而非 `Response` 对象，与中间件链契约不一致，且直接调用 `header()` 绕过 Response 对象。修复：改为返回 `Response` 对象
+- **[HIGH] Cors 中间件凭证+通配符拒绝逻辑缺陷** — 当 `allowed_origins=['*']` 且 `supports_credentials=true` 时，不匹配的 Origin 请求不会被拒绝。修复：统一使用 `isOriginAllowed()` 检查，同源请求（无 Origin 头）跳过 CORS 检查
+- **[MEDIUM] EventDispatcher::until() 异常误判** — 监听器抛出异常时，异常对象被当作非 null 返回值，导致 `until()` 错误地返回异常对象。修复：跳过 `\Throwable` 实例
+- **[MEDIUM] Env::load() 引号值后注释解析错误** — 带引号的值后跟注释（如 `KEY="value" # comment`）时，`str_ends_with` 检查失败导致引号不被剥离。修复：改用 `strpos` 查找闭合引号位置
+- **[MEDIUM] Router::handleNotFound() null 链式访问** — `$this->container?->get('config')['app']` 在 config 为 null 时链式数组访问导致 PHP warning。修复：提取变量并检查 `is_array()`
+- **[MEDIUM] Blueprint::unsigned() 生成无效 SQL** — `modifyColumn('UNSIGNED', true)` 将 UNSIGNED 插入列名和类型之间（如 `` `age` UNSIGNED INT``）。修复：移除 `$insertAfterName` 参数
+- **[LOW] Blade::getCachePath() md5 残留** — 使用 `md5()` 生成缓存路径，违反项目 sha256 标准。修复：替换为 `hash('sha256', ...)`
+- **[LOW] View::extend() 缺少路径验证** — `extend()` 方法未调用 `validatePath()`，与 `render()` 不一致，可能导致布局文件路径遍历。修复：添加 `validatePath()` 检查
+- **[LOW] View::include() autoEscape 状态泄漏** — `render()` 抛出异常时 `$this->autoEscape` 不会被恢复。修复：使用 try-finally 模式
+
+---
+
 ## [2.0.8] - 2026-06-10
 
 ### 缺陷修复 (Bug Fixes)

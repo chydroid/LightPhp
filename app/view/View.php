@@ -207,6 +207,9 @@ class View
         }
 
         if (file_exists($layoutFile)) {
+            if (!$this->validatePath($layoutFile)) {
+                throw new \RuntimeException("Layout [{$layout}] path traversal detected");
+            }
             if (ob_get_level() > 0) {
                 ob_clean();
             }
@@ -227,8 +230,11 @@ class View
         // 父视图 render() 已转义数据，此处跳过转义避免双重转义
         $prevAutoEscape = $this->autoEscape;
         $this->autoEscape = false;
-        echo $this->render($view, $data);
-        $this->autoEscape = $prevAutoEscape;
+        try {
+            echo $this->render($view, $data);
+        } finally {
+            $this->autoEscape = $prevAutoEscape;
+        }
     }
 
     /**

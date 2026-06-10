@@ -523,7 +523,10 @@ class Router
         http_response_code(404);
 
         // 尝试加载自定义错误视图
-        $errorView = $this->container?->get('config')['app']['error_views']['404'] ?? null;
+        $config = $this->container?->get('config');
+        $errorView = is_array($config) && isset($config['app']['error_views']['404'])
+            ? $config['app']['error_views']['404']
+            : null;
         if ($errorView !== null && defined('VIEW_PATH')) {
             $viewPath = VIEW_PATH . ltrim($errorView, '/') . '.php';
             if (file_exists($viewPath)) {

@@ -34,18 +34,23 @@ class Env
                 $key = trim($key);
                 $value = trim($value);
 
-                // 移除行内注释（# 后的内容），但保留引号内的 #
-                if (!str_starts_with($value, '"') && !str_starts_with($value, "'")) {
+                // 处理引号包裹的值：提取引号内的内容，忽略引号后的注释
+                if (str_starts_with($value, '"')) {
+                    $closingPos = strpos($value, '"', 1);
+                    if ($closingPos !== false) {
+                        $value = substr($value, 1, $closingPos - 1);
+                    }
+                } elseif (str_starts_with($value, "'")) {
+                    $closingPos = strpos($value, "'", 1);
+                    if ($closingPos !== false) {
+                        $value = substr($value, 1, $closingPos - 1);
+                    }
+                } else {
+                    // 无引号的值：移除行内注释（# 后的内容）
                     $commentPos = strpos($value, ' #');
                     if ($commentPos !== false) {
                         $value = trim(substr($value, 0, $commentPos));
                     }
-                }
-
-                if (str_starts_with($value, '"') && str_ends_with($value, '"')) {
-                    $value = substr($value, 1, -1);
-                } elseif (str_starts_with($value, "'") && str_ends_with($value, "'")) {
-                    $value = substr($value, 1, -1);
                 }
 
                 $originalValue = $value;

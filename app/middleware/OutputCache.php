@@ -101,19 +101,22 @@ class OutputCache extends Middleware
         return $headers;
     }
 
-    private function buildCachedResponse(array $cached): string
+    private function buildCachedResponse(array $cached): \core\Response
     {
+        $content = $cached['content'] ?? '';
+        $response = \core\Response::make($content);
+
         // 响应头白名单：仅重放安全的响应头
         $safeHeaders = ['Content-Type', 'Content-Language', 'X-Cache'];
         if (!empty($cached['headers'])) {
             foreach ($cached['headers'] as $header) {
                 if (in_array($header['name'], $safeHeaders, true)) {
-                    header($header['name'] . ': ' . $header['value']);
+                    $response->header($header['name'], $header['value']);
                 }
             }
         }
 
-        header('X-Cache: HIT');
-        return $cached['content'] ?? '';
+        $response->header('X-Cache', 'HIT');
+        return $response;
     }
 }

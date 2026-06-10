@@ -36,7 +36,8 @@ class EventDispatcher
 
     public function forget(string $event): void
     {
-        unset($this->listeners[$event], $this->wildcardCache[$event], $this->wildcardRegexCache[$event]);
+        unset($this->listeners[$event], $this->wildcardCache[$event]);
+        $this->wildcardRegexCache = [];
     }
 
     public function hasListeners(string $event): bool
@@ -84,7 +85,7 @@ class EventDispatcher
                     $result = $listener($event, ...$payload);
                     $results[] = $result;
                     if ($result === false) {
-                        break;
+                        continue;
                     }
                 } catch (\Throwable $e) {
                     $results[] = $e;

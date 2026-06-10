@@ -2,6 +2,18 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.0.4] - 2026-06-07
+
+### 缺陷修复 (Bug Fixes)
+
+- **[CRITICAL] OutputCache 未初始化变量** — `handle()` 方法中当 `$next($request)` 抛出异常时，`$response` 变量未定义。修复：在 try 块前初始化 `$response = null`
+- **[HIGH] EventDispatcher 监听器传播中断** — `dispatch()` 中监听器返回 `false` 时使用 `break` 错误地终止了所有后续监听器。修复为 `continue` 仅跳过当前监听器
+- **[MEDIUM] EventDispatcher forget() 缓存清理** — 错误地用事件名作为 `wildcardRegexCache` 的键。修复：清空整个 `wildcardRegexCache` 数组确保缓存一致性
+- **[MEDIUM] Upload.files() 单文件兼容** — 单文件上传场景 `$_FILES[$name]['name']` 为字符串时 `count()` 触发 PHP 8+ 警告。修复：增加 `is_array()` 分发兼容单文件/多文件上传
+- **[MEDIUM] Application.run() 空响应处理** — `dispatch()` 返回 `null`/`false` 时无任何响应输出。修复：增加兜底逻辑返回 500 错误响应
+
+---
+
 ## [2.0.3] - 2026-06-07
 
 ### 文档 (Documentation)

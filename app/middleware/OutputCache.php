@@ -50,6 +50,7 @@ class OutputCache extends Middleware
         }
 
         ob_start();
+        $response = null;
         try {
             $response = $next($request);
         } finally {

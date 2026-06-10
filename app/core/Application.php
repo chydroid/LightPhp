@@ -173,6 +173,12 @@ class Application
                 \core\Response::json($result)->send();
             } elseif (is_string($result) || (is_object($result) && method_exists($result, '__toString'))) {
                 echo (string) $result;
+            } elseif ($result !== null && $result !== false) {
+                // 其他非空值，尝试转换为字符串输出
+                echo (string) $result;
+            } else {
+                // 处理程序未返回有效响应
+                \core\Response::json(['code' => 500, 'message' => 'Internal Server Error'])->send();
             }
         } catch (\Throwable $e) {
             $this->handleException($e);

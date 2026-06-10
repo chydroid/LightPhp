@@ -31,6 +31,14 @@ class Upload
             return [];
         }
 
+        // 处理单文件（name 为字符串）和多文件（name 为数组）两种情况
+        if (!is_array($_FILES[$name]['name'])) {
+            if ($_FILES[$name]['error'] === UPLOAD_ERR_OK) {
+                return [new self($_FILES[$name])];
+            }
+            return [];
+        }
+
         $files = [];
         $count = count($_FILES[$name]['name']);
 

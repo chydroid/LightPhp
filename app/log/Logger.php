@@ -232,6 +232,9 @@ class Logger implements LoggerInterface
     public function clear(string $date = null): void
     {
         $date = $date ?? date('Y-m-d');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            throw new \InvalidArgumentException("Invalid date format: {$date}, expected Y-m-d");
+        }
         $file = $this->logPath . $date . '.log';
         if (file_exists($file)) {
             unlink($file);

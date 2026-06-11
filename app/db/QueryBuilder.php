@@ -63,7 +63,7 @@ class QueryBuilder
     private bool $isRaw = false;
 
     /** @var string[] 允许的 SQL 操作符 */
-    private const ALLOWED_OPERATORS = ['=', '!=', '<>', '<', '>', '<=', '>=', 'LIKE', 'NOT LIKE', 'IN', 'NOT IN', 'BETWEEN', 'IS', 'IS NOT'];
+    private const ALLOWED_OPERATORS = ['=', '!=', '<>', '<', '>', '<=', '>=', 'LIKE', 'NOT LIKE'];
 
     /** @var string[] 允许的 JOIN 类型 */
     private const ALLOWED_JOIN_TYPES = ['INNER', 'LEFT', 'RIGHT', 'CROSS'];
@@ -484,7 +484,9 @@ class QueryBuilder
             }
         }
 
-        if ($this->lock) {
+        if ($this->forUpdate) {
+            $sql .= " FOR UPDATE";
+        } elseif ($this->lock) {
             $sql .= " {$this->lock}";
         }
 
@@ -602,9 +604,10 @@ class QueryBuilder
     {
         $this->validateColumnName($column);
         $clone = clone $this;
-        $clone->select = "`{$column}`";
+        $clone->select = $this->sanitizeColumn($column);
         $result = $clone->fetch();
-        return $result !== null ? ($result[$column] ?? null) : null;
+        $bareColumn = str_contains($column, '.') ? explode('.', $column, 2)[1] : $column;
+        return $result !== null ? ($result[$bareColumn] ?? null) : null;
     }
 
     private function validateAggregateColumn(string $column): void
@@ -715,6 +718,9 @@ class QueryBuilder
 
     public function chunk(int $count, callable $callback): void
     {
+        if ($count < 1) {
+            throw new \InvalidArgumentException('chunk size must be at least 1, got ' . $count);
+        }
         $page = 1;
         do {
             $clone = clone $this;
@@ -736,9 +742,10 @@ class QueryBuilder
 
     public function paginate(int $perPage = 15, int $page = 1): array
     {
+        $perPage = max(1, $perPage);
+        $page = max(1, $page);
         $total = $this->count();
         $totalPages = (int) ceil($total / $perPage);
-        $page = max(1, $page);
 
         $clone = clone $this;
         $clone->limit($perPage, ($page - 1) * $perPage);

@@ -384,9 +384,11 @@ class FileCache implements CacheInterface
 
         try {
             flock($fp, LOCK_EX);
-            $current = (int) $this->get($key, 0);
+            $data = $this->read($key);
+            $current = $data !== null ? (int) $data['value'] : 0;
             $new = $current + $step;
-            $this->set($key, $new);
+            $ttl = ($data !== null && $data['expire'] > 0) ? ($data['expire'] - time()) : null;
+            $this->set($key, $new, $ttl);
             return $new;
         } finally {
             flock($fp, LOCK_UN);
@@ -411,9 +413,11 @@ class FileCache implements CacheInterface
 
         try {
             flock($fp, LOCK_EX);
-            $current = (int) $this->get($key, 0);
+            $data = $this->read($key);
+            $current = $data !== null ? (int) $data['value'] : 0;
             $new = max(0, $current - $step);
-            $this->set($key, $new);
+            $ttl = ($data !== null && $data['expire'] > 0) ? ($data['expire'] - time()) : null;
+            $this->set($key, $new, $ttl);
             return $new;
         } finally {
             flock($fp, LOCK_UN);
@@ -519,17 +523,21 @@ class FileCache implements CacheInterface
 
     private function incrementFallback(string $key, int $step): int
     {
-        $current = (int) $this->get($key, 0);
+        $data = $this->read($key);
+        $current = $data !== null ? (int) $data['value'] : 0;
         $new = $current + $step;
-        $this->set($key, $new);
+        $ttl = ($data !== null && $data['expire'] > 0) ? ($data['expire'] - time()) : null;
+        $this->set($key, $new, $ttl);
         return $new;
     }
 
     private function decrementFallback(string $key, int $step): int
     {
-        $current = (int) $this->get($key, 0);
+        $data = $this->read($key);
+        $current = $data !== null ? (int) $data['value'] : 0;
         $new = max(0, $current - $step);
-        $this->set($key, $new);
+        $ttl = ($data !== null && $data['expire'] > 0) ? ($data['expire'] - time()) : null;
+        $this->set($key, $new, $ttl);
         return $new;
     }
 }

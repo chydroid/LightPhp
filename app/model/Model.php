@@ -82,17 +82,29 @@ class Model
 
     public function create(array $data): int
     {
+        if (!$this->fireEvent('creating')) {
+            return 0;
+        }
         $data = $this->filterFillable($data);
         $data = $this->syncTimestamps($data, 'create');
-        return $this->newQuery()->insert($data);
+        $id = $this->newQuery()->insert($data);
+        $this->fireEvent('created');
+        return $id;
     }
 
     public function update(int|string $id, array $data): int
     {
+        if (!$this->fireEvent('updating')) {
+            return 0;
+        }
         $data = $this->filterFillable($data);
         unset($data[$this->primaryKey]);
         $data = $this->syncTimestamps($data, 'update');
-        return $this->newQuery()->where($this->primaryKey, '=', $id)->update($data);
+        $result = $this->newQuery()->where($this->primaryKey, '=', $id)->update($data);
+        if ($result > 0) {
+            $this->fireEvent('updated');
+        }
+        return $result;
     }
 
     /**
@@ -189,7 +201,7 @@ class Model
      * @param string|null $foreignKey 外键 (当前表)
      * @param string|null $ownerKey 父表主键
      */
-    protected function belongsTo(string $related, ?string $foreignKey = null, ?string $ownerKey = null): ?static
+    protected function belongsTo(string $related, ?string $foreignKey = null, ?string $ownerKey = null): ?self
     {
         $instance = new $related();
         $foreignKey = $foreignKey ?? $instance->getForeignKey();
@@ -235,7 +247,7 @@ class Model
      * @param class-string<static> $relatedClass 关联模型类
      * @param string $type 关联类型: hasOne|hasMany|belongsTo
      */
-    public static function eagerLoad(array $models, string $relation, string $relatedClass, string $type = 'hasMany'): array
+    public static function eagerLoad(array $models, string $relation, string $relatedClass, string $type = 'hasMany', ?string $foreignKey = null, ?string $ownerKey = null): array
     {
         if (empty($models)) {
             return $models;
@@ -275,8 +287,8 @@ class Model
                 }
             }
         } elseif ($type === 'belongsTo') {
-            $foreignKey = $relation . '_id';
-            $ownerKey = $instance->primaryKey;
+            $foreignKey = $foreignKey ?? $instance->getForeignKey();
+            $ownerKey = $ownerKey ?? $instance->primaryKey;
 
             $ids = array_unique(array_filter(array_map(fn($m) => $m->getAttribute($foreignKey), $models)));
 
@@ -311,29 +323,41 @@ class Model
 
     public function toArray(): array
     {
-        $data = $this->attributes;
+        static $visited = [];
 
-        foreach ($this->casts as $key => $type) {
-            if (array_key_exists($key, $data)) {
-                $data[$key] = $this->castAttribute($key, $data[$key]);
+        $oid = spl_object_id($this);
+        if (isset($visited[$oid])) {
+            return [];
+        }
+        $visited[$oid] = true;
+
+        try {
+            $data = $this->attributes;
+
+            foreach ($this->casts as $key => $type) {
+                if (array_key_exists($key, $data)) {
+                    $data[$key] = $this->castAttribute($key, $data[$key]);
+                }
             }
-        }
 
-        foreach ($this->hidden as $key) {
-            unset($data[$key]);
-        }
-
-        foreach ($this->relations as $name => $value) {
-            if ($value instanceof self) {
-                $data[$name] = $value->toArray();
-            } elseif (is_array($value)) {
-                $data[$name] = array_map(fn($v) => $v instanceof self ? $v->toArray() : $v, $value);
-            } else {
-                $data[$name] = $value;
+            foreach ($this->hidden as $key) {
+                unset($data[$key]);
             }
-        }
 
-        return $data;
+            foreach ($this->relations as $name => $value) {
+                if ($value instanceof self) {
+                    $data[$name] = $value->toArray();
+                } elseif (is_array($value)) {
+                    $data[$name] = array_map(fn($v) => $v instanceof self ? $v->toArray() : $v, $value);
+                } else {
+                    $data[$name] = $value;
+                }
+            }
+
+            return $data;
+        } finally {
+            unset($visited[$oid]);
+        }
     }
 
     public function toJson(int $options = JSON_UNESCAPED_UNICODE): string
@@ -526,20 +550,14 @@ class Model
 
     public function __clone(): void
     {
-        foreach ($this->relations as $name => $relation) {
-            if ($relation instanceof self) {
-                $this->relations[$name] = clone $relation;
-            } elseif (is_array($relation)) {
-                $this->relations[$name] = array_map(fn($r) => $r instanceof self ? clone $r : $r, $relation);
-            }
-        }
         $this->exists = false;
         unset($this->attributes[$this->primaryKey]);
     }
 
     public function __isset(string $name): bool
     {
-        return array_key_exists($name, $this->attributes) || array_key_exists($name, $this->relations);
+        return (array_key_exists($name, $this->attributes) && $this->attributes[$name] !== null)
+            || (array_key_exists($name, $this->relations) && $this->relations[$name] !== null);
     }
 
     public function __call(string $method, array $args)

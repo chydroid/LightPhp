@@ -80,8 +80,8 @@ class Response
      */
     public static function redirect(string $url, int $statusCode = 302): self
     {
-        // 防止开放重定向：只允许相对路径
-        if (!preg_match('#^/[^/]?#', $url)) {
+        // 防止开放重定向：只允许相对路径（排除 //evil.com 协议相对URL）
+        if (!str_starts_with($url, '/') || str_starts_with($url, '//')) {
             throw new \InvalidArgumentException('Redirect URL must be a relative path');
         }
 

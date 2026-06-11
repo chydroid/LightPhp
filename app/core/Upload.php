@@ -120,11 +120,17 @@ class Upload
             }
         }
 
-        // 始终拒绝危险扩展名（无论 allowedExtensions 配置）
-        $ext = strtolower($this->getExtension());
-        if (in_array($ext, self::DANGEROUS_EXTENSIONS, true)) {
-            $this->error = 'Dangerous file extension not allowed';
-            return false;
+        // 始终拒绝危险扩展名（无论 allowedExtensions 配置），直接检查文件名所有扩展名部分防止绕过
+        $filename = $this->file['name'] ?? '';
+        $parts = explode('.', $filename);
+        if (count($parts) > 1) {
+            array_shift($parts);
+            foreach ($parts as $ext) {
+                if (in_array(strtolower($ext), self::DANGEROUS_EXTENSIONS, true)) {
+                    $this->error = 'Dangerous file extension not allowed';
+                    return false;
+                }
+            }
         }
 
         if ($this->maxSize > 0 && $this->file['size'] > $this->maxSize) {
@@ -152,13 +158,16 @@ class Upload
         $realBase = realpath(PUBLIC_PATH);
         $resolvedPath = realpath($fullPath);
 
-        if ($realBase === false || $resolvedPath === false || !str_starts_with($resolvedPath, $realBase)) {
+        if ($realBase === false || $resolvedPath === false || ($resolvedPath !== $realBase && !str_starts_with($resolvedPath, $realBase . DIRECTORY_SEPARATOR))) {
             $this->error = 'Invalid upload path';
             return null;
         }
 
         $extension = strtolower(pathinfo($this->file['name'], PATHINFO_EXTENSION));
-        $filename = bin2hex(random_bytes(16)) . '.' . $extension;
+        $filename = bin2hex(random_bytes(16));
+        if ($extension !== '') {
+            $filename .= '.' . $extension;
+        }
         $destination = $resolvedPath . DIRECTORY_SEPARATOR . $filename;
 
         if (move_uploaded_file($this->file['tmp_name'], $destination)) {

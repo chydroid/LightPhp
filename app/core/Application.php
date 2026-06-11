@@ -303,6 +303,7 @@ class Application
                     echo ob_get_clean();
                     return;
                 } catch (\Throwable $viewException) {
+                    ob_end_clean();
                 }
             }
         }

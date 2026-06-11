@@ -75,9 +75,9 @@ class Env
                 elseif ($value === 'false') $value = false;
                 elseif ($value === 'null') $value = null;
 
-                self::$vars[$key] = $value;
-
-                if (!isset($_ENV[$key])) {
+                // 仅当系统环境变量不存在时，才使用 .env 文件值
+                if (!isset($_ENV[$key]) && getenv($key) === false) {
+                    self::$vars[$key] = $value;
                     $_ENV[$key] = $originalValue;
                     putenv("{$key}={$originalValue}");
                 }

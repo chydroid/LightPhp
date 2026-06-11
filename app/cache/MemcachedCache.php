@@ -73,7 +73,7 @@ class MemcachedCache implements CacheInterface
     public function set(string $key, mixed $value, ?int $ttl = null): bool
     {
         $ttl = $ttl ?? $this->defaultTtl;
-        $data = is_scalar($value) ? $value : $this->serialize($value);
+        $data = $this->serialize($value);
         return $this->memcached->set($this->key($key), $data, $ttl);
     }
 
@@ -148,8 +148,10 @@ class MemcachedCache implements CacheInterface
         $fullKey = $this->key($key);
         $result = $this->memcached->increment($fullKey, $step);
         if ($result === false) {
-            $this->memcached->add($fullKey, $step, $this->defaultTtl);
-            return $step;
+            if ($this->memcached->add($fullKey, $step, $this->defaultTtl)) {
+                return $step;
+            }
+            return (int) $this->memcached->increment($fullKey, $step);
         }
         return (int) $result;
     }
@@ -159,8 +161,10 @@ class MemcachedCache implements CacheInterface
         $fullKey = $this->key($key);
         $result = $this->memcached->decrement($fullKey, $step);
         if ($result === false) {
-            $this->memcached->add($fullKey, max(0, -$step), $this->defaultTtl);
-            return max(0, -$step);
+            if ($this->memcached->add($fullKey, 0, $this->defaultTtl)) {
+                return 0;
+            }
+            return max(0, (int) $this->memcached->decrement($fullKey, $step));
         }
         return (int) $result;
     }
@@ -198,7 +202,7 @@ class MemcachedCache implements CacheInterface
         $data = [];
 
         foreach ($values as $key => $value) {
-            $data[$this->key((string) $key)] = is_scalar($value) ? $value : $this->serialize($value);
+            $data[$this->key((string) $key)] = $this->serialize($value);
         }
 
         return $this->memcached->setMulti($data, $ttl);
@@ -227,9 +231,9 @@ class MemcachedCache implements CacheInterface
     public function attachTag(string $key, string $tag): void
     {
         $tagKey = $this->prefix . 'tag:' . $tag;
-        $keys = [];
         $existing = $this->memcached->get($tagKey);
-        if ($existing !== false) {
+        $keys = [];
+        if ($this->memcached->getResultCode() === \Memcached::RES_SUCCESS) {
             $keys = $this->unserialize($existing);
             if (!is_array($keys)) {
                 $keys = [];
@@ -250,7 +254,7 @@ class MemcachedCache implements CacheInterface
         $tagKey = $this->prefix . 'tag:' . $tag;
         $existing = $this->memcached->get($tagKey);
 
-        if ($existing !== false) {
+        if ($this->memcached->getResultCode() === \Memcached::RES_SUCCESS) {
             $keys = $this->unserialize($existing);
             if (is_array($keys) && !empty($keys)) {
                 $fullKeys = array_map(fn($k) => $this->key((string) $k), $keys);

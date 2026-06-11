@@ -98,8 +98,10 @@ class TaggedCache
     public function setMany(array $values, ?int $ttl = null): bool
     {
         $result = $this->store->setMany($values, $ttl);
-        foreach ($values as $key => $v) {
-            $this->tagKey((string) $key);
+        if ($result) {
+            foreach ($values as $key => $v) {
+                $this->tagKey((string) $key);
+            }
         }
         return $result;
     }

@@ -104,9 +104,23 @@ class View
         $this->renderData = $data;
         unset($file, $data, $template);
 
+        $initialObLevel = ob_get_level();
         ob_start();
         extract($__data, EXTR_SKIP);
-        require $__file;
+        try {
+            require $__file;
+        } catch (\Throwable $t) {
+            while (ob_get_level() > $initialObLevel) {
+                ob_end_clean();
+            }
+            throw $t;
+        }
+
+        // 清理未匹配 startSection() 导致的孤立输出缓冲区
+        while (ob_get_level() > $initialObLevel + 1) {
+            ob_end_clean();
+        }
+
         $content = ob_get_clean();
         $this->renderData = [];
         return $content === false ? '' : $content;
@@ -231,13 +245,23 @@ class View
      */
     public function include(string $view, array $data = []): void
     {
-        // 父视图 render() 已转义数据，此处跳过转义避免双重转义
+        // 父视图 render() 已转义共享数据，此处跳过转义避免双重转义
+        // 但子视图自有数据仍需转义
         $prevAutoEscape = $this->autoEscape;
+        $prevSections = $this->sections;
+        $prevCurrentSection = $this->currentSection;
+        $prevRenderData = $this->renderData;
+        if ($prevAutoEscape) {
+            $data = $this->escapeArray($data);
+        }
         $this->autoEscape = false;
         try {
             echo $this->render($view, $data);
         } finally {
             $this->autoEscape = $prevAutoEscape;
+            $this->sections = $prevSections;
+            $this->currentSection = $prevCurrentSection;
+            $this->renderData = $prevRenderData;
         }
     }
 
@@ -311,7 +335,7 @@ class View
         if ($realPath === false || $realViewPath === false) {
             return false;
         }
-        return str_starts_with($realPath, $realViewPath);
+        return $realPath === $realViewPath || str_starts_with($realPath, $realViewPath . DIRECTORY_SEPARATOR);
     }
 
     /**

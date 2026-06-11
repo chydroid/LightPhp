@@ -193,7 +193,13 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
         if ($callback === null) {
             return empty($this->items) ? (is_callable($default) ? $default() : $default) : end($this->items);
         }
-        return $this->reverse()->first($callback, $default);
+        // Iterate in reverse to preserve original keys
+        for (end($this->items); ($key = key($this->items)) !== null; prev($this->items)) {
+            if ($callback(current($this->items), $key)) {
+                return current($this->items);
+            }
+        }
+        return is_callable($default) ? $default() : $default;
     }
 
     // ─── 分组 ───
@@ -202,7 +208,11 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
     {
         $results = [];
         foreach ($this->items as $item) {
-            $groupKey = $item[$key] ?? 'null';
+            if (is_array($item) && array_key_exists($key, $item)) {
+                $groupKey = $item[$key];
+            } else {
+                $groupKey = null;
+            }
             $results[$groupKey][] = $item;
         }
         return new static($results);

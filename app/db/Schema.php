@@ -141,7 +141,7 @@ class Schema
         $parts = [];
         $parts[] = "CREATE TABLE `{$this->table}` (";
         $parts[] = implode(",\n  ", array_merge($this->columns, $this->commands));
-        $parts[] = ") ENGINE={$this->engine} DEFAULT CHARSET={$this->charset}";
+        $parts[] = ") ENGINE={$this->engine} DEFAULT CHARSET={$this->charset} COLLATE={$this->collation}";
         if ($this->comment !== '') {
             $parts[2] .= " COMMENT='" . str_replace("'", "''", $this->comment) . "'";
         }
@@ -302,6 +302,9 @@ class Blueprint
 
     public function enum(string $name, array $values): self
     {
+        if (empty($values)) {
+            throw new \InvalidArgumentException("ENUM column '{$name}' requires at least one value");
+        }
         $escaped = array_map(fn($v) => $this->escapeQuote((string) $v), $values);
         $quoted = implode("','", $escaped);
         return $this->addColumn("`{$name}`", "ENUM('{$quoted}')");
@@ -330,6 +333,9 @@ class Blueprint
     {
         if ($value === null) {
             return $this->modifyColumn('DEFAULT NULL');
+        }
+        if (is_bool($value)) {
+            return $this->modifyColumn('DEFAULT ' . ($value ? '1' : '0'));
         }
         if (is_string($value)) {
             $upper = strtoupper($value);
@@ -742,6 +748,9 @@ class Migration
     {
         $content = file_get_contents($this->migrationsPath . $file);
         if ($content === false) return '';
+        // 移除注释块和单行注释，避免误匹配
+        $content = preg_replace('/\/\*.*?\*\//s', '', $content);
+        $content = preg_replace('/\/\/.*$/m', '', $content);
         // 匹配 namespace 和 class 声明
         $namespace = '';
         if (preg_match('/namespace\s+([\w\\\\]+)/', $content, $nm)) {

@@ -26,6 +26,12 @@ class Captcha
 
         $image = self::createImage($code);
 
+        // 重置配置为默认值，防止长运行进程中的状态污染
+        self::$width = 120;
+        self::$height = 40;
+        self::$length = 4;
+        self::$chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+
         return ['image' => $image];
     }
 
@@ -37,6 +43,9 @@ class Captcha
     public static function verify(string $input, ?string $sessionCode = null): bool
     {
         $code = $sessionCode ?? Session::get(self::$key, '');
+        if ($code === '') {
+            return false;
+        }
         $result = hash_equals($code, strtolower($input));
 
         if ($result && $sessionCode === null) {

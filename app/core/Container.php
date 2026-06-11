@@ -231,6 +231,8 @@ class Container implements PsrContainerInterface
                 $dependencies[] = $parameters[$parameter->getName()];
             } elseif ($parameter->isDefaultValueAvailable()) {
                 $dependencies[] = $parameter->getDefaultValue();
+            } elseif ($type !== null && $type->allowsNull()) {
+                $dependencies[] = null;
             } else {
                 throw new \RuntimeException(
                     "Unable to resolve parameter [{$parameter->getName()}] for [{$class}]"

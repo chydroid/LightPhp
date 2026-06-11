@@ -232,9 +232,9 @@ class RedisCache implements CacheInterface
     public function increment(string $key, int $step = 1): int
     {
         $fullKey = $this->key($key);
+        $exists = (bool) $this->redis->exists($fullKey);
         $result = $this->redis->incrBy($fullKey, $step);
-        if ($result === 1) {
-            // Key was auto-created by Redis, set TTL
+        if (!$exists) {
             $this->redis->expire($fullKey, $this->defaultTtl);
         }
         return (int) $result;
@@ -250,9 +250,9 @@ class RedisCache implements CacheInterface
     public function decrement(string $key, int $step = 1): int
     {
         $fullKey = $this->key($key);
+        $exists = (bool) $this->redis->exists($fullKey);
         $result = $this->redis->decrBy($fullKey, $step);
-        if ($result === -$step) {
-            // Key was auto-created by Redis, set TTL
+        if (!$exists) {
             $this->redis->expire($fullKey, $this->defaultTtl);
         }
         return (int) $result;
@@ -283,7 +283,9 @@ class RedisCache implements CacheInterface
 
         foreach ($fullKeys as $i => $fullKey) {
             $originalKey = $keyMap[$fullKey];
-            $results[$originalKey] = $values[$i] ?? null;
+            $value = $values[$i] ?? null;
+            // Redis mget returns false for non-existent keys with JSON serializer
+            $results[$originalKey] = ($value === false && !$this->redis->exists($fullKey)) ? null : $value;
         }
 
         return $results;
@@ -367,8 +369,17 @@ class RedisCache implements CacheInterface
         $keys = $this->redis->sMembers($tagKey);
 
         if (!empty($keys)) {
-            $fullKeys = array_map(fn($k) => $this->key($k), $keys);
-            $this->redis->del($fullKeys);
+            // Filter out keys that no longer exist (expired)
+            $existingFullKeys = [];
+            foreach ($keys as $k) {
+                $fullKey = $this->key($k);
+                if ($this->redis->exists($fullKey)) {
+                    $existingFullKeys[] = $fullKey;
+                }
+            }
+            if (!empty($existingFullKeys)) {
+                $this->redis->del($existingFullKeys);
+            }
         }
 
         $this->redis->del($tagKey);

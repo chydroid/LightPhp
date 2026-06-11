@@ -2,6 +2,53 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.4.0] - 2026-06-11
+
+### 安全修复 (Security Fixes)
+
+- **[CRITICAL] Response::redirect() 协议相对URL绕过** — `//evil.com` 可通过正则验证实现开放重定向。修复：使用 str_starts_with 严格验证
+- **[CRITICAL] Upload 危险扩展名检查绕过** — `getExtension()` 对危险文件返回空字符串，但 validate() 用返回值检查黑名单导致通过。修复：直接检查文件名所有扩展名
+- **[HIGH] Upload 路径前缀碰撞** — `str_starts_with` 无目录分隔符保护，符号链接可导致目录穿越。修复：附加 DIRECTORY_SEPARATOR
+- **[HIGH] Logger::clear() 路径遍历** — `$date` 参数未校验，可删除任意文件。修复：添加日期格式正则验证
+- **[HIGH] Captcha 空验证码绕过** — Session无验证码时 `hash_equals('','')` 返回 true。修复：空验证码直接返回 false
+- **[MEDIUM] View::include() 子视图数据未转义** — 子视图自有数据跳过转义存在XSS风险。修复：对子视图传入数据单独转义
+- **[MEDIUM] Env .env值覆盖系统环境变量** — 系统环境变量应优先于.env文件值。修复：仅当系统变量不存在时才使用.env值
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] QueryBuilder::value() 点号列名SQL错误** — `users.name` 生成 `` `users.name` `` 而非 `` `users`.`name` ``。修复：使用 sanitizeColumn()
+- **[HIGH] QueryBuilder::forUpdate() 死代码** — 设置 $forUpdate 但 buildSelect() 未检查。修复：添加 FOR UPDATE 输出
+- **[HIGH] QueryBuilder forUpdate+lock 双重锁子句** — 同时调用生成无效SQL。修复：改为 elseif 互斥
+- **[HIGH] QueryBuilder ALLOWED_OPERATORS 包含 where() 无法处理的操作符** — IN/BETWEEN/IS 用单占位符绑定导致SQL错误。修复：移除这些操作符
+- **[HIGH] Model create()/update() 不触发模型事件** — 直接调用 QueryBuilder 绕过事件系统。修复：添加 fireEvent 调用
+- **[HIGH] Model belongsTo() 返回类型 TypeError** — `?static` 在子类返回不同类型实例时抛出 TypeError。修复：改为 `?self`
+- **[HIGH] Model eagerLoad belongsTo 硬编码外键** — `{relation}_id` 与 `belongsTo()` 默认外键不一致。修复：使用 getForeignKey()
+- **[HIGH] Model __clone 深拷贝关联丢失主键** — 克隆关联模型触发其 __clone 导致丢失主键和exists状态。修复：不再深拷贝关联
+- **[HIGH] FileCache increment/decrement 重置TTL** — 操作后使用 defaultTtl 覆盖原有过期时间。修复：保留原TTL
+- **[HIGH] RedisCache increment/decrement TTL误判** — 用 `$result === $step` 判断新建key，已有key值等于step时误设TTL。修复：先检查 exists
+- **[HIGH] MemcachedCache increment/decrement 竞态条件** — 并发下 add 失败仍返回初始值。修复：add 失败后重试 increment
+- **[HIGH] MemcachedCache 序列化不一致** — set() 对标量值不序列化但 get() 总尝试反序列化。修复：统一序列化
+- **[HIGH] MemcachedCache attachTag/flushByTag 用 !== false 判断** — 序列化后的 false 值被误判为不存在。修复：使用 getResultCode()
+- **[MEDIUM] RedisCache many() 对不存在key返回 false** — 应返回 null 而非 false。修复：检查 exists 转换
+- **[MEDIUM] RedisCache flushByTag 未过滤过期key** — 删除已过期key无意义。修复：先检查 exists
+- **[MEDIUM] TaggedCache setMany() 失败仍附加标签** — 存储失败时标签指向不存在的key。修复：仅在成功时附加
+- **[MEDIUM] Schema compileCreate() 未包含 COLLATE** — collation() 配置无效。修复：添加 COLLATE 子句
+- **[MEDIUM] Schema default(false) 生成无效SQL** — 布尔值 false 字符串化为空。修复：添加 is_bool 判断
+- **[MEDIUM] Collection groupBy() null转字符串** — null 值被转为 'null' 字符串。修复：使用 array_key_exists
+- **[MEDIUM] Collection last() 回调丢失键** — reverse() 重置数字键。修复：用 end/prev 迭代
+- **[MEDIUM] Session flash() 缺少老化机制** — flash数据永不过期。修复：添加 ageFlash() new/old 模式
+- **[MEDIUM] Container/Router 可空类型参数未处理** — `?Class $param` 无法解析时抛异常而非传 null。修复：检查 allowsNull
+- **[MEDIUM] Throttle hit() 每次重置过期时间** — 限流窗口持续滑动。修复：保留原 expire
+- **[MEDIUM] Generator nullable类型声明** — `string $param = null` 在 strict_types 下 TypeError。修复：添加 `?` 标记
+- **[MEDIUM] Upload 无扩展名文件名尾部带点** — Windows上路径不匹配。修复：空扩展名不加点号
+- **[MEDIUM] HasModelEvents observe() 缺少 restoring/restored** — 观察者无法监听恢复事件。修复：添加到事件列表
+- **[MEDIUM] SoftDelete 用 db() 绕过 newQuery()** — 可重复软删除已删除记录。修复：改用 newQuery()
+- **[MEDIUM] Captcha 静态配置跨请求污染** — 长运行进程中配置不重置。修复：generate() 末尾重置
+- **[MEDIUM] Config define() 重复调用致命错误** — 未检查常量是否已定义。修复：添加 defined() 检查
+- **[MEDIUM] View validatePath() 路径前缀碰撞** — 同 Upload 问题。修复：附加 DIRECTORY_SEPARATOR
+- **[MEDIUM] View render() 输出缓冲区泄漏** — require 异常时 ob 未清理。修复：try/catch 中 ob_end_clean
+- **[MEDIUM] RequestLogMiddleware/Cors 使用 $_SERVER** — 绕过 Request 封装。修复：使用 $request 方法
+
 ## [2.3.0] - 2026-06-10
 
 ### 安全修复 (Security Fixes)

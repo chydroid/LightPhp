@@ -24,7 +24,7 @@ class RequestLogMiddleware extends Middleware
         } finally {
             $duration = round((microtime(true) - $startTime) * 1000, 2);
             $statusCode = http_response_code() ?: 200;
-            $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+            $ip = $request->ip();
 
             $message = sprintf(
                 '%s %s → %d [%sms] [%s]',
@@ -43,7 +43,7 @@ class RequestLogMiddleware extends Middleware
                     'status' => $statusCode,
                     'duration_ms' => $duration,
                     'ip' => $ip,
-                    'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+                    'user_agent' => $request->userAgent(),
                 ]);
             }
         }

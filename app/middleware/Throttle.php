@@ -114,6 +114,9 @@ class Throttle
                 if (is_array($decoded) && isset($decoded['attempts'])) {
                     if (!isset($decoded['expire']) || $decoded['expire'] <= 0 || $decoded['expire'] >= time()) {
                         $attempts = (int) $decoded['attempts'];
+                        if (isset($decoded['expire']) && $decoded['expire'] > 0) {
+                            $expire = $decoded['expire'];
+                        }
                     }
                 }
             }

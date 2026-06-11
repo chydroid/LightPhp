@@ -80,6 +80,30 @@ class Blade
         $this->sections = [];
         $this->stack = [];
 
+        $rendered = [$template];
+        $content = $this->renderTemplate($template, $data);
+
+        while (isset($this->sections['__layout'])) {
+            $layout = $this->sections['__layout'];
+            unset($this->sections['__layout']);
+
+            if (in_array($layout, $rendered, true)) {
+                throw new \RuntimeException("Blade: Infinite recursion detected - layout '{$layout}' has already been rendered");
+            }
+            $rendered[] = $layout;
+
+            $this->stack = [];
+            $content = $this->renderTemplate($layout, $data);
+        }
+
+        return $content;
+    }
+
+    /**
+     * 渲染单个模板文件（不处理布局继承）
+     */
+    private function renderTemplate(string $template, array $data = []): string
+    {
         $cacheFile = $this->getCachePath($template);
 
         if (!$this->isCacheFresh($template, $cacheFile)) {
@@ -91,22 +115,23 @@ class Blade
             return '';
         }
 
+        $initialObLevel = ob_get_level();
         if (!ob_start()) {
             return '';
         }
-        $__blade = $this;
-        extract($data, EXTR_SKIP);
-        require $cacheFile;
+        try {
+            $__blade = $this;
+            extract($data, EXTR_SKIP);
+            require $cacheFile;
+        } catch (\Throwable $t) {
+            while (ob_get_level() > $initialObLevel) {
+                ob_end_clean();
+            }
+            throw $t;
+        }
         $content = ob_get_clean();
         if ($content === false) {
             $content = '';
-        }
-
-        if (isset($this->sections['__layout'])) {
-            $layout = $this->sections['__layout'];
-            $this->sections['__layout'] = null;
-            unset($this->sections['__layout']);
-            $content = $this->render($layout, $data);
         }
 
         return $content;
@@ -375,7 +400,14 @@ class Blade
 
     public function includeView(string $view): void
     {
-        echo $this->render($view, []);
+        $prevSections = $this->sections;
+        $prevStack = $this->stack;
+        try {
+            echo $this->renderTemplate($view, []);
+        } finally {
+            $this->sections = $prevSections;
+            $this->stack = $prevStack;
+        }
     }
 
     public function clear(): void

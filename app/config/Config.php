@@ -90,7 +90,9 @@ class Config
             return false;
         }
 
-        define('LIGHTPHP_CONFIG_CACHE', true);
+        if (!defined('LIGHTPHP_CONFIG_CACHE')) {
+            define('LIGHTPHP_CONFIG_CACHE', true);
+        }
         $cached = require $cacheFile;
         if (!is_array($cached)) {
             return false;

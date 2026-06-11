@@ -68,7 +68,7 @@ trait SoftDelete
             return false;
         }
 
-        $result = $this->db()->where($this->primaryKey, '=', $pk)->update(['deleted_at' => null]);
+        $result = $this->newQuery()->where($this->primaryKey, '=', $pk)->update(['deleted_at' => null]);
 
         if ($result > 0) {
             $this->attributes['deleted_at'] = null;
@@ -142,7 +142,7 @@ trait SoftDelete
         if ($this->forceDeleting) {
             $result = $this->db()->where($this->primaryKey, '=', $id)->delete();
         } else {
-            $result = $this->db()->where($this->primaryKey, '=', $id)->update(['deleted_at' => date($this->dateFormat)]);
+            $result = $this->newQuery()->where($this->primaryKey, '=', $id)->update(['deleted_at' => date($this->dateFormat)]);
         }
 
         if ($result > 0) {

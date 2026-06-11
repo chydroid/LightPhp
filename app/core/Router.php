@@ -499,6 +499,8 @@ class Router
                             $args[] = new $typeName();
                         } elseif ($param->isDefaultValueAvailable()) {
                             $args[] = $param->getDefaultValue();
+                        } elseif ($paramType->allowsNull()) {
+                            $args[] = null;
                         } else {
                             throw new \RuntimeException(
                                 "Unable to resolve parameter [\${$paramName}] for [" . get_class($controller) . "::{$action}]"
@@ -507,6 +509,8 @@ class Router
                     } elseif ($param->isDefaultValueAvailable()) {
                         // 使用默认值
                         $args[] = $param->getDefaultValue();
+                    } elseif ($paramType !== null && $paramType->allowsNull()) {
+                        $args[] = null;
                     } else {
                         throw new \RuntimeException(
                             "Unable to resolve parameter [\${$paramName}] for [" . get_class($controller) . "::{$action}]"

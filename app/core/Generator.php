@@ -53,7 +53,7 @@ class Generator
         }
     }
 
-    public function generateModel(string $table, string $modelName = null): string
+    public function generateModel(string $table, ?string $modelName = null): string
     {
         if (!preg_match('/^[a-zA-Z0-9_]+$/', $table)) {
             throw new \InvalidArgumentException("Invalid table name: {$table}");
@@ -92,7 +92,7 @@ PHP;
         return $template;
     }
 
-    public function generateController(string $table, string $controllerName = null, bool $withModel = true): string
+    public function generateController(string $table, ?string $controllerName = null, bool $withModel = true): string
     {
         if (!preg_match('/^[a-zA-Z0-9_]+$/', $table)) {
             throw new \InvalidArgumentException("Invalid table name: {$table}");
@@ -200,7 +200,7 @@ PHP;
         return $template;
     }
 
-    public function saveModel(string $table, string $modelName = null): string
+    public function saveModel(string $table, ?string $modelName = null): string
     {
         $content = $this->generateModel($table, $modelName);
         $modelName = $modelName ?: $this->tableToModelName($table);
@@ -212,7 +212,7 @@ PHP;
         return $path;
     }
 
-    public function saveController(string $table, string $controllerName = null, bool $withModel = true): string
+    public function saveController(string $table, ?string $controllerName = null, bool $withModel = true): string
     {
         $content = $this->generateController($table, $controllerName, $withModel);
         $controllerName = $controllerName ?: $this->tableToControllerName($table);
@@ -241,7 +241,7 @@ PHP;
         ];
     }
 
-    public function generateResourceRoutes(string $table, string $controllerName = null): string
+    public function generateResourceRoutes(string $table, ?string $controllerName = null): string
     {
         $controllerName = $controllerName ?: $this->tableToControllerName($table);
         $name = strtolower(preg_replace('/([a-z])([A-Z])/', '$1-$2', $controllerName));

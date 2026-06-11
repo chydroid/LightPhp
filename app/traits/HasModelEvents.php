@@ -83,7 +83,7 @@ trait HasModelEvents
 
         static::$observers[$key][$className] = $observer;
 
-        $events = ['creating', 'created', 'updating', 'updated', 'saving', 'saved', 'deleting', 'deleted'];
+        $events = ['creating', 'created', 'updating', 'updated', 'saving', 'saved', 'deleting', 'deleted', 'restoring', 'restored'];
 
         foreach ($events as $event) {
             if (method_exists($observer, $event)) {

@@ -31,7 +31,7 @@ class Cors
      */
     public function handle(\core\Request $request, callable $next): mixed
     {
-        $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+        $origin = $request->header('Origin', '');
         $origin = $this->sanitizeOrigin($origin);
 
         if (in_array('*', $this->config['allowed_origins'], true)) {
@@ -53,7 +53,7 @@ class Cors
             header('Access-Control-Allow-Credentials: true');
         }
 
-        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        $method = $request->method();
         if ($method === 'OPTIONS') {
             header('Access-Control-Allow-Methods: ' . implode(', ', $this->config['allowed_methods']));
             header('Access-Control-Allow-Headers: ' . implode(', ', $this->config['allowed_headers']));

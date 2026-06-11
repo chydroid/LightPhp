@@ -27,10 +27,30 @@ class Session
                 error_log('LightPHP Session: Failed to start session');
             } else {
                 self::$started = true;
+                self::ageFlash();
             }
         } elseif (session_status() === PHP_SESSION_ACTIVE) {
             self::$started = true;
+            self::ageFlash();
         }
+    }
+
+    /**
+     * 老化 flash 数据：将新写入的 flash 数据标记为旧，删除上一轮的旧 flash 数据
+     */
+    private static function ageFlash(): void
+    {
+        // 删除上一轮标记为旧的 flash 数据
+        $old = $_SESSION['_flash_old'] ?? [];
+        if (is_array($old)) {
+            foreach ($old as $key) {
+                unset($_SESSION['_flash_' . $key]);
+            }
+        }
+        // 当前轮的 new 变为下一轮的 old
+        $new = $_SESSION['_flash_new'] ?? [];
+        $_SESSION['_flash_old'] = is_array($new) ? $new : [];
+        $_SESSION['_flash_new'] = [];
     }
 
     public static function set(string $key, mixed $value): void
@@ -97,6 +117,7 @@ class Session
             return self::pull('_flash_' . $key);
         }
         $_SESSION['_flash_' . $key] = $value;
+        $_SESSION['_flash_new'][] = $key;
         return null;
     }
 
@@ -104,6 +125,7 @@ class Session
     {
         self::start();
         $_SESSION['_flash_' . $key] = $value;
+        $_SESSION['_flash_new'][] = $key;
     }
 
     public static function flashGet(string $key, $default = null): mixed

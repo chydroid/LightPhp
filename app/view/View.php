@@ -264,6 +264,7 @@ class View
         $prevCurrentSection = $this->currentSection;
         $prevRenderData = $this->renderData;
         $prevSharedData = $this->sharedData;
+        $prevExtendDepth = $this->extendDepth;
         if ($prevAutoEscape) {
             $data = $this->escapeArray($data);
             $this->sharedData = $this->escapeArray($this->sharedData);
@@ -277,6 +278,7 @@ class View
             $this->sections = $prevSections;
             $this->currentSection = $prevCurrentSection;
             $this->renderData = $prevRenderData;
+            $this->extendDepth = $prevExtendDepth;
         }
     }
 

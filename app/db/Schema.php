@@ -143,7 +143,7 @@ class Schema
         $parts[] = implode(",\n  ", array_merge($this->columns, $this->commands));
         $parts[] = ") ENGINE={$this->engine} DEFAULT CHARSET={$this->charset} COLLATE={$this->collation}";
         if ($this->comment !== '') {
-            $parts[2] .= " COMMENT='" . str_replace("'", "''", $this->comment) . "'";
+            $parts[2] .= " COMMENT='" . str_replace(["\\", "'"], ["\\\\", "''"], $this->comment) . "'";
         }
         return implode("\n", $parts);
     }

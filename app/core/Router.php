@@ -362,22 +362,69 @@ class Router
         // 使用缓存的正则表达式，避免重复编译
         $regex = $this->compiledRoutes[$pattern] ?? null;
         if ($regex === null) {
-            // 将 {param} 转换为命名捕获组
-            $compiled = (string) preg_replace('/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/', '(?<$1>[^/]+)', $pattern);
-            // 支持自定义正则表达式 {param:regex}，限制正则长度防止ReDoS
-            $compiled = (string) preg_replace_callback(
-                '/\{([a-zA-Z_][a-zA-Z0-9_]*):([^\}]+)\}/',
-                function ($m) {
-                    $regex = $m[2];
-                    if (strlen($regex) > 64) {
-                        throw new \InvalidArgumentException("Route regex too long for parameter '{$m[1]}'");
+            // 将路由模式编译为正则表达式，对字面部分进行 preg_quote 转义
+            $compiled = '';
+            $offset = 0;
+            $len = strlen($pattern);
+
+            while ($offset < $len) {
+                $bracePos = strpos($pattern, '{', $offset);
+                if ($bracePos === false) {
+                    $compiled .= preg_quote(substr($pattern, $offset), '~');
+                    break;
+                }
+
+                // 转义参数前的字面部分
+                $compiled .= preg_quote(substr($pattern, $offset, $bracePos - $offset), '~');
+
+                // 查找匹配的 }，支持自定义正则中包含 {}
+                $depth = 1;
+                $paramEnd = $bracePos + 1;
+                while ($paramEnd < $len && $depth > 0) {
+                    if ($pattern[$paramEnd] === '{') {
+                        $depth++;
+                    } elseif ($pattern[$paramEnd] === '}') {
+                        $depth--;
                     }
-                    return "(?<{$m[1]}>{$regex})";
-                },
-                $compiled
-            );
-            // 使用 ~ 作为定界符，转义自定义正则中可能包含的 ~
-            $regex = '~^' . str_replace('~', '\~', $compiled) . '$~';
+                    if ($depth > 0) {
+                        $paramEnd++;
+                    }
+                }
+
+                if ($depth !== 0) {
+                    // 未匹配的 {，作为字面量处理
+                    $compiled .= preg_quote('{', '~');
+                    $offset = $bracePos + 1;
+                    continue;
+                }
+
+                // 提取参数定义
+                $paramDef = substr($pattern, $bracePos + 1, $paramEnd - $bracePos - 1);
+
+                if (str_contains($paramDef, ':')) {
+                    [$paramName, $customRegex] = explode(':', $paramDef, 2);
+                    if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $paramName)) {
+                        $compiled .= preg_quote('{' . $paramDef . '}', '~');
+                        $offset = $paramEnd + 1;
+                        continue;
+                    }
+                    if (strlen($customRegex) > 64) {
+                        throw new \InvalidArgumentException("Route regex too long for parameter '{$paramName}'");
+                    }
+                    $compiled .= "(?<{$paramName}>" . str_replace('~', '\~', $customRegex) . ")";
+                } else {
+                    if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $paramDef)) {
+                        $compiled .= preg_quote('{' . $paramDef . '}', '~');
+                        $offset = $paramEnd + 1;
+                        continue;
+                    }
+                    $compiled .= "(?<{$paramDef}>[^/]+)";
+                }
+
+                $offset = $paramEnd + 1;
+            }
+
+            $regex = '~^' . $compiled . '$~';
             $this->compiledRoutes[$pattern] = $regex;
         }
 

@@ -299,7 +299,6 @@ class Blade
                 $view = trim($parts[0], "'\"");
                 $vars = $parts[1] ?? '[]';
 
-                $cacheFile = $this->getCachePath($view);
                 $sourcePath = $this->templatePath . $view . '.blade.php';
 
                 // 防止路径遍历：验证 include 路径在模板目录内
@@ -310,23 +309,8 @@ class Blade
                     return '';
                 }
 
-                if (file_exists($sourcePath) && (!$this->isCacheFresh($view, $cacheFile))) {
-                    $this->compile($view, $cacheFile);
-                }
-
-                if (file_exists($cacheFile)) {
-                    // 验证缓存文件路径在预期目录内
-                    $realCachePath = realpath(dirname($cacheFile));
-                    $expectedCacheDir = realpath($this->cachePath);
-                    if ($realCachePath === false || $expectedCacheDir === false || !str_starts_with($realCachePath, $expectedCacheDir)) {
-                        trigger_error("Blade: Invalid include cache path: {$cacheFile}", E_USER_WARNING);
-                        return '';
-                    }
-                    return '<?php extract(' . $vars . ', EXTR_SKIP); require \'' . str_replace('\\', '/', $cacheFile) . '\'; ?>';
-                }
-
-                trigger_error("Blade: Failed to compile include '{$view}', cache file not found: {$cacheFile}", E_USER_WARNING);
-                return '';
+                // 运行时解析 include，确保子模板修改后能触发重编译
+                return '<?php if ($__inc = $__blade->resolveInclude(\'' . addslashes($view) . '\')) { extract(' . $vars . ', EXTR_SKIP); require $__inc; } ?>';
             },
             $content
         );
@@ -408,6 +392,26 @@ class Blade
             $this->sections = $prevSections;
             $this->stack = $prevStack;
         }
+    }
+
+    /**
+     * 运行时解析 include 模板，检查缓存新鲜度并按需重编译
+     */
+    public function resolveInclude(string $view): string
+    {
+        $cacheFile = $this->getCachePath($view);
+        if (!$this->isCacheFresh($view, $cacheFile)) {
+            $this->compile($view, $cacheFile);
+        }
+        if (!file_exists($cacheFile)) {
+            return '';
+        }
+        $realCachePath = realpath(dirname($cacheFile));
+        $expectedCacheDir = realpath($this->cachePath);
+        if ($realCachePath === false || $expectedCacheDir === false || !str_starts_with($realCachePath, $expectedCacheDir)) {
+            return '';
+        }
+        return $cacheFile;
     }
 
     public function clear(): void

@@ -69,7 +69,9 @@ class Cors
 
         // 非 OPTIONS 请求且 Origin 不被允许时，拒绝请求
         // 没有 Origin 头的请求（同源请求）不需要 CORS 检查
-        if ($origin !== '' && !$this->isOriginAllowed($origin)) {
+        // 注意：通配符+凭证模式已在上方处理，此处需排除该情况
+        $wildcardWithCredentials = in_array('*', $this->config['allowed_origins'], true) && $this->config['supports_credentials'];
+        if ($origin !== '' && !$this->isOriginAllowed($origin) && !$wildcardWithCredentials) {
             http_response_code(403);
             return '';
         }

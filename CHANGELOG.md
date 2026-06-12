@@ -2,6 +2,18 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.6.0] - 2026-06-12
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] QueryBuilder where() null 值生成错误 SQL** — `where('status', null)` 生成 `= NULL` 而非 `IS NULL`，SQL 中 `= NULL` 永远为 false。修复：自动转换为 `IS NULL`/`IS NOT NULL`
+- **[HIGH] QueryBuilder whereOr() null 值同理** — `whereOr(['status' => null])` 同样生成错误 SQL。修复：同 where() 处理
+- **[MEDIUM] Schema compileCreate() 注释反斜杠未转义** — 注释以 `\` 结尾时转义闭合引号导致 SQL 语法错误。修复：同时转义反斜杠和单引号
+- **[MEDIUM] FileCache increment/decrement 键不存在时 TTL=0 永不过期** — 与其他驱动使用 defaultTtl 不一致。修复：键不存在时 TTL=null 让 write() 使用 defaultTtl
+- **[MEDIUM] Blade @include 编译期硬编码缓存路径** — 子模板修改后父模板缓存未失效，仍加载旧内容。修复：改为运行时调用 resolveInclude() 检查缓存新鲜度
+- **[MEDIUM] SmartyView display() 未重置 layout** — 多次调用 display() 时前一次 layout 泄漏到后续调用。修复：使用后重置 layout
+- **[MEDIUM] Cors 通配符+凭证模式二次检查误拒** — 已正确设置 CORS 头但第72行 isOriginAllowed() 仍返回 false 导致 403。修复：排除通配符+凭证情况
+
 ## [2.5.0] - 2026-06-12
 
 ### 安全修复 (Security Fixes)

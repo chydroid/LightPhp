@@ -193,6 +193,18 @@ class QueryBuilder
             throw new \InvalidArgumentException("Invalid SQL operator: {$operator}");
         }
 
+        // 处理 null 值：SQL 中 = NULL 永远为 false，应使用 IS NULL
+        if ($value === null) {
+            if ($operator === '=' || $operator === 'LIKE') {
+                $this->where[] = $this->sanitizeColumn($column) . " IS NULL";
+            } elseif ($operator === '!=' || $operator === '<>' || $operator === 'NOT LIKE') {
+                $this->where[] = $this->sanitizeColumn($column) . " IS NOT NULL";
+            } else {
+                throw new \InvalidArgumentException("Cannot use NULL value with operator {$operator}");
+            }
+            return $this;
+        }
+
         $placeholder = ':w_' . count($this->bindings);
         $this->where[] = $this->sanitizeColumn($column) . " {$operator} {$placeholder}";
         $this->bindings[$placeholder] = $value;
@@ -214,6 +226,19 @@ class QueryBuilder
                 $op = '=';
                 $value = $operator;
             }
+
+            // 处理 null 值
+            if ($value === null) {
+                if ($op === '=' || $op === 'LIKE') {
+                    $orWheres[] = $this->sanitizeColumn($column) . " IS NULL";
+                } elseif ($op === '!=' || $op === '<>' || $op === 'NOT LIKE') {
+                    $orWheres[] = $this->sanitizeColumn($column) . " IS NOT NULL";
+                } else {
+                    throw new \InvalidArgumentException("Cannot use NULL value with operator {$op}");
+                }
+                continue;
+            }
+
             $placeholder = ':w_' . count($this->bindings) . '_or_' . count($orWheres);
             $orWheres[] = $this->sanitizeColumn($column) . " {$op} {$placeholder}";
             $this->bindings[$placeholder] = $value;

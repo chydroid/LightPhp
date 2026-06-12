@@ -36,8 +36,10 @@ class SmartyView
         }
 
         if ($this->layout) {
+            $layout = $this->layout;
+            $this->layout = '';
             $this->smarty->assign('_content_', $this->smarty->fetch($template));
-            $content = $this->smarty->fetch($this->layout);
+            $content = $this->smarty->fetch($layout);
         } else {
             $content = $this->smarty->fetch($template);
         }

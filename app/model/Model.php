@@ -77,7 +77,12 @@ class Model
 
     public function where(string $column, mixed $operator = null, mixed $value = null): QueryBuilder
     {
-        return $this->newQuery()->where($column, $operator, $value);
+        $query = $this->newQuery();
+        // 保持参数数量语义，让 QueryBuilder 正确区分两参数简写和三参数形式
+        if (func_num_args() >= 3) {
+            return $query->where($column, $operator, $value);
+        }
+        return $query->where($column, $operator);
     }
 
     public function create(array $data): int|string

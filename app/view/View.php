@@ -31,6 +31,8 @@ class View
 
     /** @var array<string, mixed> 当前渲染的视图数据，供 extend() 访问 */
     private array $renderData = [];
+    private int $extendDepth = 0;
+    private const MAX_EXTEND_DEPTH = 10;
 
     /**
      * 构造函数
@@ -76,6 +78,7 @@ class View
     {
         $this->sections = [];
         $this->currentSection = '';
+        $this->extendDepth = 0;
 
         $file = $this->viewPath . $this->normalizePath($template);
         if (!str_ends_with($file, '.php')) {
@@ -219,6 +222,10 @@ class View
      */
     public function extend(string $layout): void
     {
+        if ($this->extendDepth >= self::MAX_EXTEND_DEPTH) {
+            throw new \RuntimeException("View: Maximum layout inheritance depth exceeded (possible infinite recursion)");
+        }
+
         $layoutFile = $this->viewPath . $this->normalizePath($layout);
         if (!str_ends_with($layoutFile, '.php')) {
             $layoutFile .= '.php';
@@ -231,9 +238,14 @@ class View
             if (ob_get_level() > 0) {
                 ob_clean();
             }
-            extract($this->renderData, EXTR_SKIP);
-            $__view = $this;
-            require $layoutFile;
+            $this->extendDepth++;
+            try {
+                extract($this->renderData, EXTR_SKIP);
+                $__view = $this;
+                require $layoutFile;
+            } finally {
+                $this->extendDepth--;
+            }
         }
     }
 
@@ -251,14 +263,17 @@ class View
         $prevSections = $this->sections;
         $prevCurrentSection = $this->currentSection;
         $prevRenderData = $this->renderData;
+        $prevSharedData = $this->sharedData;
         if ($prevAutoEscape) {
             $data = $this->escapeArray($data);
+            $this->sharedData = $this->escapeArray($this->sharedData);
         }
         $this->autoEscape = false;
         try {
             echo $this->render($view, $data);
         } finally {
             $this->autoEscape = $prevAutoEscape;
+            $this->sharedData = $prevSharedData;
             $this->sections = $prevSections;
             $this->currentSection = $prevCurrentSection;
             $this->renderData = $prevRenderData;

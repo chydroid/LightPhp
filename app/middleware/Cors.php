@@ -36,8 +36,8 @@ class Cors
 
         if (in_array('*', $this->config['allowed_origins'], true)) {
             if ($this->config['supports_credentials']) {
-                // 有凭证时不允许用通配符，必须回退到具体 Origin
-                if ($this->isOriginAllowed($origin)) {
+                // 有凭证时不允许用通配符，回退到回显请求 Origin
+                if ($origin !== '') {
                     header("Access-Control-Allow-Origin: {$origin}");
                     header('Vary: Origin');
                 }
@@ -58,10 +58,6 @@ class Cors
             header('Access-Control-Allow-Methods: ' . implode(', ', $this->config['allowed_methods']));
             header('Access-Control-Allow-Headers: ' . implode(', ', $this->config['allowed_headers']));
             header("Access-Control-Max-Age: {$this->config['max_age']}");
-
-            if (!empty($this->config['exposed_headers'])) {
-                header('Access-Control-Expose-Headers: ' . implode(', ', $this->config['exposed_headers']));
-            }
 
             http_response_code(204);
             return '';

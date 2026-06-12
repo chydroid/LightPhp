@@ -84,6 +84,10 @@ class Validate
             $ruleList = is_array($rule) ? $rule : explode('|', $rule);
 
             foreach ($ruleList as $r) {
+                $r = trim($r);
+                if ($r === '') {
+                    continue;
+                }
                 $this->applyRule($field, $r);
             }
         }
@@ -162,7 +166,18 @@ class Validate
         $message = $this->messages[$key] ?? $this->messages[$field] ?? "{$field} is invalid";
         
         if (!empty($params)) {
-            $message = str_replace([':min', ':max', ':length'], $params, $message);
+            $placeholders = [':min', ':max', ':length'];
+            $search = [];
+            $replace = [];
+            foreach ($params as $i => $param) {
+                if (isset($placeholders[$i])) {
+                    $search[] = $placeholders[$i];
+                    $replace[] = (string) $param;
+                }
+            }
+            if (!empty($search)) {
+                $message = str_replace($search, $replace, $message);
+            }
         }
 
         $this->errors[$field][] = $message;
@@ -271,12 +286,12 @@ class Validate
 
     private function validateIn(string $field, $value, array $params): bool
     {
-        return in_array($value, $params, true);
+        return in_array((string)$value, $params, true);
     }
 
     private function validateNotIn(string $field, $value, array $params): bool
     {
-        return !in_array($value, $params, true);
+        return !in_array((string)$value, $params, true);
     }
 
     private function validateRegex(string $field, $value, array $params): bool
@@ -330,9 +345,11 @@ class Validate
      */
     public function validated(): array
     {
-        $data = $this->data;
-        foreach ($this->errors as $field => $errors) {
-            unset($data[$field]);
+        $data = [];
+        foreach (array_keys($this->rules) as $field) {
+            if (!isset($this->errors[$field]) && array_key_exists($field, $this->data)) {
+                $data[$field] = $this->data[$field];
+            }
         }
         return $data;
     }

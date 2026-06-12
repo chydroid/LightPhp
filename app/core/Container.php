@@ -60,6 +60,7 @@ class Container implements PsrContainerInterface
      */
     public function bind(string $abstract, callable $concrete): void
     {
+        unset($this->instances[$abstract]);
         $this->bindings[$abstract] = $concrete;
     }
 
@@ -195,6 +196,10 @@ class Container implements PsrContainerInterface
         }
         $reflection = $this->reflectionCache[$class];
 
+        if (!$reflection->isInstantiable()) {
+            throw new NotFoundException("Class [{$class}] is not instantiable");
+        }
+
         // 缓存构造函数参数
         $cacheKey = $class . '::__construct';
         if (!isset($this->constructorParamCache[$cacheKey])) {
@@ -222,7 +227,7 @@ class Container implements PsrContainerInterface
                 try {
                     $dependencies[] = $this->get($type->getName());
                     continue;
-                } catch (\Throwable $e) {
+                } catch (NotFoundException $e) {
                 }
             }
 

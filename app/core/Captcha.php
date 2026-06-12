@@ -24,13 +24,15 @@ class Captcha
         Session::set(self::$key, strtolower($code));
         Session::set(self::$key . '_time', time());
 
-        $image = self::createImage($code);
-
-        // 重置配置为默认值，防止长运行进程中的状态污染
-        self::$width = 120;
-        self::$height = 40;
-        self::$length = 4;
-        self::$chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+        try {
+            $image = self::createImage($code);
+        } finally {
+            // 重置配置为默认值，防止长运行进程中的状态污染
+            self::$width = 120;
+            self::$height = 40;
+            self::$length = 4;
+            self::$chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+        }
 
         return ['image' => $image];
     }

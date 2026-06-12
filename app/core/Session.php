@@ -100,14 +100,14 @@ class Session
                 'samesite' => $params['samesite'] ?? 'Lax',
             ]);
         }
-        session_destroy();
+        @session_destroy();
         self::$started = false;
     }
 
-    public static function regenerate(): void
+    public static function regenerate(bool $destroyOld = true): void
     {
         self::start();
-        session_regenerate_id(true);
+        session_regenerate_id($destroyOld);
     }
 
     public static function flash(string $key, mixed $value = null): mixed
@@ -131,7 +131,11 @@ class Session
     public static function flashGet(string $key, $default = null): mixed
     {
         self::start();
-        return self::pull('_flash_' . $key, $default);
+        $flashKey = '_flash_' . $key;
+        if (!array_key_exists($flashKey, $_SESSION)) {
+            return $default;
+        }
+        return $_SESSION[$flashKey];
     }
 
     public static function all(): array

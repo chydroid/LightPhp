@@ -21,6 +21,9 @@ class Connection implements ConnectionInterface
     /** @var string 数据库名称 */
     private string $database;
 
+    /** @var int 事务嵌套层级 */
+    private int $transactionLevel = 0;
+
     /**
      * 构造函数
      * 
@@ -133,13 +136,20 @@ class Connection implements ConnectionInterface
     }
 
     /**
-     * 开始事务
+     * 开始事务（支持嵌套，使用 SAVEPOINT）
      * 
      * @return bool 是否成功
      */
     public function beginTransaction(): bool
     {
-        return $this->pdo->beginTransaction();
+        if ($this->transactionLevel === 0) {
+            $result = $this->pdo->beginTransaction();
+        } else {
+            $this->pdo->exec("SAVEPOINT sp_{$this->transactionLevel}");
+            $result = true;
+        }
+        $this->transactionLevel++;
+        return $result;
     }
 
     /**
@@ -149,7 +159,15 @@ class Connection implements ConnectionInterface
      */
     public function commit(): bool
     {
-        return $this->pdo->commit();
+        if ($this->transactionLevel <= 0) {
+            return false;
+        }
+        $this->transactionLevel--;
+        if ($this->transactionLevel === 0) {
+            return $this->pdo->commit();
+        }
+        $this->pdo->exec("RELEASE SAVEPOINT sp_{$this->transactionLevel}");
+        return true;
     }
 
     /**
@@ -159,7 +177,15 @@ class Connection implements ConnectionInterface
      */
     public function rollback(): bool
     {
-        return $this->pdo->rollBack();
+        if ($this->transactionLevel <= 0) {
+            return false;
+        }
+        $this->transactionLevel--;
+        if ($this->transactionLevel === 0) {
+            return $this->pdo->rollBack();
+        }
+        $this->pdo->exec("ROLLBACK TO SAVEPOINT sp_{$this->transactionLevel}");
+        return true;
     }
 
     /**

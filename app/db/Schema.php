@@ -176,12 +176,18 @@ class Schema
 
     public function engine(string $engine): self
     {
+        if (!preg_match('/^[a-zA-Z0-9]+$/', $engine)) {
+            throw new \InvalidArgumentException("Invalid engine name: {$engine}");
+        }
         $this->engine = $engine;
         return $this;
     }
 
     public function charset(string $charset): self
     {
+        if (!preg_match('/^[a-zA-Z0-9]+$/', $charset)) {
+            throw new \InvalidArgumentException("Invalid charset name: {$charset}");
+        }
         $this->charset = $charset;
         return $this;
     }

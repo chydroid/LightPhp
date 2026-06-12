@@ -130,7 +130,8 @@ class RedisCache implements CacheInterface
      */
     public function delete(string $key): bool
     {
-        return (bool) $this->redis->del($this->key($key));
+        $this->redis->del($this->key($key));
+        return true;
     }
 
     /**
@@ -158,13 +159,17 @@ class RedisCache implements CacheInterface
     public function clear(): bool
     {
         $iterator = null;
-        while (true) {
+        $safetyLimit = 1000;
+        while ($safetyLimit-- > 0) {
             $keys = $this->redis->scan($iterator, $this->prefix . '*', 100);
             if ($keys === false) {
                 break;
             }
             if (!empty($keys)) {
                 $this->redis->del($keys);
+            }
+            if ($iterator === 0) {
+                break;
             }
         }
         return true;
@@ -233,16 +238,26 @@ class RedisCache implements CacheInterface
     {
         $fullKey = $this->key($key);
         $exists = (bool) $this->redis->exists($fullKey);
-        $result = $this->redis->incrBy($fullKey, $step);
         if (!$exists) {
-            $this->redis->expire($fullKey, $this->defaultTtl);
+            $this->set($key, $step);
+            return $step;
         }
-        return (int) $result;
+        // 保留原有 TTL
+        $ttl = $this->redis->ttl($fullKey);
+        $value = $this->redis->get($fullKey);
+        $current = ($value === false) ? 0 : (int) $value;
+        $new = $current + $step;
+        if ($ttl > 0) {
+            $this->redis->setex($fullKey, $ttl, $new);
+        } else {
+            $this->redis->set($fullKey, $new);
+        }
+        return $new;
     }
 
     /**
      * 递减缓存值
-     * 
+     *
      * @param string $key 缓存键
      * @param int $step 步长
      * @return int 递减后的值
@@ -251,11 +266,20 @@ class RedisCache implements CacheInterface
     {
         $fullKey = $this->key($key);
         $exists = (bool) $this->redis->exists($fullKey);
-        $result = $this->redis->decrBy($fullKey, $step);
         if (!$exists) {
-            $this->redis->expire($fullKey, $this->defaultTtl);
+            $this->set($key, max(0, -$step));
+            return 0;
         }
-        return (int) $result;
+        $ttl = $this->redis->ttl($fullKey);
+        $value = $this->redis->get($fullKey);
+        $current = ($value === false) ? 0 : (int) $value;
+        $new = max(0, $current - $step);
+        if ($ttl > 0) {
+            $this->redis->setex($fullKey, $ttl, $new);
+        } else {
+            $this->redis->set($fullKey, $new);
+        }
+        return $new;
     }
 
     /**
@@ -355,6 +379,7 @@ class RedisCache implements CacheInterface
     {
         $tagKey = $this->prefix . 'tag:' . $tag;
         $this->redis->sAdd($tagKey, $key);
+        // 不设置固定过期时间，标签应与缓存项同生命周期
     }
 
     /**

@@ -120,7 +120,10 @@ class Request
     public function post(?string $key = null, $default = null)
     {
         if ($key === null) {
-            return $this->json ?? $this->post;
+            if ($this->json !== null) {
+                return array_merge($this->post, $this->json);
+            }
+            return $this->post;
         }
         if ($this->json !== null && array_key_exists($key, $this->json)) {
             return $this->json[$key];
@@ -276,7 +279,7 @@ class Request
     public function all(): array
     {
         if ($this->json !== null) {
-            return array_merge($this->get, $this->post, $this->json);
+            return array_merge($this->get, $this->json, $this->post);
         }
         return array_merge($this->get, $this->post);
     }
@@ -383,9 +386,16 @@ class Request
     public function file(?string $key = null): ?Upload
     {
         if ($key === null) {
-            return !empty($this->files) ? Upload::file(array_key_first($this->files)) : null;
+            if (empty($this->files)) {
+                return null;
+            }
+            $firstKey = array_key_first($this->files);
+            return new Upload($this->files[$firstKey]);
         }
-        return Upload::file($key);
+        if (!isset($this->files[$key])) {
+            return null;
+        }
+        return new Upload($this->files[$key]);
     }
 
     /**

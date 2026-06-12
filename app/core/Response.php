@@ -37,6 +37,9 @@ class Response
      */
     public function __construct(string $content = '', int $statusCode = 200)
     {
+        if ($statusCode < 100 || $statusCode > 599) {
+            throw new \InvalidArgumentException("Invalid HTTP status code: {$statusCode}");
+        }
         $this->content = $content;
         $this->statusCode = $statusCode;
     }
@@ -81,7 +84,7 @@ class Response
     public static function redirect(string $url, int $statusCode = 302): self
     {
         // 防止开放重定向：只允许相对路径（排除 //evil.com 协议相对URL）
-        if (!str_starts_with($url, '/') || str_starts_with($url, '//')) {
+        if (!str_starts_with($url, '/') || str_starts_with($url, '//') || str_contains($url, '\\')) {
             throw new \InvalidArgumentException('Redirect URL must be a relative path');
         }
 
@@ -138,6 +141,9 @@ class Response
      */
     public function status(int $code): self
     {
+        if ($code < 100 || $code > 599) {
+            throw new \InvalidArgumentException("Invalid HTTP status code: {$code}");
+        }
         $this->statusCode = $code;
         return $this;
     }

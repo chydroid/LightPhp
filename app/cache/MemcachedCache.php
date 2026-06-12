@@ -86,7 +86,8 @@ class MemcachedCache implements CacheInterface
     public function delete(string $key): bool
     {
         $this->memcached->delete($this->key($key));
-        return $this->memcached->getResultCode() !== \Memcached::RES_NOTFOUND;
+        $code = $this->memcached->getResultCode();
+        return $code === \Memcached::RES_SUCCESS || $code === \Memcached::RES_NOTFOUND;
     }
 
     public function deleteMany(array $keys): bool
@@ -104,6 +105,8 @@ class MemcachedCache implements CacheInterface
 
     public function clear(): bool
     {
+        // 注意：flush() 会清空 Memcached 服务器上的所有数据（包括其他应用的数据）
+        // 如果与其他应用共享 Memcached 实例，应改用逐键删除的方式
         return $this->memcached->flush();
     }
 
@@ -146,27 +149,60 @@ class MemcachedCache implements CacheInterface
     public function increment(string $key, int $step = 1): int
     {
         $fullKey = $this->key($key);
+
+        // 先尝试原子递增（仅对未序列化的整数值有效）
         $result = $this->memcached->increment($fullKey, $step);
-        if ($result === false) {
+        if ($this->memcached->getResultCode() === \Memcached::RES_SUCCESS) {
+            return (int) $result;
+        }
+
+        // 键不存在，初始化
+        if ($this->memcached->getResultCode() === \Memcached::RES_NOTFOUND) {
             if ($this->memcached->add($fullKey, $step, $this->defaultTtl)) {
                 return $step;
             }
-            return (int) $this->memcached->increment($fullKey, $step);
+            // 另一个进程已初始化，重试原子递增
+            $result = $this->memcached->increment($fullKey, $step);
+            if ($this->memcached->getResultCode() === \Memcached::RES_SUCCESS) {
+                return (int) $result;
+            }
         }
-        return (int) $result;
+
+        // 键存在但序列化格式不兼容，回退到非原子方式
+        $value = $this->memcached->get($fullKey);
+        $current = is_string($value) ? (int) $this->unserialize($value) : (is_int($value) ? $value : 0);
+        $new = $current + $step;
+        $this->memcached->set($fullKey, $this->serialize($new), $this->defaultTtl);
+        return $new;
     }
 
     public function decrement(string $key, int $step = 1): int
     {
         $fullKey = $this->key($key);
+
+        // 先尝试原子递减
         $result = $this->memcached->decrement($fullKey, $step);
-        if ($result === false) {
+        if ($this->memcached->getResultCode() === \Memcached::RES_SUCCESS) {
+            return (int) max(0, $result);
+        }
+
+        // 键不存在，初始化为 0
+        if ($this->memcached->getResultCode() === \Memcached::RES_NOTFOUND) {
             if ($this->memcached->add($fullKey, 0, $this->defaultTtl)) {
                 return 0;
             }
-            return max(0, (int) $this->memcached->decrement($fullKey, $step));
+            $result = $this->memcached->decrement($fullKey, $step);
+            if ($this->memcached->getResultCode() === \Memcached::RES_SUCCESS) {
+                return (int) max(0, $result);
+            }
         }
-        return (int) $result;
+
+        // 回退到非原子方式
+        $value = $this->memcached->get($fullKey);
+        $current = is_string($value) ? (int) $this->unserialize($value) : (is_int($value) ? $value : 0);
+        $new = max(0, $current - $step);
+        $this->memcached->set($fullKey, $this->serialize($new), $this->defaultTtl);
+        return $new;
     }
 
     /** @return array<string, mixed> */
@@ -182,12 +218,19 @@ class MemcachedCache implements CacheInterface
             $keyMap[$fullKey] = $key;
         }
 
-        $values = $this->memcached->getMulti($fullKeys) ?: [];
+        $values = $this->memcached->getMulti($fullKeys, \Memcached::GET_PRESERVE_ORDER);
+        if (!is_array($values)) {
+            $values = [];
+        }
 
         foreach ($fullKeys as $fullKey) {
             $originalKey = $keyMap[$fullKey];
-            $v = $values[$fullKey] ?? null;
-            $results[$originalKey] = is_string($v) ? $this->unserialize($v) : $v;
+            if (!array_key_exists($fullKey, $values)) {
+                $results[$originalKey] = null;
+            } else {
+                $v = $values[$fullKey];
+                $results[$originalKey] = is_string($v) ? $this->unserialize($v) : $v;
+            }
         }
 
         return $results;
@@ -241,6 +284,7 @@ class MemcachedCache implements CacheInterface
         }
         if (!in_array($key, $keys, true)) {
             $keys[] = $key;
+            // TTL=0 表示永不过期，标签应与缓存项同生命周期
             $this->memcached->set($tagKey, $this->serialize($keys), 0);
         }
     }

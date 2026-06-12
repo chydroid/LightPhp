@@ -33,9 +33,13 @@ class Throttle
      */
     public function handle(\core\Request $request, callable $next): mixed
     {
+        if ($this->decaySeconds <= 0 || $this->maxAttempts <= 0) {
+            return $next($request);
+        }
+
         $key = $this->resolveKey($request);
 
-        if ($this->tooManyAttempts($key)) {
+        if (!$this->attempt($key)) {
             $retryAfter = $this->retryAfter($key);
             $response = \core\Response::json([
                 'code' => 429,
@@ -45,8 +49,6 @@ class Throttle
             $response->header('Retry-After', (string) $retryAfter);
             return $response;
         }
-
-        $this->hit($key);
 
         return $next($request);
     }
@@ -85,24 +87,25 @@ class Throttle
         return (int) $decoded['attempts'];
     }
 
-    private function tooManyAttempts(string $key): bool
-    {
-        return $this->getAttempts($key) >= $this->maxAttempts;
-    }
-
-    private function hit(string $key): void
+    /**
+     * 原子性地检查并递增请求计数（消除 TOCTOU 竞态条件）
+     *
+     * @param string $key 缓存键
+     * @return bool true 表示允许请求，false 表示超限
+     */
+    private function attempt(string $key): bool
     {
         $file = $this->getCacheFile($key);
 
         $fp = @fopen($file, 'c+');
         if ($fp === false) {
             error_log("LightPHP Throttle: Failed to open cache file: {$file}");
-            return;
+            return true;
         }
 
         try {
             if (!flock($fp, LOCK_EX)) {
-                return;
+                return true;
             }
 
             $content = stream_get_contents($fp);
@@ -121,6 +124,10 @@ class Throttle
                 }
             }
 
+            if ($attempts >= $this->maxAttempts) {
+                return false;
+            }
+
             $attempts++;
 
             ftruncate($fp, 0);
@@ -129,6 +136,7 @@ class Throttle
                 'attempts' => $attempts,
                 'expire'   => $expire,
             ]));
+            return true;
         } finally {
             flock($fp, LOCK_UN);
             fclose($fp);

@@ -106,6 +106,11 @@ class Upload
             return false;
         }
 
+        if ($this->file['size'] === 0) {
+            $this->error = 'Empty file uploaded';
+            return false;
+        }
+
         $realMimeType = $this->getRealMimeType();
         if (!empty($this->allowedTypes) && !in_array($realMimeType, $this->allowedTypes, true)) {
             $this->error = 'File type not allowed';
@@ -152,7 +157,10 @@ class Upload
         $fullPath = PUBLIC_PATH . $path;
 
         if (!is_dir($fullPath)) {
-            mkdir($fullPath, 0755, true);
+            if (!mkdir($fullPath, 0755, true) && !is_dir($fullPath)) {
+                $this->error = 'Failed to create upload directory';
+                return null;
+            }
         }
 
         $realBase = realpath(PUBLIC_PATH);
@@ -164,6 +172,10 @@ class Upload
         }
 
         $extension = strtolower(pathinfo($this->file['name'], PATHINFO_EXTENSION));
+        // 即使 validate() 已检查，save() 中也再次确认扩展名不在危险列表中（防御性编程）
+        if (in_array($extension, self::DANGEROUS_EXTENSIONS, true)) {
+            $extension = '';
+        }
         $filename = bin2hex(random_bytes(16));
         if ($extension !== '') {
             $filename .= '.' . $extension;

@@ -80,7 +80,7 @@ class Model
         return $this->newQuery()->where($column, $operator, $value);
     }
 
-    public function create(array $data): int
+    public function create(array $data): int|string
     {
         if (!$this->fireEvent('creating')) {
             return 0;
@@ -158,7 +158,7 @@ class Model
      * @param string|null $foreignKey 外键 (默认: 当前模型名_id)
      * @param string|null $localKey 本地键 (默认: 当前模型主键)
      */
-    protected function hasOne(string $related, ?string $foreignKey = null, ?string $localKey = null): self
+    protected function hasOne(string $related, ?string $foreignKey = null, ?string $localKey = null): ?self
     {
         $instance = new $related();
         $foreignKey = $foreignKey ?? $this->getForeignKey();
@@ -168,7 +168,7 @@ class Model
             ->where($foreignKey, '=', $this->getAttribute($localKey))
             ->fetch();
 
-        return $result ? $instance->newFromBuilder($result) : new $related();
+        return $result ? $instance->newFromBuilder($result) : null;
     }
 
     /**
@@ -257,12 +257,12 @@ class Model
         $firstModel = reset($models);
 
         if ($type === 'hasMany' || $type === 'hasOne') {
-            $foreignKey = $firstModel->getForeignKey();
-            $localKey = $firstModel->primaryKey;
+            $foreignKey = $foreignKey ?? $firstModel->getForeignKey();
+            $localKey = $ownerKey ?? $firstModel->primaryKey;
 
-            $ids = array_unique(array_map(fn($m) => $m->getAttribute($localKey), $models));
+            $ids = array_values(array_unique(array_filter(array_map(fn($m) => $m->getAttribute($localKey), $models), fn($id) => $id !== null)));
 
-            if (empty($ids)) {
+            if (count($ids) === 0) {
                 foreach ($models as $model) {
                     $model->relations[$relation] = ($type === 'hasOne') ? null : [];
                 }
@@ -290,9 +290,9 @@ class Model
             $foreignKey = $foreignKey ?? $instance->getForeignKey();
             $ownerKey = $ownerKey ?? $instance->primaryKey;
 
-            $ids = array_unique(array_filter(array_map(fn($m) => $m->getAttribute($foreignKey), $models)));
+            $ids = array_values(array_unique(array_filter(array_map(fn($m) => $m->getAttribute($foreignKey), $models), fn($id) => $id !== null)));
 
-            if (empty($ids)) {
+            if (count($ids) === 0) {
                 foreach ($models as $model) {
                     $model->relations[$relation] = null;
                 }
@@ -511,7 +511,7 @@ class Model
             'float', 'double' => (float) $value,
             'bool', 'boolean' => (bool) $value,
             'array' => $value === null ? [] : (is_array($value) ? $value : (json_decode($value, true) ?? [])),
-            'json' => $value === null ? null : (is_array($value) ? json_encode($value) : $value),
+            'json' => $value === null ? null : (is_string($value) ? json_decode($value, true) : $value),
             'date' => ($ts = strtotime((string) $value)) !== false ? date('Y-m-d', $ts) : null,
             'datetime' => ($ts = strtotime((string) $value)) !== false ? date($this->dateFormat, $ts) : null,
             default => $value
@@ -562,7 +562,7 @@ class Model
 
     public function __call(string $method, array $args)
     {
-        $proxiedMethods = ['whereIn', 'whereNull', 'whereNotNull', 'whereBetween',
+        $proxiedMethods = ['whereIn', 'whereOr', 'whereNull', 'whereNotNull', 'whereBetween',
             'orderBy', 'groupBy', 'having', 'limit', 'leftJoin', 'rightJoin',
             'join', 'count', 'sum', 'avg', 'max', 'min', 'chunk', 'first',
             'fetch', 'fetchAll', 'value'];
@@ -582,7 +582,7 @@ class Model
 
     public static function __callStatic(string $method, array $args)
     {
-        $allowedMethods = ['where', 'whereIn', 'whereNull', 'whereNotNull', 'whereBetween',
+        $allowedMethods = ['where', 'whereIn', 'whereOr', 'whereNull', 'whereNotNull', 'whereBetween',
             'orderBy', 'groupBy', 'having', 'limit', 'leftJoin', 'rightJoin',
             'join', 'count', 'sum', 'avg', 'max', 'min', 'chunk', 'first',
             'fetch', 'fetchAll', 'value', 'all', 'find', 'findBy', 'create',

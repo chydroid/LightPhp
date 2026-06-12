@@ -28,6 +28,9 @@ class SmartyView
 
     public function display(string $template, array $data = []): Response
     {
+        $this->sections = [];
+        $this->sectionBlock = null;
+
         foreach ($data as $key => $value) {
             $this->smarty->assign($key, $value);
         }

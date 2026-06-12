@@ -2,6 +2,51 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.5.0] - 2026-06-12
+
+### 安全修复 (Security Fixes)
+
+- **[HIGH] Router 正则定界符 `~` 与自定义路由正则冲突** — 用户路由正则含 `~` 时导致 preg_match 失败。修复：转义 `~` 字符
+- **[HIGH] Router handleNotFound() 过早调用 http_response_code(404)** — 绕过 Response 对象的状态码管理。修复：移除直接调用
+- **[HIGH] Validate validated() 返回未验证字段** — 未在规则中定义的字段也被返回，可导致批量赋值攻击。修复：仅返回规则中定义的字段
+- **[HIGH] Validate in/notIn 严格比较类型不匹配** — 整数值与字符串参数比较永远失败。修复：将值转为字符串后再比较
+- **[MEDIUM] Response redirect() 反斜杠绕过** — `/\evil.com` 可绕过开放重定向检查。修复：同时检查反斜杠
+- **[MEDIUM] Request file() 直接读取 $_FILES** — 未使用构造函数快照，可被后续修改。修复：使用 $this->files 快照
+- **[MEDIUM] Captcha generate() 异常跳过静态重置** — createImage() 抛异常时静态配置未重置。修复：使用 try/finally
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] QueryBuilder sum() 缺少 assertNotRaw 检查** — raw 模式下调用 sum() 生成错误 SQL。修复：添加 assertNotRaw
+- **[HIGH] QueryBuilder raw() 模式下 update() 未拒绝** — raw SQL 是 SELECT 语义，update 不应执行。修复：添加 isRaw 检查
+- **[HIGH] QueryBuilder insert()/update() 空数组生成无效 SQL** — 传入空数组导致 SQL 语法错误。修复：添加空数组校验
+- **[HIGH] QueryBuilder limit() 接受负数值** — 生成无效 SQL。修复：添加负数校验
+- **[HIGH] Model eagerLoad 忽略传入的 foreignKey/ownerKey 参数** — hasMany/hasOne 分支硬编码外键。修复：使用传入参数
+- **[HIGH] Model json 类型 cast 方向错误** — 数据库中 JSON 字符串应解码为数组，而非编码。修复：改为 json_decode
+- **[HIGH] Model hasOne() 返回空模型而非 null** — 无关联记录时返回空模型实例，与 belongsTo 不一致。修复：返回 null
+- **[HIGH] Model eagerLoad array_filter 误过滤 ID=0** — 不带回调的 array_filter 过滤假值。修复：使用 fn($id) => $id !== null
+- **[HIGH] RedisCache increment/decrement TTL 保留逻辑错误** — 先 set 再 expire 导致 TTL 被重置。修复：使用 setex 原子设置
+- **[HIGH] RedisCache decrement 可返回负数** — 与其他驱动不一致。修复：添加 max(0, ...)
+- **[HIGH] RedisCache attachTag 标签键固定 24h 过期** — 长 TTL 缓存项的标签提前失效。修复：移除固定过期时间
+- **[HIGH] MemcachedCache many() falsy 值丢失** — `?:` 运算符将含 falsy 值的数组替换为空数组。修复：使用 GET_PRESERVE_ORDER + is_array 检查
+- **[HIGH] MemcachedCache delete() 对不存在键返回 false** — 与 FileCache 不一致。修复：NOTFOUND 时也返回 true
+- **[HIGH] RedisCache delete() 对不存在键返回 false** — 与 FileCache 不一致。修复：始终返回 true
+- **[HIGH] Connection 不支持嵌套事务** — 嵌套调用抛出 PDOException。修复：使用 SAVEPOINT 模拟嵌套事务
+- **[HIGH] Upload save() 缺少危险扩展名二次校验** — 绕过 validate() 直接调用 save() 可上传危险文件。修复：save() 中再次检查
+- **[MEDIUM] Throttle decaySeconds=0 导致永久限流** — 应跳过限流而非永久阻塞。修复：decaySeconds<=0 时直接放行
+- **[MEDIUM] Request post(null) 与 post($key) 行为不一致** — post() 只返回 JSON 数据丢失 POST 字段。修复：合并 POST 和 JSON
+- **[MEDIUM] Request all() 合并顺序与 input() 优先级不匹配** — all() 用 get+post+json，input() 优先 POST。修复：改为 get+json+post
+- **[MEDIUM] Model __call 缺少 whereOr 代理** — 静态调用 whereOr 报错。修复：添加到代理列表
+- **[MEDIUM] Schema engine() 缺少输入验证** — 可注入任意字符串到 SQL。修复：添加正则验证
+- **[MEDIUM] QueryBuilder paginate() 空结果时 last_page=0** — 不符合常规分页约定。修复：total=0 时 last_page=1
+- **[MEDIUM] Upload 未拒绝零字节文件** — 空文件通过验证被保存。修复：添加 size===0 检查
+- **[MEDIUM] Validate addError() str_replace 数组长度不匹配** — search 数组多于 replace 时用空字符串替换。修复：按索引匹配
+- **[LOW] Validate 空规则字符串触发未知规则警告** — `required|` 产生空规则段。修复：跳过空字符串
+- **[LOW] Blade @csrf/@method/@break/@default/@continue 缺少词边界** — 可被部分匹配。修复：添加 (?!\w)
+- **[LOW] Blade @csrf 未转义输出** — token 值未经 htmlspecialchars。修复：添加转义
+- **[LOW] View extend() 无限递归** — 布局继承循环导致栈溢出。修复：添加深度计数器
+- **[LOW] Helper asset() 使用 SCRIPT_NAME** — 包含入口文件名导致路径错误。修复：使用 dirname()
+- **[LOW] FileCache increment/decrement TTL 可能为负** — 过期边界计算产生负值导致永不过期。修复：使用 max(1, ...)
+
 ## [2.4.0] - 2026-06-11
 
 ### 安全修复 (Security Fixes)

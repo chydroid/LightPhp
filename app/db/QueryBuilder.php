@@ -161,7 +161,7 @@ class QueryBuilder
             if ($columns !== '*') {
                 $this->validateColumnName($columns);
             }
-            $this->select = $columns;
+            $this->select = $this->sanitizeColumn($columns);
         }
         return $this;
     }
@@ -333,6 +333,12 @@ class QueryBuilder
 
     public function limit(int $limit, int $offset = 0): self
     {
+        if ($limit < 0) {
+            throw new \InvalidArgumentException('Limit must be non-negative, got ' . $limit);
+        }
+        if ($offset < 0) {
+            throw new \InvalidArgumentException('Offset must be non-negative, got ' . $offset);
+        }
         $this->limit = $limit;
         $this->offset = $offset;
         return $this;
@@ -546,6 +552,10 @@ class QueryBuilder
 
     private function buildDelete(): string
     {
+        if ($this->isRaw) {
+            throw new \RuntimeException('Cannot build DELETE query in raw SQL mode.');
+        }
+
         if ($this->table === '') {
             throw new \RuntimeException('No table name specified for the query.');
         }
@@ -591,8 +601,12 @@ class QueryBuilder
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
         $result = $stmt->fetch();
-        $this->setCacheFor($sql, $result !== false ? [$result] : []);
-        return $result !== false ? $result : null;
+        if ($result !== false) {
+            $this->setCacheFor($sql, [$result]);
+            return $result;
+        }
+        $this->setCacheFor($sql, []);
+        return null;
     }
 
     public function first(): ?array
@@ -617,8 +631,16 @@ class QueryBuilder
         }
     }
 
+    private function assertNotRaw(string $method): void
+    {
+        if ($this->isRaw) {
+            throw new \RuntimeException("Cannot call {$method}() in raw query mode.");
+        }
+    }
+
     public function count(string $column = '*'): int
     {
+        $this->assertNotRaw('count');
         $this->validateAggregateColumn($column);
         $clone = clone $this;
         $clone->select = $column === '*'
@@ -638,11 +660,15 @@ class QueryBuilder
 
     public function sum(string $column): float
     {
+        $this->assertNotRaw('sum');
         $this->validateAggregateColumn($column);
         $clone = clone $this;
         $clone->select = "SUM(`{$column}`) as __sum";
         $clone->limit = 0;
         $clone->offset = 0;
+        $clone->orderBy = '';
+        $clone->groupBy = '';
+        $clone->having = '';
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
@@ -652,11 +678,15 @@ class QueryBuilder
 
     public function avg(string $column): float
     {
+        $this->assertNotRaw('avg');
         $this->validateAggregateColumn($column);
         $clone = clone $this;
         $clone->select = "AVG(`{$column}`) as __avg";
         $clone->limit = 0;
         $clone->offset = 0;
+        $clone->orderBy = '';
+        $clone->groupBy = '';
+        $clone->having = '';
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
@@ -666,11 +696,15 @@ class QueryBuilder
 
     public function max(string $column): mixed
     {
+        $this->assertNotRaw('max');
         $this->validateAggregateColumn($column);
         $clone = clone $this;
         $clone->select = "MAX(`{$column}`) as __max";
         $clone->limit = 0;
         $clone->offset = 0;
+        $clone->orderBy = '';
+        $clone->groupBy = '';
+        $clone->having = '';
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
@@ -680,11 +714,15 @@ class QueryBuilder
 
     public function min(string $column): mixed
     {
+        $this->assertNotRaw('min');
         $this->validateAggregateColumn($column);
         $clone = clone $this;
         $clone->select = "MIN(`{$column}`) as __min";
         $clone->limit = 0;
         $clone->offset = 0;
+        $clone->orderBy = '';
+        $clone->groupBy = '';
+        $clone->having = '';
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
@@ -692,16 +730,25 @@ class QueryBuilder
         return is_array($result) ? ($result['__min'] ?? null) : null;
     }
 
-    public function insert(array $data): int
+    public function insert(array $data): int|string
     {
+        if (empty($data)) {
+            throw new \InvalidArgumentException('Insert data cannot be empty.');
+        }
         $sql = $this->buildInsert($data);
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($this->bindings);
-        return (int) $this->pdo->lastInsertId();
+        return $this->pdo->lastInsertId();
     }
 
     public function update(array $data): int
     {
+        if ($this->isRaw) {
+            throw new \RuntimeException('Cannot call update() in raw query mode.');
+        }
+        if (empty($data)) {
+            throw new \InvalidArgumentException('Update data cannot be empty.');
+        }
         $sql = $this->buildUpdate($data);
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($this->bindings);
@@ -745,7 +792,7 @@ class QueryBuilder
         $perPage = max(1, $perPage);
         $page = max(1, $page);
         $total = $this->count();
-        $totalPages = (int) ceil($total / $perPage);
+        $totalPages = $total > 0 ? (int) ceil($total / $perPage) : 1;
 
         $clone = clone $this;
         $clone->limit($perPage, ($page - 1) * $perPage);

@@ -34,7 +34,7 @@ class Helper
         if (preg_match('#^https?://#i', $path) || str_contains($path, '..')) {
             return '';
         }
-        $base = rtrim($_SERVER['SCRIPT_NAME'] ?? '', '/');
+        $base = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/');
         return $base . '/' . ltrim($path, '/');
     }
 

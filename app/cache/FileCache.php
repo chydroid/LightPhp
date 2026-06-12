@@ -364,6 +364,7 @@ class FileCache implements CacheInterface
         } finally {
             flock($fp, LOCK_UN);
             fclose($fp);
+            @unlink($lockFile);
         }
     }
 
@@ -387,18 +388,19 @@ class FileCache implements CacheInterface
             $data = $this->read($key);
             $current = $data !== null ? (int) $data['value'] : 0;
             $new = $current + $step;
-            $ttl = ($data !== null && $data['expire'] > 0) ? ($data['expire'] - time()) : null;
+            $ttl = ($data !== null && $data['expire'] > 0) ? max(1, $data['expire'] - time()) : 0;
             $this->set($key, $new, $ttl);
             return $new;
         } finally {
             flock($fp, LOCK_UN);
             fclose($fp);
+            @unlink($lockFile);
         }
     }
 
     /**
      * 递减缓存值（带锁机制）
-     * 
+     *
      * @param string $key 缓存键
      * @param int $step 步长
      * @return int 递减后的值
@@ -416,12 +418,13 @@ class FileCache implements CacheInterface
             $data = $this->read($key);
             $current = $data !== null ? (int) $data['value'] : 0;
             $new = max(0, $current - $step);
-            $ttl = ($data !== null && $data['expire'] > 0) ? ($data['expire'] - time()) : null;
+            $ttl = ($data !== null && $data['expire'] > 0) ? max(1, $data['expire'] - time()) : 0;
             $this->set($key, $new, $ttl);
             return $new;
         } finally {
             flock($fp, LOCK_UN);
             fclose($fp);
+            @unlink($lockFile);
         }
     }
 
@@ -526,7 +529,7 @@ class FileCache implements CacheInterface
         $data = $this->read($key);
         $current = $data !== null ? (int) $data['value'] : 0;
         $new = $current + $step;
-        $ttl = ($data !== null && $data['expire'] > 0) ? ($data['expire'] - time()) : null;
+        $ttl = ($data !== null && $data['expire'] > 0) ? max(1, $data['expire'] - time()) : 0;
         $this->set($key, $new, $ttl);
         return $new;
     }
@@ -536,7 +539,7 @@ class FileCache implements CacheInterface
         $data = $this->read($key);
         $current = $data !== null ? (int) $data['value'] : 0;
         $new = max(0, $current - $step);
-        $ttl = ($data !== null && $data['expire'] > 0) ? ($data['expire'] - time()) : null;
+        $ttl = ($data !== null && $data['expire'] > 0) ? max(1, $data['expire'] - time()) : 0;
         $this->set($key, $new, $ttl);
         return $new;
     }

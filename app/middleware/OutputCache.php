@@ -91,7 +91,13 @@ class OutputCache extends Middleware
         if (is_array($params)) {
             ksort($params);
         }
-        return $this->prefix . hash('sha256', $path . '|' . json_encode($params));
+        // 包含会话标识以防止跨用户缓存污染
+        $sessionKey = '';
+        $sessionName = session_name();
+        if ($sessionName !== '' && isset($_COOKIE[$sessionName])) {
+            $sessionKey = $_COOKIE[$sessionName];
+        }
+        return $this->prefix . hash('sha256', $path . '|' . json_encode($params) . '|' . $sessionKey);
     }
 
     /**

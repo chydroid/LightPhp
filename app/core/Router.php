@@ -376,8 +376,8 @@ class Router
                 },
                 $compiled
             );
-            // 使用 ~ 作为定界符避免与自定义正则中的 # 冲突
-            $regex = '~^' . $compiled . '$~';
+            // 使用 ~ 作为定界符，转义自定义正则中可能包含的 ~
+            $regex = '~^' . str_replace('~', '\~', $compiled) . '$~';
             $this->compiledRoutes[$pattern] = $regex;
         }
 
@@ -534,8 +534,6 @@ class Router
      */
     private function handleNotFound(): Response
     {
-        http_response_code(404);
-
         // 尝试加载自定义错误视图
         $config = $this->container?->get('config');
         $errorView = is_array($config) && isset($config['app']['error_views']['404'])

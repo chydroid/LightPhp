@@ -177,12 +177,16 @@ class QueryBuilder
      */
     public function where(string $column, mixed $operator = null, mixed $value = null): self
     {
-        // 支持 where('column', 'value') 形式
-        if ($value === null && $operator !== null) {
+        // 判断是否为三参数形式 where('col', '=', null)
+        // 如果 $value 显式传入（即使是 null），则 $operator 是操作符
+        // 如果 $value 未传入（默认 null）且 $operator 非 null，则是两参数简写 where('col', 'value')
+        $isThreeArgForm = func_num_args() >= 3;
+
+        if (!$isThreeArgForm && $operator !== null) {
+            // 两参数简写: where('column', 'value')
             $value = $operator;
             $operator = '=';
         }
-        // 确保 operator 始终为字符串
         if ($operator === null) {
             $operator = '=';
         }

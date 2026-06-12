@@ -263,14 +263,33 @@ class QueryBuilder
             return $this;
         }
 
-        $placeholders = [];
-        foreach ($values as $i => $value) {
-            $placeholder = ':w_' . count($this->bindings);
-            $placeholders[] = $placeholder;
-            $this->bindings[$placeholder] = $value;
+        // 分离 null 值和非 null 值
+        // SQL 中 IN (1, NULL) 对 NULL 的比较结果为 UNKNOWN，不会匹配任何行
+        $nullValues = array_filter($values, fn($v) => $v === null);
+        $nonNullValues = array_filter($values, fn($v) => $v !== null);
+
+        $conditions = [];
+
+        if (!empty($nonNullValues)) {
+            $placeholders = [];
+            foreach ($nonNullValues as $value) {
+                $placeholder = ':w_' . count($this->bindings);
+                $placeholders[] = $placeholder;
+                $this->bindings[$placeholder] = $value;
+            }
+            $conditions[] = $this->sanitizeColumn($column) . " IN (" . implode(', ', $placeholders) . ")";
         }
 
-        $this->where[] = $this->sanitizeColumn($column) . " IN (" . implode(', ', $placeholders) . ")";
+        if (!empty($nullValues)) {
+            $conditions[] = $this->sanitizeColumn($column) . " IS NULL";
+        }
+
+        if (count($conditions) === 1) {
+            $this->where[] = $conditions[0];
+        } else {
+            $this->where[] = '(' . implode(' OR ', $conditions) . ')';
+        }
+
         return $this;
     }
 
@@ -291,6 +310,10 @@ class QueryBuilder
     public function whereBetween(string $column, mixed $min, mixed $max): self
     {
         $this->validateColumnName($column);
+        if ($min === null || $max === null) {
+            throw new \InvalidArgumentException("BETWEEN clause does not support NULL values for column {$column}");
+        }
+
         $minPlaceholder = ':w_' . count($this->bindings);
         $maxPlaceholder = ':w_' . (count($this->bindings) + 1);
 
@@ -352,6 +375,18 @@ class QueryBuilder
         $operator = strtoupper(trim($operator));
         if (!in_array($operator, self::ALLOWED_HAVING_OPERATORS, true)) {
             throw new \InvalidArgumentException("Invalid HAVING operator: {$operator}");
+        }
+
+        // 处理 null 值：与 where() 同理
+        if ($value === null) {
+            if ($operator === '=' || $operator === 'LIKE') {
+                $this->having = "HAVING " . $this->sanitizeColumn($column) . " IS NULL";
+            } elseif ($operator === '!=' || $operator === '<>' || $operator === 'NOT LIKE') {
+                $this->having = "HAVING " . $this->sanitizeColumn($column) . " IS NOT NULL";
+            } else {
+                throw new \InvalidArgumentException("Cannot use NULL value with HAVING operator {$operator}");
+            }
+            return $this;
         }
 
         $placeholder = ':h_' . count($this->bindings);

@@ -225,6 +225,130 @@ assert_test(
 
 echo "\n";
 
+// --- 测试13: whereIn 包含 null 值 ---
+echo "测试13: whereIn 包含 null 值时拆分为 IN + IS NULL\n";
+$qb = new \db\QueryBuilder($pdo);
+$qb->table('users')->whereIn('email', ['alice@test.com', null, 'charlie@test.com']);
+$sql = $qb->getSql();
+assert_test(
+    str_contains($sql, 'IN ('),
+    "SQL 包含 IN: {$sql}"
+);
+assert_test(
+    str_contains($sql, 'IS NULL'),
+    "SQL 包含 IS NULL: {$sql}"
+);
+assert_test(
+    str_contains($sql, 'OR'),
+    "IN 和 IS NULL 用 OR 连接: {$sql}"
+);
+
+echo "\n";
+
+// --- 测试14: whereIn 全部为 null 值 ---
+echo "测试14: whereIn 全部为 null 值时只生成 IS NULL\n";
+$qb = new \db\QueryBuilder($pdo);
+$qb->table('users')->whereIn('email', [null, null]);
+$sql = $qb->getSql();
+assert_test(
+    str_contains($sql, 'IS NULL'),
+    "SQL 包含 IS NULL: {$sql}"
+);
+assert_test(
+    !str_contains($sql, 'IN ('),
+    "SQL 不包含 IN: {$sql}"
+);
+
+echo "\n";
+
+// --- 测试15: whereIn 无 null 值不受影响 ---
+echo "测试15: whereIn 无 null 值不受影响\n";
+$qb = new \db\QueryBuilder($pdo);
+$qb->table('users')->whereIn('name', ['Alice', 'Bob']);
+$sql = $qb->getSql();
+assert_test(
+    str_contains($sql, 'IN ('),
+    "SQL 包含 IN: {$sql}"
+);
+assert_test(
+    !str_contains($sql, 'IS NULL'),
+    "SQL 不包含 IS NULL: {$sql}"
+);
+
+echo "\n";
+
+// --- 测试16: having null 值生成 IS NULL ---
+echo "测试16: having('count', '=', null) 生成 IS NULL\n";
+$qb = new \db\QueryBuilder($pdo);
+$qb->table('users')->groupBy('name')->having('count', '=', null);
+$sql = $qb->getSql();
+assert_test(
+    str_contains($sql, 'IS NULL'),
+    "HAVING SQL 包含 IS NULL: {$sql}"
+);
+
+echo "\n";
+
+// --- 测试17: having != null 生成 IS NOT NULL ---
+echo "测试17: having('count', '!=', null) 生成 IS NOT NULL\n";
+$qb = new \db\QueryBuilder($pdo);
+$qb->table('users')->groupBy('name')->having('count', '!=', null);
+$sql = $qb->getSql();
+assert_test(
+    str_contains($sql, 'IS NOT NULL'),
+    "HAVING SQL 包含 IS NOT NULL: {$sql}"
+);
+
+echo "\n";
+
+// --- 测试18: having > null 抛异常 ---
+echo "测试18: having('count', '>', null) 抛 InvalidArgumentException\n";
+$exceptionThrown = false;
+try {
+    $qb = new \db\QueryBuilder($pdo);
+    $qb->table('users')->groupBy('name')->having('count', '>', null);
+} catch (\InvalidArgumentException $e) {
+    $exceptionThrown = true;
+}
+assert_test(
+    $exceptionThrown,
+    "HAVING 使用 > 操作符与 null 值时抛出 InvalidArgumentException"
+);
+
+echo "\n";
+
+// --- 测试19: whereBetween null 值抛异常 ---
+echo "测试19: whereBetween('age', null, 100) 抛 InvalidArgumentException\n";
+$exceptionThrown = false;
+try {
+    $qb = new \db\QueryBuilder($pdo);
+    $qb->table('users')->whereBetween('age', null, 100);
+} catch (\InvalidArgumentException $e) {
+    $exceptionThrown = true;
+}
+assert_test(
+    $exceptionThrown,
+    "whereBetween min=null 时抛出 InvalidArgumentException"
+);
+
+echo "\n";
+
+// --- 测试20: whereBetween 正常值不受影响 ---
+echo "测试20: whereBetween 正常值不受影响\n";
+$qb = new \db\QueryBuilder($pdo);
+$qb->table('users')->whereBetween('age', 18, 65);
+$sql = $qb->getSql();
+assert_test(
+    str_contains($sql, 'BETWEEN'),
+    "SQL 包含 BETWEEN: {$sql}"
+);
+assert_test(
+    !str_contains($sql, 'IS NULL'),
+    "SQL 不包含 IS NULL: {$sql}"
+);
+
+echo "\n";
+
 // --- 汇总 ---
 echo str_repeat('=', 50) . "\n";
 $total = $passed + $failed;

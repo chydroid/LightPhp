@@ -519,7 +519,16 @@ class ArticleController extends Controller
 }
 ```
 
-### 5.2 控制器基类提供的响应方法
+### 5.2 `notFound()` 方法
+
+控制器基类提供了 `notFound()` 快捷方法，返回一个 404 响应：
+
+```php
+return $this->notFound('文章不存在');
+// 等价于：return Response::make('<h1>文章不存在</h1>', 404);
+```
+
+### 5.3 控制器基类提供的响应方法
 
 | 方法 | 用途 | 返回值示例 |
 |------|------|-----------|
@@ -529,7 +538,7 @@ class ArticleController extends Controller
 | `$this->error($msg, $code, $errors)` | 返回错误 JSON | `{"code":422,"msg":"验证失败",...}` |
 | `$this->redirect($url, $code)` | 重定向 | 302 跳转 |
 
-### 5.3 依赖注入
+### 5.4 依赖注入
 
 LightPHP 支持构造方法注入，让控制器可以方便地获取所需的服务：
 
@@ -895,8 +904,8 @@ $qb->where('status', '=', 1)                       // 等值
    ->whereNotNull('email')                          // IS NOT NULL
    ->whereBetween('age', 18, 65);                   // BETWEEN
 
-// OR 条件
-$qb->whereOr(['name' => 'John', ['role', 'admin']]); // (name='John' OR role='admin')
+// OR 条件（每个 key 是列名，值为直接值或 [操作符, 值] 数组）
+$qb->whereOr(['name' => 'John', 'role' => ['=', 'admin']]); // (name='John' OR role='admin')
 
 // ===== JOIN 关联查询 =====
 $qb->select(['users.*', 'profiles.avatar'])
@@ -1243,7 +1252,6 @@ public function store(Request $request): \core\Response
     $all   = $request->all();                         // 所有输入
     $data  = $request->only(['name', 'email']);       // 白名单取参（推荐！）
     $data  = $request->except(['password', 'token']); // 排除指定字段
-    $json  = $request->json();                        // JSON 请求体
 
     // ===== 判断字段存在 =====
     if ($request->has('name')) { /* ... */ }

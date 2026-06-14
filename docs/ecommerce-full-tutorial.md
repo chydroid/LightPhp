@@ -388,26 +388,26 @@ class AuthController extends Controller
         }
 
         $user = User::where('username', '=', $username)
-            ->orWhere('email', '=', $username)
+            ->whereOr('email', '=', $username)
             ->first();
 
-        if (!$user || !\core\Hash::verify($password, $user['password'])) {
+        if (!$user || !\core\Hash::verify($password, $user->password)) {
             return $this->error('Invalid credentials', 401);
         }
 
-        if (($user['status'] ?? 0) !== 1) {
+        if (($user->status ?? 0) !== 1) {
             return $this->error('Account is disabled', 403);
         }
 
-        $token = $this->generateToken($user['id']);
+        $token = $this->generateToken($user->id);
 
         return $this->success([
             'user' => [
-                'id' => $user['id'],
-                'username' => $user['username'],
-                'email' => $user['email'],
-                'nickname' => $user['nickname'],
-                'avatar' => $user['avatar'],
+                'id' => $user->id,
+                'username' => $user->username,
+                'email' => $user->email,
+                'nickname' => $user->nickname,
+                'avatar' => $user->avatar,
             ],
             'token' => $token,
         ], 'Login successful');
@@ -433,11 +433,11 @@ class AuthController extends Controller
         }
 
         return $this->success([
-            'id' => $user['id'],
-            'username' => $user['username'],
-            'email' => $user['email'],
-            'nickname' => $user['nickname'],
-            'avatar' => $user['avatar'],
+            'id' => $user->id,
+            'username' => $user->username,
+            'email' => $user->email,
+            'nickname' => $user->nickname,
+            'avatar' => $user->avatar,
         ]);
     }
 
@@ -578,7 +578,7 @@ class Category extends Model
 
     public function products()
     {
-        return new Product();
+        return $this->hasMany(Product::class);
     }
 
     public function children()
@@ -678,7 +678,7 @@ class Product extends Model
 
     public function category()
     {
-        return new Category();
+        return $this->belongsTo(Category::class);
     }
 
     // v2.0 访问器：读取 images 时自动将 JSON 字符串转为数组
@@ -961,7 +961,7 @@ class Order extends Model
 
     public function items()
     {
-        return new OrderItem();
+        return $this->hasMany(OrderItem::class);
     }
 
     public function generateOrderNo(): string

@@ -4,42 +4,43 @@
 
 ## 概述
 
-LightPHP 使用自带的轻量级测试框架，测试文件全部集中在 `tests/` 目录下。当前共 **173 个测试用例**，覆盖了框架所有核心组件：
+LightPHP 使用自带的轻量级测试框架，测试文件全部集中在 `tests/` 目录下。当前共 **343 个测试用例**，覆盖了框架所有核心组件：
 
 | 测试模块 | 说明 | 测试数量 |
 |---------|------|---------|
-| Router | 路由注册、匹配、参数、中间件、别名、组 | 7 |
-| Container | 依赖注入容器（PSR-11） | 6 |
-| Request | HTTP 请求参数与方法、类型过滤 | 7 |
+| Router | 路由注册、匹配、参数、中间件、别名、组 | 14 |
+| Container | 依赖注入容器（PSR-11） | 7 |
+| Request | HTTP 请求参数与方法、类型过滤 | 13 |
 | Response | HTTP 响应构建 | 1 |
-| Validate | 验证规则与 passes/fails | 6 |
-| Session | 会话读写、删除、Flash | 3 |
-| Cookie | Cookie 静态方法与安全选项 | 2 |
-| Hash | 密码哈希、AES 加密解密 | 3 |
-| Env | 环境变量加载、读取、批量 | 2 |
-| Model | ORM 方法、访问器、修改器、作用域、关联 | 11 |
-| View | 视图自动转义 | 2 |
-| Middleware | 抽象类、CSRF、CORS、Throttle | 4 |
-| FileCache | 文件缓存、标签集成、pull、批量操作 | 8 |
-| ApiDoc | API 文档生成、Markdown、JSON | 3 |
-| EventDispatcher | 事件监听、触发、优先级、订阅 | 9 |
-| Collection | 数组集合 map/filter/groupBy 等 | 30 |
-| Facade | 门面模式与容器解析 | 2 |
-| ServiceProvider | 服务提供者抽象与注册 | 2 |
-| Blade | 模板编译、指令、echo 转义 | 6 |
-| Command/Console | CLI 命令签名、参数、选项、注册 | 7 |
-| Schema/Blueprint | 数据库迁移建表、字段定义 | 6 |
-| Application | 容器配置、事件、Provider 注册 | 3 |
-| Exception | 异常层级与处理器 | 4 |
+| Validate | 验证规则与 passes/fails | 8 |
+| Session | 会话读写、删除、Flash | 5 |
+| Cookie | Cookie 静态方法与安全选项 | 6 |
+| Hash | 密码哈希、AES 加密解密 | 8 |
+| Env | 环境变量加载、读取、批量 | 5 |
+| Model | ORM 方法、访问器、修改器、作用域、关联 | 19 |
+| View | 视图自动转义 | 3 |
+| Middleware | 抽象类、CSRF、CORS、Throttle | 8 |
+| FileCache | 文件缓存、标签集成、pull、批量操作 | 22 |
+| ApiDoc | API 文档生成、Markdown、JSON | 5 |
+| EventDispatcher | 事件监听、触发、优先级、订阅 | 14 |
+| Collection | 数组集合 map/filter/groupBy 等 | 45 |
+| Facade | 门面模式与容器解析 | 3 |
+| ServiceProvider | 服务提供者抽象与注册 | 5 |
+| Contracts | 接口契约定义 | 3 |
+| Blade | 模板编译、指令、echo 转义 | 9 |
+| Command/Console | CLI 命令签名、参数、选项、注册 | 9 |
+| Schema/Blueprint | 数据库迁移建表、字段定义 | 20 |
+| Application | 容器配置、事件、Provider 注册 | 4 |
+| Exception | 异常层级与处理器 | 9 |
 | Pipeline | 管道洋葱模型、via、thenReturn | 5 |
-| Macroable | 宏注册、调用、mixin、flush | 10 |
-| SoftDelete | 软删除 trait、trashed、force 切换 | 3 |
+| Macroable | 宏注册、调用、mixin、flush | 14 |
+| SoftDelete | 软删除 trait、trashed、force 切换 | 6 |
 | HasModelEvents | 模型事件、观察者、返回 false 取消 | 4 |
-| Seeder | 数据填充抽象类 | 1 |
-| RedisCache | 类结构、接口契约、完整功能 | 5 |
-| MemcachedCache | 类结构、接口契约、完整功能 | 5 |
-| TaggedCache | 标签化缓存、flush、批量 | 10 |
-| **合计** | | **173** |
+| Seeder | 数据填充抽象类 | 6 |
+| RedisCache | 类结构、接口契约、完整功能 | 20 |
+| MemcachedCache | 类结构、接口契约、完整功能 | 20 |
+| TaggedCache | 标签化缓存、flush、批量 | 23 |
+| **合计** | | **343** |
 
 > 💡 **单元测试 vs 集成测试**：单元测试是测试单个函数/方法的正确性（例如"Hash::make 能生成 bcrypt 哈希吗？"）；集成测试是测试多个模块协同工作的正确性（例如"用户注册接口能正确处理 POST 请求吗？"）。当前项目以单元测试为主，覆盖了框架所有独立功能点。
 
@@ -110,7 +111,7 @@ LightPHP Unit Tests
 [PASS] FileCache::remember caches callback result
 [PASS] FileCache::increment/decrement
 
-Results: 259 passed, 0 failed
+Results: 343 passed, 0 failed
 All tests passed!
 ```
 
@@ -193,71 +194,71 @@ class TestCase
 
 ## 测试覆盖范围
 
-`tests/run_tests.php` 包含 173 个测试用例，覆盖框架所有核心模块。下表给出每个模块的代表性测试场景与目的：
+`tests/run_tests.php` 包含 343 个测试用例，覆盖框架所有核心模块。下表给出每个模块的代表性测试场景与目的：
 
 ### 1. 核心组件测试
 
-- **Router（7）**：基础路由注册、路由分组、参数匹配、middleware 方法、aliasMiddleware、middlewareGroup、setGlobalMiddleware
-- **Container（6）**：bind/singleton/has、自动依赖解析、实例方法（instance）
-- **Request（7）**：method/isPost、string/integer/float/boolean/arrayInput 类型过滤、merge 数据合并
+- **Router（14）**：基础路由注册、路由分组、参数匹配、middleware 方法、aliasMiddleware、middlewareGroup、setGlobalMiddleware
+- **Container（7）**：bind/singleton/has、自动依赖解析、实例方法（instance）
+- **Request（13）**：method/isPost、string/integer/float/boolean/arrayInput 类型过滤、merge 数据合并
 - **Response（1）**：JSON 响应构建
-- **Application（3）**：setConfig（支持点分键）、getEvents、registerProvider
+- **Application（4）**：setConfig（支持点分键）、getEvents、registerProvider
 
 ### 2. 数据校验与安全
 
-- **Validate（6）**：required/email、min/max、passes/fails、unique 规则（抛异常）
-- **Hash（3）**：bcrypt 哈希与 verify、AES 加密解密、错误数据返回 null
-- **Session（3）**：set/get/delete、Flash set/get
-- **Cookie（2）**：静态方法存在性、delete 安全参数
-- **Env（2）**：load/get/默认值、has/all 批量读取
+- **Validate（8）**：required/email、min/max、passes/fails、unique 规则（抛异常）
+- **Hash（8）**：bcrypt 哈希与 verify、AES 加密解密、错误数据返回 null
+- **Session（5）**：set/get/delete、Flash set/get
+- **Cookie（6）**：静态方法存在性、delete 安全参数
+- **Env（5）**：load/get/默认值、has/all 批量读取
 
-### 3. 缓存体系（28）
+### 3. 缓存体系（85）
 
-- **FileCache（8）**：has、remember、increment/decrement、tags、attachTag/flushByTag、pull、deleteMany、setMany/many
-- **TaggedCache（10）**：set/get/has/delete、remember、many/setMany、flush、tags 追加、默认值
-- **RedisCache（5）**：类结构、扩展未安装抛异常、接口契约、connection、完整功能
-- **MemcachedCache（5）**：类结构、扩展未安装抛异常、接口契约、connection、完整功能
+- **FileCache（22）**：has、remember、increment/decrement、tags、attachTag/flushByTag、pull、deleteMany、setMany/many
+- **TaggedCache（23）**：set/get/has/delete、remember、many/setMany、flush、tags 追加、默认值
+- **RedisCache（20）**：类结构、扩展未安装抛异常、接口契约、connection、完整功能
+- **MemcachedCache（20）**：类结构、扩展未安装抛异常、接口契约、connection、完整功能
 
-### 4. 数据库与模型（22）
+### 4. 数据库与模型（55）
 
-- **Model（8）**：静态方法、getForeignKey、ORM 方法（hasOne/hasMany/belongsTo/belongsToMany/eagerLoad）、toArray/toJson、with/LoadRelation、访问器（getNameAttribute）、修改器（setEmailAttribute）、查询作用域（scopeActive）
-- **Schema/Blueprint（6）**：Schema/Blueprint/Migration 类存在、setConnection、hasTable/hasColumn、字段定义、rename、truncate
-- **SoftDelete（3）**：trait 存在、trashed 方法、forceDelete/softDelete 模式切换
+- **Model（19）**：静态方法、getForeignKey、ORM 方法（hasOne/hasMany/belongsTo/belongsToMany/eagerLoad）、toArray/toJson、with/LoadRelation、访问器（getNameAttribute）、修改器（setEmailAttribute）、查询作用域（scopeActive）
+- **Schema/Blueprint（20）**：Schema/Blueprint/Migration 类存在、setConnection、hasTable/hasColumn、字段定义、rename、truncate
+- **SoftDelete（6）**：trait 存在、trashed 方法、forceDelete/softDelete 模式切换
 - **HasModelEvents（4）**：trait 存在、onEvent、fireEvent 返回 false 取消、observe 观察者
-- **Seeder（1）**：抽象类与 run/register/call/runAll 方法
+- **Seeder（6）**：抽象类与 run/register/call/runAll 方法
 
-### 5. 中间件与管道（13）
+### 5. 中间件与管道（22）
 
-- **Middleware（4）**：抽象类与 handle 方法、CsrfMiddleware、CORS、Throttle
+- **Middleware（8）**：抽象类与 handle 方法、CsrfMiddleware、CORS、Throttle
 - **Pipeline（5）**：基本洋葱模型、thenReturn 直接返回、空管道、via 自定义方法名、中间件可修改请求/响应
 - **ExceptionHandler（3）**：类存在、shouldReport 过滤、dontReport 忽略列表
-- **Exception（1）**：FrameworkException 异常层级结构
+- **Exception（6）**：FrameworkException 异常层级结构
 
-### 6. 事件、容器与契约（14）
+### 6. 事件、容器与契约（25）
 
-- **EventDispatcher（9）**：listen/dispatch、wildcard、hasListeners、stop propagation、until、priority、forget、flush、subscribe
-- **Facade（2）**：类存在、容器未设置时抛 RuntimeException
-- **ServiceProvider（2）**：抽象类与 register/boot、子类持有容器
-- **Contracts（1）**：CacheInterface/LoggerInterface/ConnectionInterface 存在
+- **EventDispatcher（14）**：listen/dispatch、wildcard、hasListeners、stop propagation、until、priority、forget、flush、subscribe
+- **Facade（3）**：类存在、容器未设置时抛 RuntimeException
+- **ServiceProvider（5）**：抽象类与 register/boot、子类持有容器
+- **Contracts（3）**：CacheInterface/LoggerInterface/ConnectionInterface 存在
 
-### 7. 集合与函数式（30）
+### 7. 集合与函数式（45）
 
 **Collection**：basic、map、filter、filter 无回调、where、whereIn、pluck、pluck with key、only、except、sum、avg、min/max、sortBy、take、skip、first/last、first with callback、groupBy、keyBy、contains、isEmpty/isNotEmpty、unique、reduce、each、tap、pipe、json serialize、array access、countable
 
-### 8. 视图与模板（8）
+### 8. 视图与模板（12）
 
-- **View（2）**：自动转义 HTML、withoutAutoEscape 关闭转义
-- **Blade（6）**：类与 render/compileString 存在、echo 转义编译、原始 echo、if/foreach 指令编译、自定义 directive
+- **View（3）**：自动转义 HTML、withoutAutoEscape 关闭转义
+- **Blade（9）**：类与 render/compileString 存在、echo 转义编译、原始 echo、if/foreach 指令编译、自定义 directive
 
-### 9. CLI 控制台（7）
+### 9. CLI 控制台（9）
 
 **Command/Console**：signature 解析、argument 解析、option 解析、默认参数、register/list、unknown command 返回 1、signature with defaults
 
-### 10. 扩展机制（8）
+### 10. 扩展机制（14）
 
 **Macroable**：注册并调用、hasMacro、flushMacros、闭包绑定 $this、mixin 批量注册、mixin 不覆盖模式、调用不存在宏抛异常、Response 宏扩展（csv）
 
-### 11. API 文档（3）
+### 11. API 文档（5）
 
 **ApiDoc**：generate 返回数组、toMarkdown 包含标题、toJson 是合法 JSON
 

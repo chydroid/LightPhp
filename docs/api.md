@@ -336,6 +336,32 @@ User::table('users')
     ->fetchAll();
 ```
 
+### 更多查询方法
+
+```php
+// findOrFail - 根据主键查询，不存在则抛出异常
+$user = User::findOrFail(1);  // 如果 ID=1 不存在，抛出异常
+
+// first - 获取第一条匹配记录（返回关联数组）
+$user = User::where('email', '=', 'test@example.com')->first();
+
+// firstOrFail - 获取第一条匹配记录，不存在则抛出异常
+$user = User::where('email', '=', 'test@example.com')->firstOrFail();
+
+// firstOrCreate - 查找或创建：存在则返回，不存在则创建并返回
+$user = User::firstOrCreate(
+    ['email' => 'john@example.com'],  // 查找条件
+    ['username' => 'john', 'password' => Hash::make('secret')]  // 创建数据（仅在创建时使用）
+);
+
+// firstOrNew - 查找或新建实例：存在则返回，不存在则返回新实例（未保存）
+$user = User::firstOrNew(
+    ['email' => 'jane@example.com'],  // 查找条件
+    ['username' => 'jane']  // 新实例的默认值
+);
+$user->save();  // 手动调用 save() 才会写入数据库
+```
+
 ---
 ## Request 请求对象
 
@@ -349,38 +375,37 @@ User::table('users')
 use core\Request;
 
 // 获取 GET 参数（从 URL 查询字符串）
-$id = Request::get('id', 0);             // 第二个参数是默认值
+$id = $request->get('id', 0);             // 第二个参数是默认值
 
 // 获取 POST 参数（从请求体）
-$name = Request::post('name', '');
+$name = $request->post('name', '');
 
 // 获取所有输入（GET + POST 合并）
-$all = Request::all();
+$all = $request->all();
 
 // 只取指定字段（白名单模式，阻止意外的字段注入）
-$safe = Request::only(['username', 'email', 'password']);
+$safe = $request->only(['username', 'email', 'password']);
 
 // 排除指定字段
-$data = Request::except(['_token', '_method']);
+$data = $request->except(['_token', '_method']);
 
 // 检查字段是否存在
-if (Request::has('email')) { /* ... */ }
+if ($request->has('email')) { /* ... */ }
 
 // 判断请求方法
-Request::isGet();     // → true/false
-Request::isPost();    // → true/false
-Request::method();    // → 'GET', 'POST', 'PUT', 'DELETE', ...
+$request->isGet();     // → true/false
+$request->isPost();    // → true/false
+$request->method();    // → 'GET', 'POST', 'PUT', 'DELETE', ...
 
 // 检测 AJAX 请求
-if (Request::isAjax()) {
+if ($request->isAjax()) {
     // 返回 JSON 响应
 } else {
     // 返回 HTML 页面
 }
 
 // 获取请求 URI 和完整 URL
-$uri  = Request::uri();   // → '/user/1'
-$path = Request::path();  // → 'user/1'（无前导斜杠）
+$uri = $request->uri();   // → '/user/1'
 ```
 
 ---
@@ -478,10 +503,10 @@ $rules = [
 ];
 
 // 2. 获取输入数据
-$data = Request::only(['username', 'email', 'password', 'age', 'role']);
+$data = $request->only(['username', 'email', 'password', 'age', 'role']);
 
 // 3. 执行验证
-$validator = new Validate($data, $rules);
+$validator = (new Validate())->validate($data, $rules);
 
 if ($validator->fails()) {
     // 验证失败，返回错误信息
@@ -516,6 +541,18 @@ User::create($data);
 | `regex` | `regex:/正则/` | 自定义正则表达式 | `'phone' => 'regex:/^1[3-9]\d{9}$/'` |
 | `date` | `date` | 必须是有效日期格式 | `'birthday' => 'date'` |
 | `confirmed` | `confirmed` | 字段必须与 `{field}_confirmation` 值一致 | `'password' => 'confirmed'` |
+| `array` | `array` | 必须是合法的数组 | `'tags' => 'array'` |
+| `string` | `string` | 必须是字符串 | `'name' => 'string'` |
+| `size` | `size:值` | 字符串长度/数值/数组元素数量必须等于指定值 | `'code' => 'size:6'` |
+| `between` | `between:最小,最大` | 字符串长度/数值/数组元素数量必须在指定范围内 | `'age' => 'between:18,60'` |
+| `boolean` | `boolean` | 必须是布尔值（true/false, 1/0, '1'/'0'） | `'active' => 'boolean'` |
+| `before` | `before:日期` | 必须是早于指定日期的日期 | `'birthday' => 'before:2000-01-01'` |
+| `after` | `after:日期` | 必须是晚于指定日期的日期 | `'expire_date' => 'after:today'` |
+| `different` | `different:字段名` | 值必须与另一个字段的值不同 | `'password' => 'different:old_password'` |
+| `same` | `same:字段名` | 值必须与另一个字段的值相同 | `'password' => 'same:password_confirmation'` |
+| `nullable` | `nullable` | 允许字段为 null | `'nickname' => 'nullable|string'` |
+| `digits` | `digits:值` | 必须是恰好指定位数的数字 | `'zipcode' => 'digits:6'` |
+| `digitsBetween` | `digitsBetween:最小,最大` | 必须是位数在指定范围内的数字 | `'phone' => 'digitsBetween:10,15'` |
 
 ### 自定义错误消息
 
@@ -527,7 +564,7 @@ $messages = [
     'email.email'       => '请输入有效的邮箱地址',
 ];
 
-$validator = new Validate($data, $rules, $messages);
+$validator = (new Validate())->validate($data, $rules, $messages);
 ```
 
 ---
@@ -652,6 +689,45 @@ $stats = $connection->table('orders')
     ->select(['user_id', 'COUNT(*) as total'])
     ->groupBy('user_id')
     ->having('total', '>', 5)
+    ->fetchAll();
+
+// ===== DISTINCT 去重 =====
+$emails = $connection->table('users')
+    ->distinct()
+    ->pluck('email');  // 返回去重后的 email 数组
+
+// ===== 原始 orderBy =====
+$results = $connection->table('users')
+    ->orderByRaw('created_at DESC, name ASC')
+    ->fetchAll();
+
+// ===== 原始 where =====
+$results = $connection->table('users')
+    ->whereRaw('age > ? AND status = ?', [18, 1])
+    ->fetchAll();
+
+// ===== pluck 提取单列 =====
+$names = $connection->table('users')
+    ->where('status', '=', 1)
+    ->pluck('name');  // 返回 ['John', 'Jane', ...]
+
+// ===== chunkById 分块处理 =====
+// 每次处理 100 条记录，避免一次性加载所有数据到内存
+$connection->table('users')
+    ->where('status', '=', 1)
+    ->chunkById(100, function($users) {
+        foreach ($users as $user) {
+            // 处理每个用户...
+        }
+    });
+
+// ===== when 条件构建 =====
+// 当 $status 不为 null 时才添加 where 条件
+$status = request('status');
+$results = $connection->table('users')
+    ->when($status, function($query, $status) {
+        return $query->where('status', '=', $status);
+    })
     ->fetchAll();
 
 // ===== 事务操作 =====
@@ -811,6 +887,60 @@ $c->sum('price');        // 求和 → 返回 float|int
 $c->avg('score');        // 平均值 → 返回 float|int
 $c->min('age');          // 最小值 → 返回 mixed|null
 $c->max('age');          // 最大值 → 返回 mixed|null
+```
+
+### 更多集合方法
+
+```php
+// flatMap — 对每个元素执行回调并展平结果
+$c->flatMap(fn($user) => $user->tags);  // 展平嵌套数组
+
+// flatten — 将多维数组展平为一维
+$nested = collect([[1, 2], [3, 4]]);
+$nested->flatten();  // [1, 2, 3, 4]
+
+// chunk — 将集合分割为指定大小的块
+$chunks = collect([1, 2, 3, 4, 5])->chunk(2);
+// [[1, 2], [3, 4], [5]]
+
+// diff — 计算两个集合的差集
+$diff = collect([1, 2, 3])->diff([2, 3, 4]);  // [1]
+
+// intersect — 计算两个集合的交集
+$intersect = collect([1, 2, 3])->intersect([2, 3, 4]);  // [2, 3]
+
+// implode — 将集合元素连接为字符串
+$csv = collect(['name', 'age', 'email'])->implode(', ');  // "name, age, email"
+
+// flip — 交换集合的键和值
+$flipped = collect(['a' => 1, 'b' => 2])->flip();  // [1 => 'a', 2 => 'b']
+
+// zip — 将多个集合合并为一个元组数组
+$zipped = collect([1, 2])->zip(['a', 'b']);  // [[1, 'a'], [2, 'b']]
+
+// nth — 每隔 n 个元素取一个
+$every = collect([1, 2, 3, 4, 5, 6])->nth(2);  // [1, 3, 5]
+
+// forPage — 分页返回指定页的元素
+$page = collect(range(1, 50))->forPage(2, 15);  // 第2页，每页15条
+
+// slice — 返回集合中从指定位置开始的片段
+$slice = collect([1, 2, 3, 4, 5])->slice(2);  // [3, 4, 5]
+
+// split — 将集合分割为指定数量的组
+$groups = collect([1, 2, 3, 4, 5])->split(3);  // [[1, 2], [3, 4], [5]]
+
+// collapse — 将嵌套数组展平为一维
+$collapsed = collect([[1, 2], [3, 4], [5]])->collapse();  // [1, 2, 3, 4, 5]
+
+// merge — 合并另一个数组或集合到当前集合
+$merged = collect([1, 2])->merge([3, 4]);  // [1, 2, 3, 4]
+
+// pull — 从集合中移除并返回指定键的元素
+$pulled = collect(['a' => 1, 'b' => 2])->pull('a');  // 返回 1，集合变为 ['b' => 2]
+
+// forget — 从集合中移除指定键的元素
+$col = collect(['a' => 1, 'b' => 2, 'c' => 3])->forget('b');  // ['a' => 1, 'c' => 3]
 ```
 
 ### 排序
@@ -1896,6 +2026,10 @@ Hash::verify('wrong', $hashed);                                  // 验证 → f
 $encrypted = Hash::encrypt('需要加密存储的敏感数据');               // 返回密文
 $decrypted = Hash::decrypt($encrypted);                           // 返回原始明文
 // 如果密文被篡改（哪怕一个字符），decrypt() 会抛出异常（GCM 模式的认证机制）
+
+// ===== 令牌生成 =====
+$token = Hash::makeToken();                                       // 生成安全的随机令牌
+$key = Hash::makeKey();                                           // 生成安全的随机密钥
 ```
 
 ---

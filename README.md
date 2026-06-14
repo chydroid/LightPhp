@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/logo.png" alt="LightPHP Logo" width="140" />
+<img title="" src="docs/assets/banner.png" alt="LightPHP banner" width="140">
 
 # LightPHP Framework
 
@@ -8,8 +8,8 @@
 
 [![PHP Version](https://img.shields.io/badge/PHP-8.0%2B-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.7.0-8b5cf6?style=for-the-badge)](CHANGELOG.md)
-[![Tests](https://img.shields.io/badge/tests-300%2B-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
+[![Version](https://img.shields.io/badge/version-2.8.0-8b5cf6?style=for-the-badge)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-343-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
 [![Security](https://img.shields.io/badge/audited-6_rounds-f43f5e?style=for-the-badge&logo=shield)](CHANGELOG.md)
 
 受 ThinkPHP / Laravel 启发的现代化 PHP 框架，零依赖，可商用。  
@@ -26,6 +26,7 @@
 <td width="50%">
 
 ### 🏗️ 架构
+
 - **MVC 分层** — Controller / Model / View 清晰解耦
 - **IoC 容器** — 自动依赖注入，**PSR-11** 兼容
 - **中间件管道** — 洋葱模型，灵活的请求生命周期
@@ -36,6 +37,7 @@
 <td width="50%">
 
 ### 🛠️ 功能
+
 - **ORM + QueryBuilder** — 安全参数化查询
 - **Schema / Migration** — 数据库迁移与版本控制
 - **关联关系** — 一对一、一对多、关联预加载
@@ -48,6 +50,7 @@
 <td width="50%">
 
 ### 🔒 安全
+
 - **CSRF 防护** — 令牌验证 + 路由白名单
 - **XSS 防护** — Blade 默认转义 + JSON 编码
 - **SQL 注入防护** — 全参数化绑定 + 列名白名单
@@ -58,6 +61,7 @@
 <td width="50%">
 
 ### ⚡ 工程
+
 - **零依赖** — 仅需 PHP 8.0+，不强制安装 Composer
 - **代码生成** — `make:model` / `make:controller` / `make:middleware`
 - **配置缓存** — 生产环境启动加速
@@ -181,6 +185,7 @@ lightphp/
 ```
 
 > 💡 **使用提示**
+> 
 > - 业务代码写在 `app/controller/`、`app/model/`、`app/route/`、`app/middleware/` 中
 > - `app/core/` 是框架核心，请勿修改
 > - Web 服务器根目录请指向 `public/`
@@ -194,15 +199,15 @@ LightPHP 已完成 **6 轮** 系统性商用级代码审查，累计修复 **150
 
 ### 累计修复统计
 
-| 轮次 | 修复问题 | 关键改进 |
-|:----:|:--------:|---------|
-| 1 | ~40 | SQL 注入、会话安全、文件上传、缓存签名 |
-| 2 | 28 | 接口合规、并发安全、状态隔离 |
-| 3 | ~20 | CORS、CSRF、Blade XSS、Schema 安全 |
-| 4 | ~30 | 运行时 Bug、缓存原子性、路由缓存 |
-| 5 | ~25 | SQL 注入、文件缓存、Redis 分布式锁 |
-| 6 | ~17 | Router / Generator / Collection / Session |
-| **合计** | **150+** | 全方位商用级强化 |
+| 轮次     | 修复问题     | 关键改进                                      |
+|:------:|:--------:| ----------------------------------------- |
+| 1      | ~40      | SQL 注入、会话安全、文件上传、缓存签名                     |
+| 2      | 28       | 接口合规、并发安全、状态隔离                            |
+| 3      | ~20      | CORS、CSRF、Blade XSS、Schema 安全             |
+| 4      | ~30      | 运行时 Bug、缓存原子性、路由缓存                        |
+| 5      | ~25      | SQL 注入、文件缓存、Redis 分布式锁                    |
+| 6      | ~17      | Router / Generator / Collection / Session |
+| **合计** | **150+** | 全方位商用级强化                                  |
 
 ### 关键安全特性
 
@@ -226,43 +231,43 @@ LightPHP 已完成 **6 轮** 系统性商用级代码审查，累计修复 **150
 php bin/console test
 ```
 
-300+ 单元测试覆盖所有核心组件：
+343 个单元测试覆盖所有核心组件：
 
-| 模块 | 内容 |
-|------|------|
-| Router | 路由注册、参数提取、分组、中间件链 |
-| Container | 绑定、解析、单例、PSR-11 接口 |
-| Request / Response | 输入获取、JSON 响应、状态码 |
-| Model / ORM | CRUD、关联、类型转换、序列化 |
-| QueryBuilder | 查询构建、参数绑定、聚合、安全 |
-| Schema / Migration | 建表建列、修饰符、外键 |
-| EventDispatcher | 监听、触发、优先级、通配符 |
-| Collection | map / filter / pluck / sortBy / sum 等 30+ 方法 |
-| Blade 模板 | 指令编译、布局继承、缓存 |
-| Middleware | CORS / Throttle / CSRF / OutputCache |
-| Console | 签名解析、参数绑定、表格输出 |
-| Session / Cookie | 读写、Flash、SameSite |
-| Validate | 规则校验、自定义消息 |
-| Hash / Encrypt | bcrypt + AES-256-GCM |
-| FileCache | 读写、过期、签名验证 |
-| Logger | PSR-3 级别、上下文插值 |
-| Upload | MIME 验证、路径安全 |
-| Facade | 代理访问、FacadeAccessor |
-| Generator | 代码生成、文件输出 |
+| 模块                 | 内容                                           |
+| ------------------ | -------------------------------------------- |
+| Router             | 路由注册、参数提取、分组、中间件链、命名路由                       |
+| Container          | 绑定、解析、单例、PSR-11 接口                           |
+| Request / Response | 输入获取、JSON 响应、文件下载、状态码                         |
+| Model / ORM        | CRUD、关联、类型转换、序列化、findOrFail/firstOrCreate     |
+| QueryBuilder       | 查询构建、参数绑定、聚合、DISTINCT、whereRaw、chunkById    |
+| Schema / Migration | 建表建列、修饰符、外键、MySQL/SQLite 兼容                  |
+| EventDispatcher    | 监听、触发、优先级、通配符                                |
+| Collection         | map / filter / flatMap / chunk / diff 等 46+ 方法   |
+| Blade 模板           | 指令编译、布局继承、@push/@stack、缓存                   |
+| Middleware         | CORS / Throttle / CSRF / OutputCache         |
+| Console            | 签名解析、参数绑定、表格输出                               |
+| Session / Cookie   | 读写、Flash、SameSite                            |
+| Validate           | 30+ 规则、自定义消息、条件验证                           |
+| Hash / Encrypt     | bcrypt + AES-256-GCM + makeToken/makeKey       |
+| FileCache          | 读写、过期、签名验证                                   |
+| Logger             | PSR-3 级别、上下文插值                               |
+| Upload             | MIME 验证、路径安全                                 |
+| Facade             | 代理访问、FacadeAccessor                          |
+| Generator          | 代码生成、文件输出                                    |
 
 ---
 
 ## 📖 开发文档
 
-| 文档 | 说明 |
-|------|------|
-| [开发指南](docs/guide.md) | 框架完整教程，从零开始构建应用 |
-| [快速开始](docs/quick-start.md) | 5 分钟核心概念 |
-| [API 文档](docs/api.md) | 所有类与方法的 API 参考 |
-| [电商教程](docs/ecommerce-full-tutorial.md) | 完整电商系统开发 |
-| [后台管理教程](docs/admin-panel-tutorial.md) | 后台管理系统开发 |
-| [测试指南](docs/testing-guide.md) | 单元测试编写与运行 |
-| [更新日志](CHANGELOG.md) | 历次版本变更与安全加固 |
+| 文档                                      | 说明              |
+| --------------------------------------- | --------------- |
+| [开发指南](docs/guide.md)                   | 框架完整教程，从零开始构建应用 |
+| [快速开始](docs/quick-start.md)             | 5 分钟核心概念        |
+| [API 文档](docs/api.md)                   | 所有类与方法的 API 参考  |
+| [电商教程](docs/ecommerce-full-tutorial.md) | 完整电商系统开发        |
+| [后台管理教程](docs/admin-panel-tutorial.md)  | 后台管理系统开发        |
+| [测试指南](docs/testing-guide.md)           | 单元测试编写与运行       |
+| [更新日志](CHANGELOG.md)                    | 历次版本变更与安全加固     |
 
 ---
 

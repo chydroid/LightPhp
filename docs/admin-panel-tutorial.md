@@ -248,16 +248,16 @@ class AuthController extends Controller
             return $this->error('Account is disabled', 403);
         }
 
-        Admin::updateLoginTime($admin['id']);
+        Admin::updateLoginTime($admin->id);
 
-        $token = $this->generateToken($admin['id'], $admin['role']);
+        $token = $this->generateToken($admin->id, $admin->role);
 
         return $this->success([
             'admin' => [
-                'id' => $admin['id'],
-                'username' => $admin['username'],
-                'nickname' => $admin['nickname'],
-                'role' => $admin['role'],
+                'id' => $admin->id,
+                'username' => $admin->username,
+                'nickname' => $admin->nickname,
+                'role' => $admin->role,
             ],
             'token' => $token,
         ], 'Login successful');
@@ -279,11 +279,11 @@ class AuthController extends Controller
         }
 
         return $this->success([
-            'id' => $admin['id'],
-            'username' => $admin['username'],
-            'nickname' => $admin['nickname'],
-            'role' => $admin['role'],
-            'last_login_at' => $admin['last_login_at'],
+            'id' => $admin->id,
+            'username' => $admin->username,
+            'nickname' => $admin->nickname,
+            'role' => $admin->role,
+            'last_login_at' => $admin->last_login_at,
         ]);
     }
 

@@ -154,13 +154,13 @@ class UserController extends Controller
     public function update(Request $request, int $id)
     {
         $data = $request->only(['name', 'email']);
-        User::update($id, $data);
+        User::update($id, $data); // 通过 __callStatic 魔术方法实现
         return $this->success([], '更新成功');
     }
 
     public function destroy(int $id)
     {
-        User::delete($id);
+        User::delete($id); // 通过 __callStatic 魔术方法实现
         return $this->success([], '删除成功');
     }
 }
@@ -362,10 +362,10 @@ $users = User::where('status', '=', 'active')->fetchAll();
 // 创建
 $id = User::create(['name' => 'John', 'email' => 'john@example.com']);
 
-// 更新
+// 更新（通过 __callStatic 魔术方法实现）
 User::update(1, ['name' => 'Jane']);
 
-// 删除
+// 删除（通过 __callStatic 魔术方法实现）
 User::delete(1);
 
 // 分页
@@ -772,22 +772,22 @@ $cache->setDefaultDriver('redis');
 
 ## 16. 视图与模板
 
-### PHP 原生模板
+### Blade 布局继承
 
 ```php
 // 渲染视图
-$html = $view->render('users/index', ['users' => $users]);
+$html = $blade->render('users/index', ['users' => $users]);
 
-// 布局继承 — layout.php
+// 布局继承 — layout.blade.php
 <html>
-<body><?php $__view->yield('content'); ?></body>
+<body>@yield('content')</body>
 </html>
 
-// 子视图 — users/index.php
-<?php $__view->extend('layout'); ?>
-<?php $__view->startSection('content'); ?>
+// 子视图 — users/index.blade.php
+@extends('layout')
+@section('content')
 <h1>用户列表</h1>
-<?php $__view->endSection(); ?>
+@endsection
 ```
 
 ### Blade 模板

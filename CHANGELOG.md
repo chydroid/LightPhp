@@ -2,6 +2,39 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.8.0] - 2026-06-14
+
+### 新功能 (New Features)
+
+- **QueryBuilder** — `distinct()`, 多列 `orderBy()`, `orderByRaw()`, `whereRaw()`, `pluck()`, `chunkById()`, `when()` 条件查询
+- **Model** — `findOrFail()`, `first()`, `firstOrFail()`, `firstOrCreate()`, `firstOrNew()` 便捷方法
+- **Collection** — `flatMap()`, `flatten()`, `chunk()`, `diff()`, `intersect()`, `implode()`, `flip()`, `zip()`, `nth()`, `forPage()`, `slice()`, `split()`, `collapse()`, `merge()`, `pull()`, `forget()` 共 16 个新方法
+- **Validate** — `array`, `string`, `size`, `between`, `boolean`, `before`, `after`, `different`, `same`, `nullable`, `digits`, `digitsBetween` 共 12 个新验证规则
+- **Blade** — `@each`, `@push/@endpush`, `@prepend/@endprepend`, `@stack`, `@production`, `@env` 模板指令
+- **Router** — 命名路由 `->name('route.name')`，全局 `route()` 辅助函数生成 URL
+- **Response** — `download()` 文件下载响应工厂方法
+- **Hash** — `makeToken()` 安全随机令牌生成，`makeKey()` 加密密钥生成
+- **Application** — `getInstance()` 单例访问器，`getRouter()` 路由访问器
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] Validate mb_strlen 命名空间问题** — `mb_strlen()` 在 `core` 命名空间中无 `\` 前缀导致混淆错误。修复：改用 `\strlen()` 作为回退
+- **[HIGH] Hash openssl 扩展检查** — 加密/解密未检查 openssl 扩展是否可用。修复：添加 `function_exists()` 检查和描述性错误
+- **[HIGH] public/index.php env() 加载顺序** — config 文件在 `helpers.php` 加载前调用 `env()` 导致致命错误。修复：调整加载顺序
+- **[MEDIUM] Session flashGet 未消费闪存数据** — `flashGet()` 读取后不删除数据，导致闪存消息在每次页面加载都显示。修复：读取后删除
+- **[MEDIUM] Validate validateUnique/validateExists 静默失败** — 始终返回 `false` 无解释。修复：抛出 RuntimeException
+- **[MEDIUM] Schema SQLite 兼容性** — Schema 构建器硬编码 MySQL 语法（`SHOW TABLES`、`AUTO_INCREMENT`、`ENGINE=InnoDB`）。修复：检测 PDO 驱动并生成兼容 SQL
+- **[LOW] PHP 8.4+ 隐式可空参数弃用** — Logger、Smarty、SmartyView 中 4 处参数缺少显式 `?` 类型声明。修复：添加 `?string` 类型
+- **[LOW] PHP 8.5 ReflectionMethod::setAccessible() 弃用** — 测试中调用无实际作用的 `setAccessible(true)`。修复：移除
+- **[LOW] SoftDelete 测试错误** — 测试调用不存在的静态方法 `forceDelete()`/`softDelete()`。修复：改为测试实际的 `force()` 实例方法
+- **[LOW] Hash 测试缺少扩展检查** — Hash 加密测试在 openssl 不可用时崩溃。修复：添加跳过逻辑
+
+### 改进 (Improvements)
+
+- **database.php 默认数据库** — 从 `test` 改为 `lightphp`
+- **首页模板** — 添加 banner 图片和 GitHub 链接
+- **AGENTS.md** — 新增 AI 代理指令文件
+
 ## [2.7.0] - 2026-06-14
 
 ### 缺陷修复 (Bug Fixes)

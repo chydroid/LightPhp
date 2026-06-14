@@ -29,6 +29,9 @@ class QueryBuilder
     /** @var string ORDER BY 子句 */
     private string $orderBy = '';
 
+    /** @var bool 是否使用 DISTINCT */
+    private bool $distinct = false;
+
     /** @var string GROUP BY 子句 */
     private string $groupBy = '';
 
@@ -358,7 +361,22 @@ class QueryBuilder
         $column = trim($column);
         $this->validateColumnName($column);
         $direction = strtoupper(trim($direction)) === 'DESC' ? 'DESC' : 'ASC';
-        $this->orderBy = $this->sanitizeColumn($column) . " {$direction}";
+        $clause = $this->sanitizeColumn($column) . " {$direction}";
+        if ($this->orderBy !== '') {
+            $this->orderBy .= ', ' . $clause;
+        } else {
+            $this->orderBy = $clause;
+        }
+        return $this;
+    }
+
+    public function orderByRaw(string $expression): self
+    {
+        if ($this->orderBy !== '') {
+            $this->orderBy .= ', ' . $expression;
+        } else {
+            $this->orderBy = $expression;
+        }
         return $this;
     }
 
@@ -525,7 +543,7 @@ class QueryBuilder
             throw new \RuntimeException('No table name specified for the query.');
         }
 
-        $sql = "SELECT {$this->select} FROM `{$this->table}`";
+        $sql = "SELECT " . ($this->distinct ? "DISTINCT " : "") . "{$this->select} FROM `{$this->table}`";
 
         foreach ($this->joins as $join) {
             $sql .= " {$join}";
@@ -862,6 +880,75 @@ class QueryBuilder
         } while (count($results) === $count);
     }
 
+    public function distinct(): self
+    {
+        $this->distinct = true;
+        return $this;
+    }
+
+    public function whereRaw(string $sql, array $bindings = []): self
+    {
+        $this->where[] = $sql;
+        foreach ($bindings as $key => $value) {
+            $placeholder = is_int($key) ? ':wr_' . count($this->bindings) : $key;
+            $this->bindings[$placeholder] = $value;
+            $this->where[count($this->where) - 1] = str_replace(
+                is_int($key) ? '?' : $key,
+                $placeholder,
+                $this->where[count($this->where) - 1]
+            );
+        }
+        return $this;
+    }
+
+    public function pluck(string $column): array
+    {
+        $clone = clone $this;
+        $clone->select($column);
+        $rows = $clone->fetchAll();
+        $result = [];
+        foreach ($rows as $row) {
+            $result[] = reset($row);
+        }
+        return $result;
+    }
+
+    public function chunkById(int $count, callable $callback, string $column = 'id'): void
+    {
+        if ($count < 1) {
+            throw new \InvalidArgumentException('chunk size must be at least 1, got ' . $count);
+        }
+        $lastId = 0;
+        do {
+            $clone = clone $this;
+            $clone->where($column, '>', $lastId);
+            $clone->orderBy($column, 'ASC');
+            $clone->limit($count);
+            $results = $clone->fetchAll();
+
+            if (empty($results)) {
+                break;
+            }
+
+            $continue = $callback($results);
+            if ($continue === false) {
+                break;
+            }
+
+            $lastId = end($results)[$column] ?? 0;
+        } while (count($results) === $count);
+    }
+
+    public function when(mixed $condition, callable $callback, ?callable $default = null): self
+    {
+        if ($condition) {
+            $callback($this, $condition);
+        } elseif ($default !== null) {
+            $default($this, $condition);
+        }
+        return $this;
+    }
+
     public function paginate(int $perPage = 15, int $page = 1): array
     {
         $perPage = max(1, $perPage);
@@ -904,6 +991,7 @@ class QueryBuilder
     {
         $this->table = '';
         $this->select = '*';
+        $this->distinct = false;
         $this->where = [];
         $this->bindings = [];
         $this->orderBy = '';

@@ -94,6 +94,31 @@ class Response
     }
 
     /**
+     * 创建文件下载响应
+     *
+     * @param string $filePath 文件路径
+     * @param string|null $name 下载文件名（为空时使用原始文件名）
+     * @return self
+     * @throws \InvalidArgumentException 当文件不存在时
+     */
+    public static function download(string $filePath, ?string $name = null): self
+    {
+        if (!file_exists($filePath)) {
+            throw new \InvalidArgumentException("File not found: {$filePath}");
+        }
+
+        $name = $name ?? basename($filePath);
+        $content = file_get_contents($filePath);
+
+        $response = new self($content, 200);
+        $response->header('Content-Type', 'application/octet-stream');
+        $response->header('Content-Disposition', "attachment; filename=\"{$name}\"");
+        $response->header('Content-Length', (string) \strlen($content));
+        $response->header('Cache-Control', 'no-cache');
+        return $response;
+    }
+
+    /**
      * 设置响应头
      * 
      * @param string $name 头名

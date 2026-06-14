@@ -338,6 +338,120 @@ class Validate
         throw new \RuntimeException("The 'exists' rule requires a database connection, which is not available in the validator.");
     }
 
+    private function validateArray(string $field, $value, array $params): bool
+    {
+        return is_array($value);
+    }
+
+    private function validateString(string $field, $value, array $params): bool
+    {
+        return is_string($value);
+    }
+
+    private function validateSize(string $field, $value, array $params): bool
+    {
+        if (empty($params)) {
+            return false;
+        }
+        $size = (int) $params[0];
+        if (is_string($value)) return \strlen($value) === $size;
+        if (is_array($value)) return \count($value) === $size;
+        if (is_numeric($value)) return $value == $size;
+        return false;
+    }
+
+    private function validateBetween(string $field, $value, array $params): bool
+    {
+        if (\count($params) < 2) {
+            return false;
+        }
+        $min = (int) $params[0];
+        $max = (int) $params[1];
+        if (is_numeric($value)) return $value >= $min && $value <= $max;
+        if (is_string($value)) {
+            $len = \strlen($value);
+            return $len >= $min && $len <= $max;
+        }
+        if (is_array($value)) {
+            $cnt = \count($value);
+            return $cnt >= $min && $cnt <= $max;
+        }
+        return false;
+    }
+
+    private function validateBoolean(string $field, $value, array $params): bool
+    {
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) !== null;
+    }
+
+    private function validateBefore(string $field, $value, array $params): bool
+    {
+        if (empty($params) || !is_string($value)) {
+            return false;
+        }
+        $dateValue = strtotime($value);
+        $dateCompare = strtotime($params[0]);
+        if ($dateValue === false || $dateCompare === false) {
+            return false;
+        }
+        return $dateValue < $dateCompare;
+    }
+
+    private function validateAfter(string $field, $value, array $params): bool
+    {
+        if (empty($params) || !is_string($value)) {
+            return false;
+        }
+        $dateValue = strtotime($value);
+        $dateCompare = strtotime($params[0]);
+        if ($dateValue === false || $dateCompare === false) {
+            return false;
+        }
+        return $dateValue > $dateCompare;
+    }
+
+    private function validateDifferent(string $field, $value, array $params): bool
+    {
+        if (empty($params)) {
+            return false;
+        }
+        $otherField = $params[0];
+        return $value !== ($this->data[$otherField] ?? null);
+    }
+
+    private function validateSame(string $field, $value, array $params): bool
+    {
+        if (empty($params)) {
+            return false;
+        }
+        $otherField = $params[0];
+        return $value === ($this->data[$otherField] ?? null);
+    }
+
+    private function validateNullable(string $field, $value, array $params): bool
+    {
+        return true;
+    }
+
+    private function validateDigits(string $field, $value, array $params): bool
+    {
+        if (!is_string($value) && !is_int($value)) {
+            return false;
+        }
+        return (bool) preg_match('/^\d+$/', (string) $value);
+    }
+
+    private function validateDigitsBetween(string $field, $value, array $params): bool
+    {
+        if (\count($params) < 2 || (!is_string($value) && !is_int($value))) {
+            return false;
+        }
+        $min = (int) $params[0];
+        $max = (int) $params[1];
+        $digits = (string) $value;
+        return (bool) preg_match('/^\d+$/', $digits) && \strlen($digits) >= $min && \strlen($digits) <= $max;
+    }
+
     /**
      * 获取验证通过的字段数据
      * 

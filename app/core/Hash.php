@@ -81,4 +81,26 @@ class Hash
         }
         return substr(hash('sha256', $key, true), 0, 32);
     }
+
+    /**
+     * 生成一个安全的随机令牌
+     *
+     * @param int $length 令牌长度（字节数，实际输出为 2 倍 hex 长度）
+     * @return string 十六进制令牌字符串
+     */
+    public static function makeToken(int $length = 32): string
+    {
+        return \bin2hex(\random_bytes($length));
+    }
+
+    /**
+     * 生成一个安全的随机密钥
+     *
+     * @param int $length 密钥长度（字节数）
+     * @return string Base64 编码的密钥
+     */
+    public static function makeKey(int $length = 32): string
+    {
+        return \base64_encode(\random_bytes($length));
+    }
 }

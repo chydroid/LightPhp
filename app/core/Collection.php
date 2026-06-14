@@ -292,6 +292,131 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
         return $callback($this);
     }
 
+    public function flatMap(callable $callback): self
+    {
+        return $this->map($callback)->flatten();
+    }
+
+    public function flatten(): self
+    {
+        $result = [];
+        foreach ($this->items as $item) {
+            if (is_array($item)) {
+                array_push($result, ...$item);
+            } else {
+                $result[] = $item;
+            }
+        }
+        return new static($result);
+    }
+
+    public function chunk(int $size): self
+    {
+        $chunks = [];
+        $chunk = [];
+        foreach ($this->items as $key => $item) {
+            $chunk[$key] = $item;
+            if (count($chunk) === $size) {
+                $chunks[] = new static($chunk);
+                $chunk = [];
+            }
+        }
+        if (!empty($chunk)) {
+            $chunks[] = new static($chunk);
+        }
+        return new static($chunks);
+    }
+
+    public function diff(array $items): self
+    {
+        return new static(array_diff($this->items, $items));
+    }
+
+    public function intersect(array $items): self
+    {
+        return new static(array_intersect($this->items, $items));
+    }
+
+    public function implode(string $glue = ''): string
+    {
+        return implode($glue, $this->items);
+    }
+
+    public function flip(): self
+    {
+        return new static(array_flip($this->items));
+    }
+
+    public function zip(array $items): self
+    {
+        $result = [];
+        $count = max(count($this->items), count($items));
+        for ($i = 0; $i < $count; $i++) {
+            $result[] = [$this->items[$i] ?? null, $items[$i] ?? null];
+        }
+        return new static($result);
+    }
+
+    public function nth(int $nth, int $offset = 0): self
+    {
+        $result = [];
+        foreach ($this->items as $key => $item) {
+            if (($key - $offset) % $nth === 0) {
+                $result[$key] = $item;
+            }
+        }
+        return new static($result);
+    }
+
+    public function forPage(int $page, int $perPage): self
+    {
+        $offset = ($page - 1) * $perPage;
+        return $this->slice($offset, $perPage);
+    }
+
+    public function slice(int $offset, ?int $length = null): self
+    {
+        return new static(array_slice($this->items, $offset, $length));
+    }
+
+    public function split(int $number): self
+    {
+        $chunks = array_chunk($this->items, (int) ceil(count($this->items) / max(1, $number)));
+        return new static(array_map(fn($chunk) => new static($chunk), $chunks));
+    }
+
+    public function collapse(): self
+    {
+        $result = [];
+        foreach ($this->items as $item) {
+            if (is_array($item)) {
+                array_push($result, ...$item);
+            }
+        }
+        return new static($result);
+    }
+
+    public function merge(array $items): self
+    {
+        return new static(array_merge($this->items, $items));
+    }
+
+    public function pull(mixed $key, mixed $default = null): mixed
+    {
+        if (array_key_exists($key, $this->items)) {
+            $value = $this->items[$key];
+            unset($this->items[$key]);
+            return $value;
+        }
+        return $default;
+    }
+
+    public function forget(mixed $key): self
+    {
+        unset($this->items[$key]);
+        return $this;
+    }
+
     public function toArray(): array
     {
         return array_map(fn($item) => $item instanceof \JsonSerializable ? $item->jsonSerialize() : $item, $this->items);

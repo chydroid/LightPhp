@@ -22,4 +22,15 @@ namespace {
             return $value instanceof \Closure ? $value() : $value;
         }
     }
+
+    if (!function_exists('route')) {
+        function route(string $name, array $parameters = []): string
+        {
+            $app = \core\Application::getInstance();
+            if ($app === null) {
+                throw new \RuntimeException('Application not initialized.');
+            }
+            return $app->getRouter()->route($name, $parameters);
+        }
+    }
 }

@@ -29,11 +29,31 @@ class Application
     /** @var bool 是否已启动 */
     private bool $booted = false;
 
+    /** @var static|null 单例实例 */
+    private static ?self $instance = null;
+
+    /**
+     * 获取应用单例实例
+     */
+    public static function getInstance(): ?self
+    {
+        return self::$instance;
+    }
+
+    /**
+     * 获取路由管理器
+     */
+    public function getRouter(): Router
+    {
+        return $this->router;
+    }
+
     /**
      * 构造函数 - 初始化应用核心组件
      */
     public function __construct()
     {
+        self::$instance = $this;
         $this->container = new Container();
         Container::setInstance($this->container);
         $this->router = new Router();

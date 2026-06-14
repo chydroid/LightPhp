@@ -38,6 +38,12 @@ class Router
     /** @var array<int, string|callable> 全局中间件 */
     private array $globalMiddleware = [];
 
+    /** @var array<string, array{method: string, uri: string}> 已命名路由 */
+    private array $namedRoutes = [];
+
+    /** @var string|null 当前路由名称（用于链式调用） */
+    private ?string $pendingRouteName = null;
+
     /**
      * 注册中间件别名
      * 
@@ -230,9 +236,53 @@ class Router
             'handler' => $handler,
             'middleware' => $this->middlewares,
             'group' => $this->group,
+            'name' => $this->pendingRouteName,
         ];
 
+        if ($this->pendingRouteName !== null) {
+            $this->namedRoutes[$this->pendingRouteName] = [
+                'method' => $method,
+                'uri' => $uri,
+            ];
+            $this->pendingRouteName = null;
+        }
+
         return $this;
+    }
+
+    /**
+     * 为下一个注册的路由命名
+     *
+     * @param string $name 路由名称
+     * @return self
+     */
+    public function name(string $name): self
+    {
+        $this->pendingRouteName = $name;
+        return $this;
+    }
+
+    /**
+     * 通过路由名称生成 URL
+     *
+     * @param string $name 路由名称
+     * @param array $parameters 路由参数
+     * @return string URL
+     * @throws \RuntimeException 当路由名称不存在时
+     */
+    public function route(string $name, array $parameters = []): string
+    {
+        if (!isset($this->namedRoutes[$name])) {
+            throw new \RuntimeException("Route [{$name}] not defined.");
+        }
+
+        $uri = $this->namedRoutes[$name]['uri'];
+
+        foreach ($parameters as $key => $value) {
+            $uri = str_replace('{' . $key . '}', (string) $value, $uri);
+        }
+
+        return $uri;
     }
 
     /**

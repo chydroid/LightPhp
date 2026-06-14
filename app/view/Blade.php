@@ -38,6 +38,12 @@ class Blade
     /** @var array 区块栈 */
     private array $stack = [];
 
+    /** @var array push 内容栈 */
+    private array $pushStack = [];
+
+    /** @var array prepend 内容栈 */
+    private array $prependStack = [];
+
     /** @var array 自定义指令 */
     private static array $directives = [];
 
@@ -251,6 +257,16 @@ class Blade
             '@continue(?!\w)'               => '<?php continue; ?>',
             '@verbatim'                    => '',
             '@endverbatim'                 => '',
+            '@each\((.+?)\)'              => '<?php foreach ((array) $1 as $__item): ?><?= $__blade->render($2, array_merge((array)$3, [\'$__current\' => $__item])) ?><?php endforeach; ?>',
+            '@push\((.+?)\)'              => '<?php $__blade->startPush($1); ?>',
+            '@endpush'                    => '<?php $__blade->endPush(); ?>',
+            '@prepend\((.+?)\)'           => '<?php $__blade->startPrepend($1); ?>',
+            '@endprepend'                 => '<?php $__blade->endPrepend(); ?>',
+            '@stack\((.+?)\)'             => '<?= $__blade->yieldPushContent($1) ?>',
+            '@production(?!\w)'           => '<?php if (env(\'APP_ENV\') === \'production\'): ?>',
+            '@endproduction'              => '<?php endif; ?>',
+            '@env\((.+?)\)'               => '<?php if (env(\'APP_ENV\') === $1): ?>',
+            '@endenv'                     => '<?php endif; ?>',
         ];
 
         foreach ($statements as $pattern => $replacement) {
@@ -381,6 +397,60 @@ class Blade
     public function yieldSection(string $name, string $default = ''): string
     {
         return $this->sections[$name] ?? $default;
+    }
+
+    public function startPush(string $name): void
+    {
+        $this->stack[] = 'push:' . $name;
+        ob_start();
+    }
+
+    public function endPush(): void
+    {
+        $content = ob_get_clean();
+        if ($content === false) {
+            $content = '';
+        }
+        $name = array_pop($this->stack);
+        if ($name === null) {
+            return;
+        }
+        $name = substr($name, 5);
+        if (!isset($this->pushStack[$name])) {
+            $this->pushStack[$name] = [];
+        }
+        $this->pushStack[$name][] = $content;
+    }
+
+    public function startPrepend(string $name): void
+    {
+        $this->stack[] = 'prepend:' . $name;
+        ob_start();
+    }
+
+    public function endPrepend(): void
+    {
+        $content = ob_get_clean();
+        if ($content === false) {
+            $content = '';
+        }
+        $name = array_pop($this->stack);
+        if ($name === null) {
+            return;
+        }
+        $name = substr($name, 8);
+        if (!isset($this->prependStack[$name])) {
+            $this->prependStack[$name] = [];
+        }
+        array_unshift($this->prependStack[$name], $content);
+    }
+
+    public function yieldPushContent(string $name, string $default = ''): string
+    {
+        $prepend = $this->prependStack[$name] ?? [];
+        $push = $this->pushStack[$name] ?? [];
+        $all = array_merge($prepend, $push);
+        return empty($all) ? $default : implode('', $all);
     }
 
     public function includeView(string $view): void

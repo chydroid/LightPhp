@@ -54,6 +54,15 @@ class Model
         return $row ? $this->newFromBuilder($row) : null;
     }
 
+    public function findOrFail(int|string $id): static
+    {
+        $model = $this->find($id);
+        if ($model === null) {
+            throw new \RuntimeException("Model " . static::class . " not found with {$this->primaryKey}={$id}");
+        }
+        return $model;
+    }
+
     public function findBy(string $column, mixed $value): ?static
     {
         if (!preg_match('/^[a-zA-Z0-9_]+$/', $column)) {
@@ -62,6 +71,53 @@ class Model
 
         $row = $this->newQuery()->where($column, '=', $value)->fetch();
         return $row ? $this->newFromBuilder($row) : null;
+    }
+
+    public function first(): ?static
+    {
+        $row = $this->newQuery()->limit(1)->fetch();
+        return $row ? $this->newFromBuilder($row) : null;
+    }
+
+    public function firstOrFail(): static
+    {
+        $model = $this->first();
+        if ($model === null) {
+            throw new \RuntimeException("No " . static::class . " record found");
+        }
+        return $model;
+    }
+
+    public function firstOrCreate(array $attributes, array $values = []): static
+    {
+        $instance = new static($attributes);
+        foreach ($attributes as $key => $value) {
+            if (in_array($key, $this->fillable, true) || $this->fillable === ['*']) {
+                $row = $this->newQuery()->where($key, '=', $value)->fetch();
+                if ($row) {
+                    return $this->newFromBuilder($row);
+                }
+            }
+        }
+        $data = array_merge($attributes, $values);
+        $id = $this->create($data);
+        return $this->find($id) ?? $this->newFromBuilder(array_merge([$this->primaryKey => $id], $data));
+    }
+
+    public function firstOrNew(array $attributes, array $values = []): static
+    {
+        foreach ($attributes as $key => $value) {
+            if (in_array($key, $this->fillable, true) || $this->fillable === ['*']) {
+                $row = $this->newQuery()->where($key, '=', $value)->fetch();
+                if ($row) {
+                    return $this->newFromBuilder($row);
+                }
+            }
+        }
+        $data = array_merge($attributes, $values);
+        $model = new static($data);
+        $model->exists = false;
+        return $model;
     }
 
     public function all(): array

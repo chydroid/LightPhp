@@ -116,7 +116,7 @@ class Smarty
         return $this;
     }
 
-    public function clearCache(string $template = null): self
+    public function clearCache(?string $template = null): self
     {
         if ($template) {
             $this->smarty->clearCache($template);
@@ -126,7 +126,7 @@ class Smarty
         return $this;
     }
 
-    public function clearAssign(string $key = null): self
+    public function clearAssign(?string $key = null): self
     {
         if ($key) {
             $this->smarty->clearAssign($key);

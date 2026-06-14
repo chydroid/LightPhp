@@ -116,7 +116,7 @@ class SmartyView
         return $this;
     }
 
-    public function clearCache(string $template = null): self
+    public function clearCache(?string $template = null): self
     {
         $this->smarty->clearCache($template);
         return $this;

@@ -229,7 +229,7 @@ class Logger implements LoggerInterface
      * 
      * @param string|null $date 日期（格式：Y-m-d），默认为今天
      */
-    public function clear(string $date = null): void
+    public function clear(?string $date = null): void
     {
         $date = $date ?? date('Y-m-d');
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {

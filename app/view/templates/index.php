@@ -4,7 +4,8 @@
     <title><?php echo htmlspecialchars($title ?? 'Welcome'); ?></title>
 </head>
 <body>
+    <img src="/assets/logo.png" alt="LightPHP Logo" width="140">
     <h1>Welcome to LightPHP</h1>
-    <p>Site: <?php echo htmlspecialchars($site_name ?? 'Default'); ?></p>
+    <p>A lightweight PHP framework</p>
 </body>
 </html>

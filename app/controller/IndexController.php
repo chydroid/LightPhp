@@ -24,7 +24,7 @@ class IndexController extends Controller
             ],
         ];
 
-        return $this->view('index', $data);
+        return $this->view('templates/index', $data);
     }
 
     public function about(): \core\Response

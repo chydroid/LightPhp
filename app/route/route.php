@@ -5,9 +5,7 @@ use core\Response;
 
 $router = new Router();
 
-$router->get('/', function() {
-    return (new Response())->content('<h1>Welcome to LightPHP</h1><p>A lightweight PHP framework</p>');
-});
+$router->get('/', [\controller\IndexController::class, 'index']);
 
 $router->get('/hello/{name}', function($name) {
     return (new Response())->content('<h1>Hello, ' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '!</h1>');

@@ -2,6 +2,18 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.7.0] - 2026-06-14
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] View include() Composer XSS 漏洞** — include() 预转义数据后关闭 autoEscape 再调 render()，但 applyComposer() 通过 share() 新增的数据绕过了转义流程。修复：移除 include() 中的预转义逻辑，让 render() 统一处理所有数据
+- **[HIGH] Schema renameColumn() 使用 CHANGE COLUMN 缺少列定义** — MySQL CHANGE COLUMN 必须指定完整列定义，否则必然报语法错误。修复：改用 RENAME COLUMN 语法（MySQL 8.0+）
+- **[MEDIUM] QueryBuilder count() GROUP BY 查询返回原始行数** — 直接清空 groupBy 导致返回原始行数而非分组数，分页元数据全部错误。修复：GROUP BY 时用子查询包裹计算分组数
+- **[MEDIUM] QueryBuilder having() 重复调用覆盖 HAVING 但残留绑定参数** — having 是 string 类型，重复调用覆盖子句但旧绑定参数残留，触发 PDO HY093 异常。修复：having 改为 array 累积模式
+- **[MEDIUM] Blade @include Section/Stack 泄漏** — 编译代码直接 require 缓存文件，子模板的 section 和 stack 泄漏到父模板。修复：编译代码中保存/恢复 sections 和 stack
+- **[MEDIUM] SmartyView display() Section 跨调用残留** — endsection() 将 section assign 到 Smarty，但 display() 只重置内部数组未清除 Smarty assign。修复：display() 重置前遍历 clearAssign
+- **[LOW] QueryBuilder insert() 缺少 isRaw 模式检查** — raw 模式下调用 insert() 产生令人困惑的 PDO 异常。修复：与 update()/delete() 一致增加 isRaw 检查
+
 ## [2.6.0] - 2026-06-12
 
 ### 缺陷修复 (Bug Fixes)

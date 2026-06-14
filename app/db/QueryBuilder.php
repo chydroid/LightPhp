@@ -32,8 +32,8 @@ class QueryBuilder
     /** @var string GROUP BY 子句 */
     private string $groupBy = '';
 
-    /** @var string HAVING 子句 */
-    private string $having = '';
+    /** @var array HAVING 子句 */
+    private array $having = [];
 
     /** @var int LIMIT 数量 */
     private int $limit = 0;
@@ -380,9 +380,9 @@ class QueryBuilder
         // 处理 null 值：与 where() 同理
         if ($value === null) {
             if ($operator === '=' || $operator === 'LIKE') {
-                $this->having = "HAVING " . $this->sanitizeColumn($column) . " IS NULL";
+                $this->having[] = $this->sanitizeColumn($column) . " IS NULL";
             } elseif ($operator === '!=' || $operator === '<>' || $operator === 'NOT LIKE') {
-                $this->having = "HAVING " . $this->sanitizeColumn($column) . " IS NOT NULL";
+                $this->having[] = $this->sanitizeColumn($column) . " IS NOT NULL";
             } else {
                 throw new \InvalidArgumentException("Cannot use NULL value with HAVING operator {$operator}");
             }
@@ -391,7 +391,7 @@ class QueryBuilder
 
         $placeholder = ':h_' . count($this->bindings);
         $this->bindings[$placeholder] = $value;
-        $this->having = "HAVING " . $this->sanitizeColumn($column) . " {$operator} {$placeholder}";
+        $this->having[] = $this->sanitizeColumn($column) . " {$operator} {$placeholder}";
         return $this;
     }
 
@@ -539,8 +539,8 @@ class QueryBuilder
             $sql .= " {$this->groupBy}";
         }
 
-        if ($this->having) {
-            $sql .= " {$this->having}";
+        if (!empty($this->having)) {
+            $sql .= " HAVING " . implode(' AND ', $this->having);
         }
 
         if ($this->orderBy) {
@@ -707,15 +707,23 @@ class QueryBuilder
         $this->assertNotRaw('count');
         $this->validateAggregateColumn($column);
         $clone = clone $this;
-        $clone->select = $column === '*'
-            ? "COUNT(*) as __count"
-            : "COUNT(`{$column}`) as __count";
         $clone->limit = 0;
         $clone->offset = 0;
         $clone->orderBy = '';
-        $clone->groupBy = '';
-        $clone->having = '';
-        $sql = $clone->buildSelect();
+
+        if ($this->groupBy !== '') {
+            // GROUP BY 查询：用子查询包裹以正确计算分组数
+            $innerSql = $clone->buildSelect();
+            $sql = "SELECT COUNT(*) as __count FROM ({$innerSql}) AS __count_sub";
+        } else {
+            $clone->select = $column === '*'
+                ? "COUNT(*) as __count"
+                : "COUNT(`{$column}`) as __count";
+            $clone->groupBy = '';
+            $clone->having = [];
+            $sql = $clone->buildSelect();
+        }
+
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
         $result = $stmt->fetch();
@@ -732,7 +740,7 @@ class QueryBuilder
         $clone->offset = 0;
         $clone->orderBy = '';
         $clone->groupBy = '';
-        $clone->having = '';
+        $clone->having = [];
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
@@ -750,7 +758,7 @@ class QueryBuilder
         $clone->offset = 0;
         $clone->orderBy = '';
         $clone->groupBy = '';
-        $clone->having = '';
+        $clone->having = [];
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
@@ -768,7 +776,7 @@ class QueryBuilder
         $clone->offset = 0;
         $clone->orderBy = '';
         $clone->groupBy = '';
-        $clone->having = '';
+        $clone->having = [];
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
@@ -786,7 +794,7 @@ class QueryBuilder
         $clone->offset = 0;
         $clone->orderBy = '';
         $clone->groupBy = '';
-        $clone->having = '';
+        $clone->having = [];
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
@@ -796,6 +804,9 @@ class QueryBuilder
 
     public function insert(array $data): int|string
     {
+        if ($this->isRaw) {
+            throw new \RuntimeException('Cannot call insert() in raw query mode.');
+        }
         if (empty($data)) {
             throw new \InvalidArgumentException('Insert data cannot be empty.');
         }
@@ -897,7 +908,7 @@ class QueryBuilder
         $this->bindings = [];
         $this->orderBy = '';
         $this->groupBy = '';
-        $this->having = '';
+        $this->having = [];
         $this->limit = 0;
         $this->offset = 0;
         $this->joins = [];

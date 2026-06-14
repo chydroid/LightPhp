@@ -28,6 +28,11 @@ class SmartyView
 
     public function display(string $template, array $data = []): Response
     {
+        // 清除前次渲染残留的 section assign
+        foreach ($this->sections as $name => $content) {
+            $this->smarty->clearAssign($name);
+        }
+
         $this->sections = [];
         $this->sectionBlock = null;
 

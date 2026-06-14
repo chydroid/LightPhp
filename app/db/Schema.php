@@ -503,7 +503,7 @@ class Blueprint
         if (!preg_match('/^[a-zA-Z0-9_]+$/', $to)) {
             throw new \InvalidArgumentException("Invalid column name: {$to}");
         }
-        $this->columns[] = "CHANGE COLUMN `{$from}` `{$to}`";
+        $this->commands[] = "RENAME COLUMN `{$from}` TO `{$to}`";
         return $this;
     }
 

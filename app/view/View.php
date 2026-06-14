@@ -257,23 +257,14 @@ class View
      */
     public function include(string $view, array $data = []): void
     {
-        // 父视图 render() 已转义共享数据，此处跳过转义避免双重转义
-        // 但子视图自有数据仍需转义
-        $prevAutoEscape = $this->autoEscape;
         $prevSections = $this->sections;
         $prevCurrentSection = $this->currentSection;
         $prevRenderData = $this->renderData;
         $prevSharedData = $this->sharedData;
         $prevExtendDepth = $this->extendDepth;
-        if ($prevAutoEscape) {
-            $data = $this->escapeArray($data);
-            $this->sharedData = $this->escapeArray($this->sharedData);
-        }
-        $this->autoEscape = false;
         try {
             echo $this->render($view, $data);
         } finally {
-            $this->autoEscape = $prevAutoEscape;
             $this->sharedData = $prevSharedData;
             $this->sections = $prevSections;
             $this->currentSection = $prevCurrentSection;

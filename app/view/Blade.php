@@ -310,7 +310,8 @@ class Blade
                 }
 
                 // 运行时解析 include，确保子模板修改后能触发重编译
-                return '<?php if ($__inc = $__blade->resolveInclude(\'' . addslashes($view) . '\')) { extract(' . $vars . ', EXTR_SKIP); require $__inc; } ?>';
+                // 保存/恢复 sections 和 stack，防止子模板的 section 泄漏到父模板
+                return '<?php $__prevSections = $__blade->getSections(); $__prevStack = $__blade->getStack(); if ($__inc = $__blade->resolveInclude(\'' . addslashes($view) . '\')) { extract(' . $vars . ', EXTR_SKIP); require $__inc; } $__blade->restoreState($__prevSections, $__prevStack); ?>';
             },
             $content
         );
@@ -418,5 +419,21 @@ class Blade
     {
         $this->sections = [];
         $this->stack = [];
+    }
+
+    public function getSections(): array
+    {
+        return $this->sections;
+    }
+
+    public function getStack(): array
+    {
+        return $this->stack;
+    }
+
+    public function restoreState(array $sections, array $stack): void
+    {
+        $this->sections = $sections;
+        $this->stack = $stack;
     }
 }

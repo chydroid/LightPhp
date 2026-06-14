@@ -975,7 +975,6 @@ $runner->run('Schema - Truncate', function($t) {
 
 $runner->run('Model - GetForeignKey', function($t) {
     $ref = new \ReflectionMethod(\model\Model::class, 'getForeignKey');
-    $ref->setAccessible(true);
     $m = new \model\Model(['id' => 1]);
     $t->assertEquals('model_id', $ref->invoke($m));
 });

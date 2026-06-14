@@ -148,6 +148,31 @@ class TestRunner
         echo str_repeat('=', 50) . "\n";
     }
 
+    public function assertStringNotContains(string $needle, string $haystack, string $message = ''): void
+    {
+        $this->assert(!str_contains($haystack, $needle), $message ?: "Expected string NOT to contain '{$needle}'");
+    }
+
+    public function assertArrayNotHasKey(string|int $key, array $array, string $message = ''): void
+    {
+        $this->assert(!array_key_exists($key, $array), $message ?: "Expected array NOT to have key '{$key}'");
+    }
+
+    public function assertNotFalse(mixed $value, string $message = ''): void
+    {
+        $this->assert($value !== false, $message ?: 'Expected value not to be false');
+    }
+
+    public function assertNotEmpty(mixed $value, string $message = ''): void
+    {
+        $this->assert(!empty($value), $message ?: 'Expected value not to be empty');
+    }
+
+    public function assertGreaterThanOrEqual(int|float $expected, int|float $actual, string $message = ''): void
+    {
+        $this->assert($actual >= $expected, $message ?: "Expected {$actual} >= {$expected}");
+    }
+
     public function getPassed(): int { return $this->passed; }
     public function getFailed(): int { return $this->failed; }
 }
@@ -1854,6 +1879,574 @@ $runner->run('MemcachedCache - 完整功能测试', function($t) {
     // 清理
     $cache->delete("{$prefix}counter");
     $cache->delete("{$prefix}rmb");
+});
+
+// ═══════════════════════════════════════════════
+//  v2.8.0 新功能补充测试
+// ═══════════════════════════════════════════════
+
+// --- QueryBuilder 新功能测试 ---
+
+$runner->run('QueryBuilder - distinct 生成 DISTINCT SQL', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $qb = new \db\QueryBuilder($pdo);
+    $sql = $qb->table('users')->distinct()->select('name')->getSql();
+    $t->assertStringContains('DISTINCT', $sql);
+});
+
+$runner->run('QueryBuilder - orderBy 多列排序', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $qb = new \db\QueryBuilder($pdo);
+    $sql = $qb->table('users')->orderBy('name', 'ASC')->orderBy('id', 'DESC')->getSql();
+    $t->assertStringContains('ORDER BY', $sql);
+    $t->assertStringContains('name', $sql);
+    $t->assertStringContains('id', $sql);
+    $t->assertStringContains('DESC', $sql);
+});
+
+$runner->run('QueryBuilder - orderByRaw 原始排序', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $qb = new \db\QueryBuilder($pdo);
+    $sql = $qb->table('users')->orderByRaw('FIELD(status, 1, 2, 3)')->getSql();
+    $t->assertStringContains('FIELD(status, 1, 2, 3)', $sql);
+});
+
+$runner->run('QueryBuilder - whereRaw 原始条件', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $qb = new \db\QueryBuilder($pdo);
+    $sql = $qb->table('users')->whereRaw('age > ? AND name = ?', [18, 'John'])->getSql();
+    $t->assertStringContains('age > :wr_', $sql);
+    $t->assertStringContains('name = :wr_', $sql);
+    $bindings = $qb->getBindings();
+    $t->assertCount(2, $bindings);
+});
+
+$runner->run('QueryBuilder - pluck 提取单列', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $pdo->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
+    $pdo->exec("INSERT INTO users (name) VALUES ('Alice'), ('Bob'), ('Charlie')");
+    $qb = new \db\QueryBuilder($pdo);
+    $names = $qb->table('users')->pluck('name');
+    $t->assertEquals(['Alice', 'Bob', 'Charlie'], $names);
+});
+
+$runner->run('QueryBuilder - when 条件查询', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $qb = new \db\QueryBuilder($pdo);
+    $sql = $qb->table('users')->when(true, function($q) {
+        $q->where('status', '=', 1);
+    })->getSql();
+    $t->assertStringContains('status', $sql);
+
+    $qb2 = new \db\QueryBuilder($pdo);
+    $sql2 = $qb2->table('users')->when(false, function($q) {
+        $q->where('status', '=', 1);
+    })->getSql();
+    $t->assertStringNotContains('status', $sql2);
+});
+
+$runner->run('QueryBuilder - paginate 分页', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $pdo->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
+    for ($i = 1; $i <= 25; $i++) {
+        $pdo->exec("INSERT INTO users (name) VALUES ('User{$i}')");
+    }
+    $qb = new \db\QueryBuilder($pdo);
+    $result = $qb->table('users')->paginate(10, 2);
+    $t->assertEquals(25, $result['total']);
+    $t->assertEquals(10, $result['per_page']);
+    $t->assertEquals(2, $result['current_page']);
+    $t->assertEquals(3, $result['last_page']);
+    $t->assertTrue($result['has_more']);
+    $t->assertCount(10, $result['items']);
+});
+
+$runner->run('QueryBuilder - getSql 输出 SQL', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $qb = new \db\QueryBuilder($pdo);
+    $sql = $qb->table('users')->select('id', 'name')->where('id', '=', 1)->getSql();
+    $t->assertStringContains('SELECT', $sql);
+    $t->assertStringContains('FROM', $sql);
+    $t->assertStringContains('WHERE', $sql);
+});
+
+// --- Model 新功能测试 ---
+
+$runner->run('Model - findOrFail 抛出异常', function($t) {
+    $model = new class extends \model\Model {
+        protected string $table = 'users';
+    };
+    $t->assertThrows(\RuntimeException::class, function() use ($model) {
+        $model->findOrFail(999);
+    });
+});
+
+$runner->run('Model - first 返回第一条', function($t) {
+    $model = new class extends \model\Model {
+        protected string $table = 'users';
+    };
+    $t->assertThrows(\RuntimeException::class, function() use ($model) {
+        $model->first();
+    });
+});
+
+$runner->run('Model - firstOrFail 空结果抛异常', function($t) {
+    $model = new class extends \model\Model {
+        protected string $table = 'users';
+    };
+    $t->assertThrows(\RuntimeException::class, function() use ($model) {
+        $model->firstOrFail();
+    });
+});
+
+// --- Validate 新规则测试 ---
+
+$runner->run('Validate - array 规则', function($t) {
+    $v = new \core\Validate();
+    $v->validate(['tags' => [1, 2, 3]], ['tags' => 'array']);
+    $t->assertTrue($v->passes());
+    $v2 = new \core\Validate();
+    $v2->validate(['tags' => 'not_array'], ['tags' => 'array']);
+    $t->assertTrue($v2->fails());
+});
+
+$runner->run('Validate - string 规则', function($t) {
+    $v = new \core\Validate();
+    $v->validate(['name' => 'John'], ['name' => 'string']);
+    $t->assertTrue($v->passes());
+    $v2 = new \core\Validate();
+    $v2->validate(['name' => 123], ['name' => 'string']);
+    $t->assertTrue($v2->fails());
+});
+
+$runner->run('Validate - size 规则', function($t) {
+    $v = new \core\Validate();
+    $v->validate(['name' => 'John'], ['name' => 'size:4']);
+    $t->assertTrue($v->passes());
+    $v2 = new \core\Validate();
+    $v2->validate(['name' => 'Bob'], ['name' => 'size:4']);
+    $t->assertTrue($v2->fails());
+});
+
+$runner->run('Validate - between 规则', function($t) {
+    $v = new \core\Validate();
+    $v->validate(['age' => 25], ['age' => 'between:18,60']);
+    $t->assertTrue($v->passes());
+    $v2 = new \core\Validate();
+    $v2->validate(['age' => 15], ['age' => 'between:18,60']);
+    $t->assertTrue($v2->fails());
+});
+
+$runner->run('Validate - boolean 规则', function($t) {
+    $v = new \core\Validate();
+    $v->validate(['active' => 'true'], ['active' => 'boolean']);
+    $t->assertTrue($v->passes());
+    $v2 = new \core\Validate();
+    $v2->validate(['active' => 'maybe'], ['active' => 'boolean']);
+    $t->assertTrue($v2->fails());
+});
+
+$runner->run('Validate - before/after 日期规则', function($t) {
+    $v = new \core\Validate();
+    $v->validate(['date' => '2020-01-01'], ['date' => 'before:2025-01-01']);
+    $t->assertTrue($v->passes());
+    $v2 = new \core\Validate();
+    $v2->validate(['date' => '2030-01-01'], ['date' => 'after:2025-01-01']);
+    $t->assertTrue($v2->passes());
+    $v3 = new \core\Validate();
+    $v3->validate(['date' => '2030-01-01'], ['date' => 'before:2025-01-01']);
+    $t->assertTrue($v3->fails());
+});
+
+$runner->run('Validate - different/same 字段比较', function($t) {
+    $v = new \core\Validate();
+    $v->validate(['password' => 'secret', 'confirm' => 'other'], ['password' => 'different:confirm']);
+    $t->assertTrue($v->passes());
+    $v2 = new \core\Validate();
+    $v2->validate(['password' => 'secret', 'confirm' => 'secret'], ['password' => 'same:confirm']);
+    $t->assertTrue($v2->passes());
+    $v3 = new \core\Validate();
+    $v3->validate(['password' => 'secret', 'confirm' => 'other'], ['password' => 'same:confirm']);
+    $t->assertTrue($v3->fails());
+});
+
+$runner->run('Validate - digits 规则', function($t) {
+    $v = new \core\Validate();
+    $v->validate(['code' => '12345'], ['code' => 'digits']);
+    $t->assertTrue($v->passes());
+    $v2 = new \core\Validate();
+    $v2->validate(['code' => 'abc12'], ['code' => 'digits']);
+    $t->assertTrue($v2->fails());
+});
+
+$runner->run('Validate - digitsBetween 规则', function($t) {
+    $v = new \core\Validate();
+    $v->validate(['code' => '12345'], ['code' => 'digitsBetween:4,6']);
+    $t->assertTrue($v->passes());
+    $v2 = new \core\Validate();
+    $v2->validate(['code' => '12'], ['code' => 'digitsBetween:4,6']);
+    $t->assertTrue($v2->fails());
+});
+
+$runner->run('Validate - nullable 规则', function($t) {
+    $v = new \core\Validate();
+    $v->validate(['name' => null], ['name' => 'nullable|string']);
+    $t->assertTrue($v->passes());
+    $v2 = new \core\Validate();
+    $v2->validate(['name' => 'John'], ['name' => 'nullable|string']);
+    $t->assertTrue($v2->passes());
+});
+
+$runner->run('Validate - errors 和 firstError', function($t) {
+    $v = new \core\Validate();
+    $v->validate(['name' => '', 'email' => 'bad'], ['name' => 'required', 'email' => 'email']);
+    $t->assertTrue($v->fails());
+    $errors = $v->errors();
+    $t->assertArrayHasKey('name', $errors);
+    $t->assertArrayHasKey('email', $errors);
+    $t->assertNotNull($v->firstError('name'));
+    $t->assertNotNull($v->firstError());
+});
+
+$runner->run('Validate - validated 返回验证通过的数据', function($t) {
+    $v = new \core\Validate();
+    $v->validate(['name' => 'John', 'age' => 25, 'extra' => 'ignored'], ['name' => 'required', 'age' => 'integer']);
+    $data = $v->validated();
+    $t->assertEquals('John', $data['name']);
+    $t->assertEquals(25, $data['age']);
+    $t->assertArrayNotHasKey('extra', $data);
+});
+
+// --- Collection 新方法测试 ---
+
+$runner->run('Collection - flatMap', function($t) {
+    $c = collect([[1, 2], [3, 4]])->flatMap(fn($items) => $items);
+    $t->assertEquals([1, 2, 3, 4], $c->all());
+});
+
+$runner->run('Collection - flatten 递归', function($t) {
+    $c = collect([[1, 2], [3, [4, 5]]])->flatten();
+    $t->assertEquals([1, 2, 3, 4, 5], $c->all());
+});
+
+$runner->run('Collection - chunk 分块', function($t) {
+    $c = collect([1, 2, 3, 4, 5])->chunk(2);
+    $t->assertCount(3, $c);
+    $t->assertEquals([1, 2], $c[0]->values()->all());
+    $t->assertEquals([5], $c[2]->values()->all());
+});
+
+$runner->run('Collection - diff 差集', function($t) {
+    $c = collect([1, 2, 3, 4])->diff([2, 4]);
+    $t->assertEquals([1, 3], $c->values()->all());
+});
+
+$runner->run('Collection - intersect 交集', function($t) {
+    $c = collect([1, 2, 3, 4])->intersect([2, 4, 5]);
+    $t->assertEquals([2, 4], $c->values()->all());
+});
+
+$runner->run('Collection - implode 连接', function($t) {
+    $c = collect(['a', 'b', 'c']);
+    $t->assertEquals('a,b,c', $c->implode(','));
+    $t->assertEquals('abc', $c->implode());
+});
+
+$runner->run('Collection - flip 翻转', function($t) {
+    $c = collect(['a' => 1, 'b' => 2])->flip();
+    $t->assertEquals([1 => 'a', 2 => 'b'], $c->all());
+});
+
+$runner->run('Collection - zip 合并', function($t) {
+    $c = collect([1, 2, 3])->zip([4, 5, 6]);
+    $t->assertEquals([[1, 4], [2, 5], [3, 6]], $c->all());
+});
+
+$runner->run('Collection - nth 每N个', function($t) {
+    $c = collect([1, 2, 3, 4, 5, 6, 7])->nth(3);
+    $t->assertEquals([1, 4, 7], $c->values()->all());
+});
+
+$runner->run('Collection - forPage 分页', function($t) {
+    $c = collect([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])->forPage(2, 3);
+    $t->assertEquals([4, 5, 6], $c->values()->all());
+});
+
+$runner->run('Collection - slice 切片', function($t) {
+    $c = collect([1, 2, 3, 4, 5])->slice(1, 3);
+    $t->assertEquals([2, 3, 4], $c->values()->all());
+});
+
+$runner->run('Collection - split 分组', function($t) {
+    $c = collect([1, 2, 3, 4, 5])->split(2);
+    $t->assertGreaterThanOrEqual(2, count($c));
+});
+
+$runner->run('Collection - collapse 展平一级', function($t) {
+    $c = collect([[1, 2], [3, 4]])->collapse();
+    $t->assertEquals([1, 2, 3, 4], $c->all());
+});
+
+$runner->run('Collection - merge 合并', function($t) {
+    $c = collect([1, 2])->merge([3, 4]);
+    $t->assertEquals([1, 2, 3, 4], $c->all());
+});
+
+$runner->run('Collection - pull 取出并删除', function($t) {
+    $c = collect(['a' => 1, 'b' => 2, 'c' => 3]);
+    $val = $c->pull('b');
+    $t->assertEquals(2, $val);
+    $t->assertCount(2, $c);
+    $t->assertFalse(isset($c['b']));
+});
+
+$runner->run('Collection - forget 删除指定键', function($t) {
+    $c = collect(['a' => 1, 'b' => 2, 'c' => 3]);
+    $c->forget('b');
+    $t->assertCount(2, $c);
+    $t->assertFalse(isset($c['b']));
+});
+
+// --- Response 新方法测试 ---
+
+$runner->run('Response - download 创建下载响应', function($t) {
+    $tmpFile = tempnam(sys_get_temp_dir(), 'test_');
+    file_put_contents($tmpFile, 'hello world');
+    $response = \core\Response::download($tmpFile, 'test.txt');
+    $t->assertEquals(200, $response->getStatusCode());
+    $t->assertEquals('hello world', $response->getContent());
+    unlink($tmpFile);
+});
+
+$runner->run('Response - download 文件不存在抛异常', function($t) {
+    $t->assertThrows(\InvalidArgumentException::class, function() {
+        \core\Response::download('/nonexistent/file.txt');
+    });
+});
+
+$runner->run('Response - redirect 创建重定向', function($t) {
+    $response = \core\Response::redirect('/login', 302);
+    $t->assertEquals(302, $response->getStatusCode());
+});
+
+$runner->run('Response - redirect 拒绝绝对URL', function($t) {
+    $t->assertThrows(\InvalidArgumentException::class, function() {
+        \core\Response::redirect('//evil.com');
+    });
+});
+
+$runner->run('Response - status 设置状态码', function($t) {
+    $response = new \core\Response('ok', 200);
+    $response->status(404);
+    $t->assertEquals(404, $response->getStatusCode());
+});
+
+$runner->run('Response - header 设置响应头', function($t) {
+    $response = new \core\Response('ok');
+    $response->header('X-Custom', 'value');
+    $t->assertInstanceOf(\core\Response::class, $response);
+});
+
+// --- Hash 新方法测试 ---
+
+$runner->run('Hash - makeToken 生成令牌', function($t) {
+    $token1 = \core\Hash::makeToken();
+    $token2 = \core\Hash::makeToken();
+    $t->assertIsString($token1);
+    $t->assertEquals(64, strlen($token1));
+    $t->assertNotEquals($token1, $token2);
+});
+
+$runner->run('Hash - makeKey 生成密钥', function($t) {
+    $key1 = \core\Hash::makeKey();
+    $key2 = \core\Hash::makeKey();
+    $t->assertIsString($key1);
+    $t->assertNotEquals($key1, $key2);
+    $t->assertNotFalse(base64_decode($key1, true));
+});
+
+// --- Router 命名路由测试 ---
+
+$runner->run('Router - 命名路由和 route() 生成', function($t) {
+    $router = new \core\Router();
+    $router->get('/users', fn() => 'ok')->name('users.index');
+    $router->get('/users/{id}', fn() => 'ok')->name('users.show');
+    $t->assertEquals('/users', $router->route('users.index'));
+    $t->assertStringContains('/users/', $router->route('users.show', ['id' => 42]));
+});
+
+$runner->run('Router - route() 未知名称抛异常', function($t) {
+    $router = new \core\Router();
+    $t->assertThrows(\RuntimeException::class, function() use ($router) {
+        $router->route('nonexistent');
+    });
+});
+
+// --- Schema SQLite 兼容性测试 ---
+
+$runner->run('Schema - SQLite hasColumn', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $schema = \db\Schema::setConnection($pdo);
+    $schema->create('test_cols', function(\db\Blueprint $table) {
+        $table->id();
+        $table->string('email');
+    });
+    $t->assertTrue($schema->hasColumn('test_cols', 'email'));
+    $t->assertFalse($schema->hasColumn('test_cols', 'nonexistent'));
+    $schema->drop('test_cols');
+});
+
+// --- Blade 新指令测试 ---
+
+$runner->run('Blade - @switch/@case/@endswitch', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $result = $blade->compileString('@switch($x) @case(1) A @break @default B @endswitch');
+    $t->assertStringContains('<?php switch', $result);
+    $t->assertStringContains('<?php case', $result);
+    $t->assertStringContains('<?php break', $result);
+    $t->assertStringContains('<?php default', $result);
+    $t->assertStringContains('endswitch', $result);
+});
+
+$runner->run('Blade - @unless/@endunless', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $result = $blade->compileString('@unless($x) content @endunless');
+    $t->assertStringContains('if (!($x))', $result);
+});
+
+$runner->run('Blade - @for/@endfor', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $result = $blade->compileString('@for($i = 0; $i < 10; $i++) body @endfor');
+    $t->assertStringContains('<?php for', $result);
+    $t->assertStringContains('endfor', $result);
+});
+
+$runner->run('Blade - @while/@endwhile', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $result = $blade->compileString('@while($x) body @endwhile');
+    $t->assertStringContains('<?php while', $result);
+    $t->assertStringContains('endwhile', $result);
+});
+
+$runner->run('Blade - @isset/@endisset', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $result = $blade->compileString('@isset($x) content @endisset');
+    $t->assertStringContains('if (isset($x))', $result);
+});
+
+$runner->run('Blade - @empty/@endempty', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $result = $blade->compileString('@empty($x) content @endempty');
+    $t->assertStringContains('if (empty($x))', $result);
+});
+
+$runner->run('Blade - @verbatim/@endverbatim', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $result = $blade->compileString('@verbatim {{ $raw }} @endverbatim');
+    $t->assertStringContains('{{ $raw }}', $result);
+    $t->assertStringNotContains('htmlspecialchars', $result);
+});
+
+$runner->run('Blade - @csrf 生成 CSRF token', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $result = $blade->compileString('@csrf');
+    $t->assertStringContains('_token', $result);
+    $t->assertStringContains('Session::token', $result);
+});
+
+$runner->run('Blade - @method 生成隐藏字段', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $result = $blade->compileString("@method('DELETE')");
+    $t->assertStringContains('_method', $result);
+    $t->assertStringContains('DELETE', $result);
+});
+
+// --- Session 补充测试 ---
+
+$runner->run('Session - pull 获取并删除', function($t) {
+    \core\Session::set('pull_key', 'pull_value');
+    $val = \core\Session::pull('pull_key');
+    $t->assertEquals('pull_value', $val);
+    $t->assertNull(\core\Session::get('pull_key'));
+});
+
+$runner->run('Session - has 检查键存在', function($t) {
+    \core\Session::set('exists_key', 'value');
+    $t->assertTrue(\core\Session::has('exists_key'));
+    $t->assertFalse(\core\Session::has('nonexistent_key'));
+});
+
+$runner->run('Session - all 返回全部', function($t) {
+    \core\Session::set('all_test', 'value');
+    $all = \core\Session::all();
+    $t->assertIsArray($all);
+    $t->assertArrayHasKey('all_test', $all);
+});
+
+$runner->run('Session - token 生成 CSRF token', function($t) {
+    $token1 = \core\Session::token();
+    $token2 = \core\Session::token();
+    $t->assertIsString($token1);
+    $t->assertEquals($token1, $token2);
+});
+
+$runner->run('Session - id 返回会话ID', function($t) {
+    \core\Session::set('_test_init', true);
+    $id = \core\Session::id();
+    $t->assertIsString($id);
+});
+
+// --- Application 新方法测试 ---
+
+$runner->run('Application - getInstance 返回单例', function($t) {
+    putenv('APP_KEY=test-key-32bytes-OK');
+    $app1 = \core\Application::getInstance();
+    $app2 = \core\Application::getInstance();
+    $t->assertNotNull($app1);
+    $t->assertTrue($app1 === $app2);
+});
+
+$runner->run('Application - getRouter 返回路由', function($t) {
+    putenv('APP_KEY=test-key-32bytes-OK');
+    $app = new \core\Application();
+    $router = $app->getRouter();
+    $t->assertInstanceOf(\core\Router::class, $router);
 });
 
 $runner->summary();

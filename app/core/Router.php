@@ -251,14 +251,25 @@ class Router
     }
 
     /**
-     * 为下一个注册的路由命名
+     * 为路由命名
+     *
+     * 可在路由注册后链式调用：$router->get('/users', ...)->name('users.index')
      *
      * @param string $name 路由名称
      * @return self
      */
     public function name(string $name): self
     {
-        $this->pendingRouteName = $name;
+        if (!empty($this->routes)) {
+            $lastIndex = array_key_last($this->routes);
+            $this->routes[$lastIndex]['name'] = $name;
+            $this->namedRoutes[$name] = [
+                'method' => $this->routes[$lastIndex]['method'],
+                'uri' => $this->routes[$lastIndex]['uri'],
+            ];
+        } else {
+            $this->pendingRouteName = $name;
+        }
         return $this;
     }
 

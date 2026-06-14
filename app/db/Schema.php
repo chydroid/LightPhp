@@ -17,12 +17,14 @@ class Schema
     private string $charset = 'utf8mb4';
     private string $collation = 'utf8mb4_unicode_ci';
     private string $comment = '';
+    private string $driver = 'mysql';
 
     private static ?self $instance = null;
 
     public function __construct(\PDO $pdo)
     {
         $this->pdo = $pdo;
+        $this->driver = \strtolower($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME));
     }
 
     public static function setConnection(\PDO $pdo): self
@@ -48,7 +50,7 @@ class Schema
         $this->columns = [];
         $this->commands = [];
 
-        $blueprint = new Blueprint($table);
+        $blueprint = new Blueprint($table, $this->driver);
         $callback($blueprint);
 
         $this->columns = $blueprint->getColumns();
@@ -64,7 +66,7 @@ class Schema
         $this->table = $table;
         $this->columns = [];
 
-        $blueprint = new Blueprint($table);
+        $blueprint = new Blueprint($table, $this->driver);
         $callback($blueprint);
 
         $this->columns = $blueprint->getColumns();
@@ -88,9 +90,13 @@ class Schema
     public function hasTable(string $table): bool
     {
         $table = $this->sanitizeName($table);
-        // 转义 LIKE 通配符，防止 _ 和 % 被解释为通配符
-        $escapedTable = str_replace(['\\', '_', '%'], ['\\\\', '\\_', '\\%'], $table);
         try {
+            if ($this->driver === 'sqlite') {
+                $stmt = $this->pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='{$table}'");
+                return $stmt !== false && $stmt->fetch() !== false;
+            }
+            // MySQL
+            $escapedTable = str_replace(['\\', '_', '%'], ['\\\\', '\\_', '\\%'], $table);
             $stmt = $this->pdo->query("SHOW TABLES LIKE '{$escapedTable}'");
             return $stmt !== false && $stmt->rowCount() > 0;
         } catch (\Throwable $e) {
@@ -102,9 +108,18 @@ class Schema
     {
         $table = $this->sanitizeName($table);
         $column = $this->sanitizeName($column);
-        // 转义 LIKE 通配符，防止 _ 和 % 被解释为通配符
-        $escapedColumn = str_replace(['\\', '_', '%'], ['\\\\', '\\_', '\\%'], $column);
         try {
+            if ($this->driver === 'sqlite') {
+                $stmt = $this->pdo->query("PRAGMA table_info(`{$table}`)");
+                while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+                    if ($row['name'] === $column) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            // MySQL
+            $escapedColumn = str_replace(['\\', '_', '%'], ['\\\\', '\\_', '\\%'], $column);
             $stmt = $this->pdo->query("SHOW COLUMNS FROM `{$table}` LIKE '{$escapedColumn}'");
             return $stmt !== false && $stmt->rowCount() > 0;
         } catch (\Throwable $e) {
@@ -125,12 +140,18 @@ class Schema
     {
         $from = $this->sanitizeName($from);
         $to = $this->sanitizeName($to);
+        if ($this->driver === 'sqlite') {
+            return $this->execute("ALTER TABLE `{$from}` RENAME TO `{$to}`");
+        }
         return $this->execute("RENAME TABLE `{$from}` TO `{$to}`");
     }
 
     public function truncate(string $table): bool
     {
         $table = $this->sanitizeName($table);
+        if ($this->driver === 'sqlite') {
+            return $this->execute("DELETE FROM `{$table}`");
+        }
         return $this->execute("TRUNCATE TABLE `{$table}`");
     }
 
@@ -141,9 +162,13 @@ class Schema
         $parts = [];
         $parts[] = "CREATE TABLE `{$this->table}` (";
         $parts[] = implode(",\n  ", array_merge($this->columns, $this->commands));
-        $parts[] = ") ENGINE={$this->engine} DEFAULT CHARSET={$this->charset} COLLATE={$this->collation}";
-        if ($this->comment !== '') {
-            $parts[2] .= " COMMENT='" . str_replace(["\\", "'"], ["\\\\", "''"], $this->comment) . "'";
+        if ($this->driver === 'sqlite') {
+            $parts[] = ")";
+        } else {
+            $parts[] = ") ENGINE={$this->engine} DEFAULT CHARSET={$this->charset} COLLATE={$this->collation}";
+            if ($this->comment !== '') {
+                $parts[2] .= " COMMENT='" . str_replace(["\\", "'"], ["\\\\", "''"], $this->comment) . "'";
+            }
         }
         return implode("\n", $parts);
     }
@@ -208,19 +233,24 @@ class Blueprint
     private array $columns = [];
     private array $commands = [];
     private ?string $lastColumn = null;
+    private string $driver = 'mysql';
 
-    public function __construct(string $table)
+    public function __construct(string $table, string $driver = 'mysql')
     {
         if (!preg_match('/^[a-zA-Z0-9_]+$/', $table)) {
             throw new \InvalidArgumentException("Invalid table name: {$table}");
         }
         $this->table = $table;
+        $this->driver = $driver;
     }
 
     // ─── 列类型 ───
 
     public function id(string $name = 'id'): self
     {
+        if ($this->driver === 'sqlite') {
+            return $this->addColumn("`{$name}`", 'INTEGER PRIMARY KEY AUTOINCREMENT');
+        }
         return $this->addColumn("`{$name}`", 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY');
     }
 
@@ -292,7 +322,11 @@ class Blueprint
     public function timestamps(): self
     {
         $this->timestamp('created_at')->nullable()->default('CURRENT_TIMESTAMP');
-        $this->timestamp('updated_at')->nullable()->default('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+        if ($this->driver !== 'sqlite') {
+            $this->timestamp('updated_at')->nullable()->default('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+        } else {
+            $this->timestamp('updated_at')->nullable()->default('CURRENT_TIMESTAMP');
+        }
         return $this;
     }
 

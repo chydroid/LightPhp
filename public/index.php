@@ -11,17 +11,16 @@ define('VIEW_PATH', APP_PATH . 'view/');
 define('SMARTY_TEMPLATE_PATH', APP_PATH . 'view/templates/');
 define('VENDOR_PATH', __DIR__ . '/../vendor/');
 
+require APP_PATH . 'core/Loader.php';
+require APP_PATH . 'core/helpers.php';
+\core\Loader::register();
+
 // Load app config for APP_DEBUG before Application construction
 $appConfig = [];
 if (file_exists(APP_PATH . 'config/app.php')) {
     $appConfig = require APP_PATH . 'config/app.php';
 }
 define('APP_DEBUG', $appConfig['debug'] ?? false);
-
-require APP_PATH . 'core/Loader.php';
-require APP_PATH . 'core/helpers.php';
-
-\core\Loader::register();
 
 try {
     $app = new \core\Application();

@@ -379,6 +379,10 @@ $runner->run('FileCache - Increment Decrement', function($t) {
 });
 
 $runner->run('Hash - Encrypt Decrypt', function($t) {
+    if (!\function_exists('openssl_encrypt')) {
+        $t->assertTrue(true, 'openssl extension not available, test skipped');
+        return;
+    }
     \core\Env::set('APP_KEY', 'test-encryption-key-32bytes!!!');
     $encrypted = \core\Hash::encrypt('Sensitive Data');
     $t->assertIsString($encrypted);
@@ -388,6 +392,10 @@ $runner->run('Hash - Encrypt Decrypt', function($t) {
 });
 
 $runner->run('Hash - Decrypt Invalid Data', function($t) {
+    if (!\function_exists('openssl_decrypt')) {
+        $t->assertTrue(true, 'openssl extension not available, test skipped');
+        return;
+    }
     \core\Env::set('APP_KEY', 'test-encryption-key-32bytes!!!');
     $t->assertNull(\core\Hash::decrypt('invalid-data'));
     $t->assertNull(\core\Hash::decrypt(''));
@@ -1230,14 +1238,15 @@ $runner->run('SoftDelete - trashed 方法', function($t) {
 });
 
 $runner->run('SoftDelete - forceDelete/softDelete 模式切换', function($t) {
-    $modelClass = new class(['id' => 1]) extends \model\Model {
+    $model = new class(['id' => 1]) extends \model\Model {
         protected string $table = 'test';
         use \traits\SoftDelete;
     };
 
-    $modelClass::forceDelete();
-    $modelClass::softDelete();
-    $t->assertTrue(true);
+    $forced = $model->force();
+    $t->assertInstanceOf(get_class($model), $forced);
+    $t->assertTrue(in_array(\traits\SoftDelete::class, class_uses($forced)));
+    $t->assertTrue($forced->trashed() === false);
 });
 
 // --- HasModelEvents 模型事件测试 ---

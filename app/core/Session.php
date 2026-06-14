@@ -132,10 +132,12 @@ class Session
     {
         self::start();
         $flashKey = '_flash_' . $key;
-        if (!array_key_exists($flashKey, $_SESSION)) {
+        if (!\array_key_exists($flashKey, $_SESSION)) {
             return $default;
         }
-        return $_SESSION[$flashKey];
+        $value = $_SESSION[$flashKey];
+        unset($_SESSION[$flashKey]);
+        return $value;
     }
 
     public static function all(): array

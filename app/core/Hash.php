@@ -22,37 +22,43 @@ class Hash
 
     public static function encrypt(string $value, ?string $key = null): string
     {
+        if (!\function_exists('openssl_encrypt')) {
+            throw new \RuntimeException('openssl extension is required for encryption');
+        }
         $key = $key ?? self::getKey();
-        $ivLength = openssl_cipher_iv_length('aes-256-gcm');
-        $iv = random_bytes($ivLength);
+        $ivLength = \openssl_cipher_iv_length('aes-256-gcm');
+        $iv = \random_bytes($ivLength);
         $tag = '';
-        $encrypted = openssl_encrypt($value, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+        $encrypted = \openssl_encrypt($value, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
         if ($encrypted === false) {
             throw new \RuntimeException('Encryption failed');
         }
-        return base64_encode($iv . $tag . $encrypted);
+        return \base64_encode($iv . $tag . $encrypted);
     }
 
     public static function decrypt(string $encrypted, ?string $key = null): ?string
     {
+        if (!\function_exists('openssl_decrypt')) {
+            throw new \RuntimeException('openssl extension is required for decryption');
+        }
         $key = $key ?? self::getKey();
-        $decoded = base64_decode($encrypted, true);
+        $decoded = \base64_decode($encrypted, true);
         if ($decoded === false) {
             return null;
         }
 
-        $ivLength = openssl_cipher_iv_length('aes-256-gcm');
+        $ivLength = \openssl_cipher_iv_length('aes-256-gcm');
         $tagLength = 16;
 
-        if (strlen($decoded) < $ivLength + $tagLength) {
+        if (\strlen($decoded) < $ivLength + $tagLength) {
             return null;
         }
 
-        $iv = substr($decoded, 0, $ivLength);
-        $tag = substr($decoded, $ivLength, $tagLength);
-        $ciphertext = substr($decoded, $ivLength + $tagLength);
+        $iv = \substr($decoded, 0, $ivLength);
+        $tag = \substr($decoded, $ivLength, $tagLength);
+        $ciphertext = \substr($decoded, $ivLength + $tagLength);
 
-        $result = openssl_decrypt($ciphertext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+        $result = \openssl_decrypt($ciphertext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
         return $result !== false ? $result : null;
     }
 

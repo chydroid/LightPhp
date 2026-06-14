@@ -232,8 +232,8 @@ class Validate
         }
         $min = (int) $params[0];
         if (is_numeric($value)) return $value >= $min;
-        if (is_string($value)) return mb_strlen($value) >= $min;
-        if (is_array($value)) return count($value) >= $min;
+        if (is_string($value)) return \strlen($value) >= $min;
+        if (is_array($value)) return \count($value) >= $min;
         return false;
     }
 
@@ -244,8 +244,8 @@ class Validate
         }
         $max = (int) $params[0];
         if (is_numeric($value)) return $value <= $max;
-        if (is_string($value)) return mb_strlen($value) <= $max;
-        if (is_array($value)) return count($value) <= $max;
+        if (is_string($value)) return \strlen($value) <= $max;
+        if (is_array($value)) return \count($value) <= $max;
         return false;
     }
 
@@ -330,12 +330,12 @@ class Validate
 
     private function validateUnique(string $field, $value, array $params): bool
     {
-        return false;
+        throw new \RuntimeException("The 'unique' rule requires a database connection, which is not available in the validator.");
     }
 
     private function validateExists(string $field, $value, array $params): bool
     {
-        return false;
+        throw new \RuntimeException("The 'exists' rule requires a database connection, which is not available in the validator.");
     }
 
     /**

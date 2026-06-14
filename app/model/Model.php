@@ -90,14 +90,13 @@ class Model
 
     public function firstOrCreate(array $attributes, array $values = []): static
     {
-        $instance = new static($attributes);
+        $query = $this->newQuery();
         foreach ($attributes as $key => $value) {
-            if (in_array($key, $this->fillable, true) || $this->fillable === ['*']) {
-                $row = $this->newQuery()->where($key, '=', $value)->fetch();
-                if ($row) {
-                    return $this->newFromBuilder($row);
-                }
-            }
+            $query->where($key, '=', $value);
+        }
+        $row = $query->fetch();
+        if ($row) {
+            return $this->newFromBuilder($row);
         }
         $data = array_merge($attributes, $values);
         $id = $this->create($data);
@@ -106,13 +105,13 @@ class Model
 
     public function firstOrNew(array $attributes, array $values = []): static
     {
+        $query = $this->newQuery();
         foreach ($attributes as $key => $value) {
-            if (in_array($key, $this->fillable, true) || $this->fillable === ['*']) {
-                $row = $this->newQuery()->where($key, '=', $value)->fetch();
-                if ($row) {
-                    return $this->newFromBuilder($row);
-                }
-            }
+            $query->where($key, '=', $value);
+        }
+        $row = $query->fetch();
+        if ($row) {
+            return $this->newFromBuilder($row);
         }
         $data = array_merge($attributes, $values);
         $model = new static($data);
@@ -604,7 +603,7 @@ class Model
         return $this->getAttribute($name);
     }
 
-    public function __set(string $name, $value): void
+    public function __set(string $name, mixed $value): void
     {
         $this->setAttribute($name, $value);
     }

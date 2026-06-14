@@ -892,10 +892,12 @@ class QueryBuilder
         foreach ($bindings as $key => $value) {
             $placeholder = is_int($key) ? ':wr_' . count($this->bindings) : $key;
             $this->bindings[$placeholder] = $value;
-            $this->where[count($this->where) - 1] = str_replace(
-                is_int($key) ? '?' : $key,
+            $search = is_int($key) ? '?' : $key;
+            $this->where[count($this->where) - 1] = preg_replace(
+                '/' . preg_quote($search, '/') . '/',
                 $placeholder,
-                $this->where[count($this->where) - 1]
+                $this->where[count($this->where) - 1],
+                1
             );
         }
         return $this;
@@ -935,7 +937,10 @@ class QueryBuilder
                 break;
             }
 
-            $lastId = end($results)[$column] ?? 0;
+            $lastId = end($results)[$column] ?? null;
+            if ($lastId === null) {
+                break;
+            }
         } while (count($results) === $count);
     }
 

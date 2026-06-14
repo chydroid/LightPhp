@@ -279,7 +279,7 @@ class Router
         $uri = $this->namedRoutes[$name]['uri'];
 
         foreach ($parameters as $key => $value) {
-            $uri = str_replace('{' . $key . '}', (string) $value, $uri);
+            $uri = str_replace('{' . $key . '}', \urlencode((string) $value), $uri);
         }
 
         return $uri;
@@ -671,9 +671,10 @@ class Router
             return false;
         }
 
-        $routes = require $cacheFile;
-        if (is_array($routes)) {
-            $this->routes = $routes;
+        $data = require $cacheFile;
+        if (is_array($data) && isset($data['routes'])) {
+            $this->routes = $data['routes'];
+            $this->namedRoutes = $data['namedRoutes'] ?? [];
             return true;
         }
 
@@ -700,7 +701,11 @@ class Router
             mkdir($dir, 0755, true);
         }
 
-        $export = var_export($this->routes, true);
+        $data = [
+            'routes' => $this->routes,
+            'namedRoutes' => $this->namedRoutes,
+        ];
+        $export = var_export($data, true);
         $content = '<?php return ' . $export . ';';
         return file_put_contents($cacheFile, $content, LOCK_EX) !== false;
     }

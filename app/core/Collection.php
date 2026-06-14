@@ -302,7 +302,7 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
         $result = [];
         foreach ($this->items as $item) {
             if (is_array($item)) {
-                array_push($result, ...$item);
+                array_push($result, ...(new static($item))->flatten()->all());
             } else {
                 $result[] = $item;
             }
@@ -329,22 +329,40 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
 
     public function diff(array $items): self
     {
-        return new static(array_diff($this->items, $items));
+        $result = [];
+        foreach ($this->items as $key => $value) {
+            if (!in_array($value, $items, true)) {
+                $result[$key] = $value;
+            }
+        }
+        return new static($result);
     }
 
     public function intersect(array $items): self
     {
-        return new static(array_intersect($this->items, $items));
+        $result = [];
+        foreach ($this->items as $key => $value) {
+            if (in_array($value, $items, true)) {
+                $result[$key] = $value;
+            }
+        }
+        return new static($result);
     }
 
     public function implode(string $glue = ''): string
     {
-        return implode($glue, $this->items);
+        return implode($glue, array_map(fn($item) => (string) $item, $this->items));
     }
 
     public function flip(): self
     {
-        return new static(array_flip($this->items));
+        $result = [];
+        foreach ($this->items as $key => $value) {
+            if (is_string($value) || is_int($value)) {
+                $result[$value] = $key;
+            }
+        }
+        return new static($result);
     }
 
     public function zip(array $items): self
@@ -359,11 +377,16 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
 
     public function nth(int $nth, int $offset = 0): self
     {
+        if ($nth < 1) {
+            throw new \InvalidArgumentException('nth must be at least 1');
+        }
         $result = [];
+        $position = 0;
         foreach ($this->items as $key => $item) {
-            if (($key - $offset) % $nth === 0) {
+            if ($position >= $offset && ($position - $offset) % $nth === 0) {
                 $result[$key] = $item;
             }
+            $position++;
         }
         return new static($result);
     }

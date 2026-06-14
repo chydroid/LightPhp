@@ -108,7 +108,12 @@ class Response
         }
 
         $name = $name ?? basename($filePath);
-        $content = file_get_contents($filePath);
+        $name = str_replace(["\r", "\n", '"'], '', $name);
+
+        $content = @file_get_contents($filePath);
+        if ($content === false) {
+            throw new \RuntimeException("Failed to read file: {$filePath}");
+        }
 
         $response = new self($content, 200);
         $response->header('Content-Type', 'application/octet-stream');

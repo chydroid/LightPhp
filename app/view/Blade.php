@@ -257,7 +257,7 @@ class Blade
             '@continue(?!\w)'               => '<?php continue; ?>',
             '@verbatim'                    => '',
             '@endverbatim'                 => '',
-            '@each\((.+?)\)'              => '<?php foreach ((array) $1 as $__item): ?><?= $__blade->render($2, array_merge((array)$3, [\'$__current\' => $__item])) ?><?php endforeach; ?>',
+            '@each\((.+?),\s*(.+?),\s*(.+?)\)' => '<?php foreach ((array)($2) as $__key_$$3 => $__item): ?><?= $__blade->resolveInclude($1) ?><?php endforeach; ?>',
             '@push\((.+?)\)'              => '<?php $__blade->startPush($1); ?>',
             '@endpush'                    => '<?php $__blade->endPush(); ?>',
             '@prepend\((.+?)\)'           => '<?php $__blade->startPrepend($1); ?>',

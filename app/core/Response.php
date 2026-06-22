@@ -107,8 +107,8 @@ class Response
             throw new \InvalidArgumentException("File not found: {$filePath}");
         }
 
-        $name = $name ?? basename($filePath);
-        $name = str_replace(["\r", "\n", '"'], '', $name);
+        $name = $name !== null && $name !== '' ? basename($name) : basename($filePath);
+        $name = str_replace(["\r", "\n", "\0", '"', '\\'], '', $name);
 
         $content = @file_get_contents($filePath);
         if ($content === false) {

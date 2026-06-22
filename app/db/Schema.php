@@ -717,12 +717,22 @@ class Migration
 
     private function ensureTable(): void
     {
-        $this->pdo->exec("CREATE TABLE IF NOT EXISTS `migrations` (
-            `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            `migration` VARCHAR(255) NOT NULL,
-            `batch` INT NOT NULL,
-            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $driver = strtolower($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME));
+        if ($driver === 'sqlite') {
+            $this->pdo->exec("CREATE TABLE IF NOT EXISTS `migrations` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+                `migration` VARCHAR(255) NOT NULL,
+                `batch` INT NOT NULL,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )");
+        } else {
+            $this->pdo->exec("CREATE TABLE IF NOT EXISTS `migrations` (
+                `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                `migration` VARCHAR(255) NOT NULL,
+                `batch` INT NOT NULL,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
     }
 
     /** @return string[] */

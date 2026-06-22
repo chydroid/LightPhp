@@ -301,6 +301,9 @@ PHP;
         if ($type === 'tinyint(1)') {
             return 'bool';
         }
+        if (strpos($type, 'point') !== false) {
+            return 'string';
+        }
         if (strpos($type, 'int') !== false) {
             return 'int';
         }

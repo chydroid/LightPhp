@@ -414,7 +414,8 @@ $console->register(new class extends \core\console\Command {
     {
         $testFile = ROOT_PATH . 'tests/run_tests.php';
         if (file_exists($testFile)) {
-            passthru('php ' . escapeshellarg($testFile));
+            $phpBinary = defined('PHP_BINARY') ? PHP_BINARY : 'php';
+            passthru(escapeshellarg($phpBinary) . ' ' . escapeshellarg($testFile));
             return 0;
         }
         $this->error("Test file not found.");

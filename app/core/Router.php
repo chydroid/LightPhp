@@ -289,9 +289,14 @@ class Router
 
         $uri = $this->namedRoutes[$name]['uri'];
 
-        foreach ($parameters as $key => $value) {
-            $uri = str_replace('{' . $key . '}', \urlencode((string) $value), $uri);
-        }
+        $uri = preg_replace_callback(
+            '/\{([a-zA-Z_][a-zA-Z0-9_]*)(?::[^}]*)?\}/',
+            function ($m) use ($parameters) {
+                $key = $m[1];
+                return isset($parameters[$key]) ? \urlencode((string) $parameters[$key]) : $m[0];
+            },
+            $uri
+        );
 
         return $uri;
     }
@@ -350,6 +355,7 @@ class Router
             $router = require $file;
             if ($router instanceof Router) {
                 $this->routes = array_merge($this->routes, $router->getRoutes());
+                $this->namedRoutes = array_merge($this->namedRoutes, $router->namedRoutes);
             }
         }
     }

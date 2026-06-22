@@ -125,6 +125,9 @@ class QueryBuilder
         if (preg_match('/^[a-zA-Z0-9_\.]+$/', $column)) {
             if (str_contains($column, '.')) {
                 [$alias, $col] = explode('.', $column, 2);
+                if ($col === '*') {
+                    return "`{$alias}`.*";
+                }
                 return "`{$alias}`.`{$col}`";
             }
             return "`{$column}`";

@@ -2,6 +2,33 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.8.1] - 2026-06-22
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] CsrfMiddleware 验证后立即重新生成 token** — 导致多标签页或连续 AJAX 请求因 token 不一致而 419。修复：验证通过后保持当前会话 token 不变
+- **[HIGH] EventDispatcher 事件传播未停止** — 监听器返回 `false` 时仍继续执行后续监听器。修复：将 `continue` 改为 `break`
+- **[HIGH] EventDispatcher 通配符监听器缓存失效不完整** — 新增/移除监听器后仅清除单个事件缓存，导致通配符匹配结果过期。修复：清空整个通配符缓存
+- **[MEDIUM] QueryBuilder `table.*` 列名转义错误** — `SELECT `table`.`*`` 语法非法。修复：检测到 `*` 时返回 `` `table`.* ``
+- **[MEDIUM] Router route() 无法替换带自定义正则的路由参数** — 简单字符串替换会残留 `{id:\d+}` 中的正则片段。修复：使用 `preg_replace_callback` 精确替换参数名
+- **[MEDIUM] Router 从文件加载路由丢失命名路由** — 仅合并 `routes` 未合并 `namedRoutes`。修复：同时合并命名路由表
+- **[MEDIUM] Collection::sortByDesc() 丢失关联键** — 先 `sortBy` 再 `reverse` 导致键被重置。修复：改用 `uasort` 直接降序并保持键
+- **[MEDIUM] Blade `@each` 指令编译为非法 PHP** — 原正则替换生成错误的 foreach 变量语法。修复：新增独立 `compileEach()` 方法
+- **[MEDIUM] Blade 嵌套 `@include` 状态泄漏** — 保存/恢复 sections 和 stack 的变量名固定，嵌套时内层覆盖外层状态。修复：使用唯一变量后缀
+- **[MEDIUM] FileCache incrementFallback/decrementFallback 与主路径 TTL 不一致** — 无锁回退路径对已有永久键错误地使用默认 TTL。修复：与加锁主路径保持一致的 TTL 逻辑
+- **[MEDIUM] Validate::validateDigits() 忽略长度参数** — 未使用规则参数校验位数。修复：传入长度时校验字符串长度
+- **[MEDIUM] Generator 生成 `optional` 验证规则无对应实现** — 生成的规则文件包含 `optional` 但 Validate 缺少方法。修复：新增 `validateOptional()` 返回 true
+- **[LOW] Model::__clone() 共享 relations 引用** — 克隆实例共享父实例的关联模型数组。修复：在 `__clone()` 中重置 `relations`
+- **[LOW] SoftDelete 对已软删除实例重复触发 delete** — 从数据库加载的已软删除记录调用 `delete()` 会再次触发 `deleting` 事件并更新 `deleted_at`。修复：已 trash 且非强制删除时直接返回 0
+- **[LOW] Response::download() 文件名清洗不足** — 未处理空字节、反斜杠与空文件名。修复：空文件名回退到原始文件名，并清洗 `\r\n\0"\\`
+- **[LOW] ApiDoc 错误包含 `__construct`** — 构造函数被当成 API 动作生成文档。修复：恢复排除 `__construct`
+- **[LOW] bin/console test 命令硬编码 `php`** — 在 PHP 未加入 PATH 的环境无法运行测试。修复：使用 `PHP_BINARY` 常量
+
+### 测试 (Tests)
+
+- 新增回归测试覆盖以上所有 Bug 修复
+- 测试总数从 343 提升至 483
+
 ## [2.8.0] - 2026-06-14
 
 ### 新功能 (New Features)

@@ -529,7 +529,7 @@ class FileCache implements CacheInterface
         $data = $this->read($key);
         $current = $data !== null ? (int) $data['value'] : 0;
         $new = $current + $step;
-        $ttl = ($data !== null && $data['expire'] > 0) ? max(1, $data['expire'] - time()) : 0;
+        $ttl = ($data !== null && $data['expire'] > 0) ? max(1, $data['expire'] - time()) : ($data !== null ? 0 : null);
         $this->set($key, $new, $ttl);
         return $new;
     }
@@ -539,7 +539,7 @@ class FileCache implements CacheInterface
         $data = $this->read($key);
         $current = $data !== null ? (int) $data['value'] : 0;
         $new = max(0, $current - $step);
-        $ttl = ($data !== null && $data['expire'] > 0) ? max(1, $data['expire'] - time()) : 0;
+        $ttl = ($data !== null && $data['expire'] > 0) ? max(1, $data['expire'] - time()) : ($data !== null ? 0 : null);
         $this->set($key, $new, $ttl);
         return $new;
     }

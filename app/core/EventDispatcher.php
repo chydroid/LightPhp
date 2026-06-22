@@ -30,13 +30,14 @@ class EventDispatcher
 
         usort($this->listeners[$event], fn($a, $b) => $b['priority'] <=> $a['priority']);
 
-        unset($this->wildcardCache[$event]);
+        $this->wildcardCache = [];
         $this->wildcardRegexCache = [];
     }
 
     public function forget(string $event): void
     {
-        unset($this->listeners[$event], $this->wildcardCache[$event]);
+        unset($this->listeners[$event]);
+        $this->wildcardCache = [];
         $this->wildcardRegexCache = [];
     }
 
@@ -85,7 +86,7 @@ class EventDispatcher
                     $result = $listener($event, ...$payload);
                     $results[] = $result;
                     if ($result === false) {
-                        continue;
+                        break;
                     }
                 } catch (\Throwable $e) {
                     $results[] = $e;

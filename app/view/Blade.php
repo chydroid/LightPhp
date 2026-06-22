@@ -193,6 +193,7 @@ class Blade
             $content
         );
 
+        $content = $this->compileEach($content);
         $content = $this->compileStatements($content);
         $content = $this->compileEchos($content);
         $content = $this->compileDirectives($content);
@@ -257,7 +258,6 @@ class Blade
             '@continue(?!\w)'               => '<?php continue; ?>',
             '@verbatim'                    => '',
             '@endverbatim'                 => '',
-            '@each\((.+?),\s*(.+?),\s*(.+?)\)' => '<?php foreach ((array)($2) as $__key_$$3 => $__item): ?><?= $__blade->resolveInclude($1) ?><?php endforeach; ?>',
             '@push\((.+?)\)'              => '<?php $__blade->startPush($1); ?>',
             '@endpush'                    => '<?php $__blade->endPush(); ?>',
             '@prepend\((.+?)\)'           => '<?php $__blade->startPrepend($1); ?>',
@@ -308,9 +308,11 @@ class Blade
      */
     private function compileIncludes(string $content): string
     {
+        $counter = 0;
         return (string) preg_replace_callback(
             '/@include\((.+?)\)/',
-            function ($match) {
+            function ($match) use (&$counter) {
+                $suffix = $counter++;
                 $parts = array_map('trim', explode(',', $match[1], 2));
                 $view = trim($parts[0], "'\"");
                 $vars = $parts[1] ?? '[]';
@@ -326,8 +328,28 @@ class Blade
                 }
 
                 // 运行时解析 include，确保子模板修改后能触发重编译
-                // 保存/恢复 sections 和 stack，防止子模板的 section 泄漏到父模板
-                return '<?php $__prevSections = $__blade->getSections(); $__prevStack = $__blade->getStack(); if ($__inc = $__blade->resolveInclude(\'' . addslashes($view) . '\')) { extract(' . $vars . ', EXTR_SKIP); require $__inc; } $__blade->restoreState($__prevSections, $__prevStack); ?>';
+                // 使用唯一变量名，防止嵌套 include 时保存的状态被内层覆盖
+                return '<?php $__prevSections_' . $suffix . ' = $__blade->getSections(); $__prevStack_' . $suffix . ' = $__blade->getStack(); if ($__inc_' . $suffix . ' = $__blade->resolveInclude(\'' . addslashes($view) . '\')) { extract(' . $vars . ', EXTR_SKIP); require $__inc_' . $suffix . '; } $__blade->restoreState($__prevSections_' . $suffix . ', $__prevStack_' . $suffix . '); ?>';
+            },
+            $content
+        );
+    }
+
+    /**
+     * 编译 each 语句
+     *
+     * @param string $content 模板内容
+     * @return string 编译后的内容
+     */
+    private function compileEach(string $content): string
+    {
+        return (string) preg_replace_callback(
+            '/@each\((.+?),\s*(.+?),\s*(.+?)\)/',
+            function ($match) {
+                $view = trim($match[1], "'\"");
+                $items = $match[2];
+                $var = trim($match[3], "'\"");
+                return '<?php foreach ((array)(' . $items . ') as $__key => $' . $var . '): ?><?= $__blade->resolveInclude(\'' . addslashes($view) . '\') ?><?php endforeach; ?>';
             },
             $content
         );

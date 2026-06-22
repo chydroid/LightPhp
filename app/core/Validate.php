@@ -433,12 +433,25 @@ class Validate
         return true;
     }
 
+    private function validateOptional(string $field, $value, array $params): bool
+    {
+        return true;
+    }
+
     private function validateDigits(string $field, $value, array $params): bool
     {
         if (!is_string($value) && !is_int($value)) {
             return false;
         }
-        return (bool) preg_match('/^\d+$/', (string) $value);
+        $digits = (string) $value;
+        if (!preg_match('/^\d+$/', $digits)) {
+            return false;
+        }
+        if (!empty($params)) {
+            $length = (int) $params[0];
+            return strlen($digits) === $length;
+        }
+        return true;
     }
 
     private function validateDigitsBetween(string $field, $value, array $params): bool

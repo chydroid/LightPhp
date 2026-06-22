@@ -135,6 +135,11 @@ trait SoftDelete
      */
     public function delete(int|string $id): int
     {
+        // 若当前实例已表示一条被软删除的记录，则避免重复删除/更新
+        if (!$this->forceDeleting && $this->exists && $this->trashed()) {
+            return 0;
+        }
+
         if (!$this->fireEvent('deleting')) {
             return 0;
         }

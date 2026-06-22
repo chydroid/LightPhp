@@ -155,7 +155,13 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
 
     public function sortByDesc(string $key): self
     {
-        return $this->sortBy($key)->reverse();
+        $items = $this->items;
+        uasort($items, function ($a, $b) use ($key) {
+            $va = $a[$key] ?? null;
+            $vb = $b[$key] ?? null;
+            return ($vb <=> $va);
+        });
+        return new static($items);
     }
 
     public function reverse(): self

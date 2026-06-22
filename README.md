@@ -1,6 +1,6 @@
 <div align="center">
 
-<img title="" src="docs/assets/banner.png" alt="LightPHP banner" width="140">
+<img title="" src="docs/assets/banner.png" alt="LightPHP banner" width="260">
 
 # LightPHP Framework
 
@@ -8,8 +8,8 @@
 
 [![PHP Version](https://img.shields.io/badge/PHP-8.0%2B-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.8.0-8b5cf6?style=for-the-badge)](CHANGELOG.md)
-[![Tests](https://img.shields.io/badge/tests-343-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
+[![Version](https://img.shields.io/badge/version-2.8.1-8b5cf6?style=for-the-badge)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-483-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
 [![Security](https://img.shields.io/badge/audited-6_rounds-f43f5e?style=for-the-badge&logo=shield)](CHANGELOG.md)
 
 受 ThinkPHP / Laravel 启发的现代化 PHP 框架，零依赖，可商用。  

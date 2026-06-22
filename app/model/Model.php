@@ -611,6 +611,7 @@ class Model
     public function __clone(): void
     {
         $this->exists = false;
+        $this->relations = [];
         unset($this->attributes[$this->primaryKey]);
     }
 

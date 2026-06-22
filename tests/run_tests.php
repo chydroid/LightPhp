@@ -2256,6 +2256,18 @@ $runner->run('Response - download 文件不存在抛异常', function($t) {
     });
 });
 
+$runner->run('Response - download 文件名被安全处理', function($t) {
+    $tmpFile = tempnam(sys_get_temp_dir(), 'test_');
+    file_put_contents($tmpFile, 'hello world');
+    // 使用跨平台路径分隔符 /，并在文件名中混入引号与空字节验证清洗逻辑
+    $response = \core\Response::download($tmpFile, "../../../etc/passwd\"data\x00.txt");
+    $headers = (new \ReflectionClass($response))->getProperty('headers')->getValue($response);
+    $t->assertStringNotContains('..', $headers['Content-Disposition']);
+    // 最终 Content-Disposition 中 filename 参数应只保留清洗后的基本文件名
+    $t->assertStringContains('filename="passwddata.txt"', $headers['Content-Disposition']);
+    unlink($tmpFile);
+});
+
 $runner->run('Response - redirect 创建重定向', function($t) {
     $response = \core\Response::redirect('/login', 302);
     $t->assertEquals(302, $response->getStatusCode());
@@ -2447,6 +2459,136 @@ $runner->run('Application - getRouter 返回路由', function($t) {
     $app = new \core\Application();
     $router = $app->getRouter();
     $t->assertInstanceOf(\core\Router::class, $router);
+});
+
+// ═══════════════════════════════════════════════
+//  Bug 修复回归测试
+// ═══════════════════════════════════════════════
+
+$runner->run('CsrfMiddleware - 验证通过后不立即重新生成 token', function($t) {
+    $originalMethod = $_SERVER['REQUEST_METHOD'] ?? null;
+    $originalPost = $_POST;
+    $originalUri = $_SERVER['REQUEST_URI'] ?? null;
+
+    try {
+        // 确保会话已启动并拿到 token
+        $token = \core\Session::token();
+        $t->assertIsString($token);
+        $t->assertNotEquals('', $token);
+
+        $runMiddleware = function() use ($token) {
+            $_SERVER['REQUEST_METHOD'] = 'POST';
+            $_POST = ['_token' => $token];
+            $_SERVER['REQUEST_URI'] = '/test';
+            $request = new \core\Request();
+            $middleware = new \middleware\CsrfMiddleware();
+            return $middleware->handle($request, fn() => 'ok');
+        };
+
+        $first = $runMiddleware();
+        $t->assertEquals('ok', $first);
+
+        // 同一 token 的第二次请求应当仍然通过（旧代码会重新生成 token 导致 419）
+        $second = $runMiddleware();
+        $t->assertEquals('ok', $second);
+    } finally {
+        if ($originalMethod === null) {
+            unset($_SERVER['REQUEST_METHOD']);
+        } else {
+            $_SERVER['REQUEST_METHOD'] = $originalMethod;
+        }
+        $_POST = $originalPost;
+        if ($originalUri === null) {
+            unset($_SERVER['REQUEST_URI']);
+        } else {
+            $_SERVER['REQUEST_URI'] = $originalUri;
+        }
+    }
+});
+
+$runner->run('FileCache - incrementFallback 使用默认 TTL', function($t) {
+    $cache = new \cache\FileCache(STORAGE_PATH . 'cache/');
+    $key = 'fallback_ttl_' . uniqid();
+
+    $ref = new \ReflectionClass($cache);
+    $method = $ref->getMethod('incrementFallback');
+    $method->invoke($cache, $key, 1);
+
+    $file = $ref->getMethod('getFile')->invoke($cache, $key);
+    $t->assertTrue(file_exists($file));
+
+    $data = json_decode(file_get_contents($file), true);
+    $t->assertIsArray($data);
+    $t->assertGreaterThanOrEqual(1, $data['expire'] ?? 0, 'Fallback increment should use default TTL, not permanent');
+
+    $cache->delete($key);
+});
+
+$runner->run('FileCache - incrementFallback 保持永久 TTL', function($t) {
+    $cache = new \cache\FileCache(STORAGE_PATH . 'cache/');
+    $key = 'fallback_permanent_' . uniqid();
+
+    $ref = new \ReflectionClass($cache);
+    $write = $ref->getMethod('write');
+    $write->invoke($cache, $key, 5, 0);
+
+    $method = $ref->getMethod('incrementFallback');
+    $method->invoke($cache, $key, 1);
+
+    $file = $ref->getMethod('getFile')->invoke($cache, $key);
+    $data = json_decode(file_get_contents($file), true);
+    $t->assertIsArray($data);
+    $t->assertEquals(0, $data['expire'] ?? null, 'Fallback increment should preserve permanent TTL');
+    $t->assertEquals(6, $data['value'] ?? null);
+
+    $cache->delete($key);
+});
+
+$runner->run('Model - __clone 重置 relations', function($t) {
+    $model = new class extends \model\Model {
+        protected string $table = 'test';
+        protected array $fillable = ['*'];
+    };
+    $related = new class extends \model\Model {
+        protected string $table = 'related';
+    };
+
+    $ref = new \ReflectionClass($model);
+    $prop = $ref->getProperty('relations');
+    $prop->setValue($model, ['related' => $related]);
+
+    $clone = clone $model;
+    $cloneRelations = $prop->getValue($clone);
+    $t->assertIsArray($cloneRelations);
+    $t->assertCount(0, $cloneRelations);
+
+    $originalRelations = $prop->getValue($model);
+    $t->assertArrayHasKey('related', $originalRelations);
+});
+
+$runner->run('SoftDelete - 已软删除实例再次 delete 不触发 deleting 事件', function($t) {
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'test';
+        protected array $fillable = ['*'];
+        use \traits\SoftDelete;
+    };
+
+    $deletingCount = 0;
+    $modelClass::onEvent('deleting', function($m) use (&$deletingCount) {
+        $deletingCount++;
+        return true;
+    });
+
+    // 模拟从数据库加载出来的已软删除实例
+    $instance = new $modelClass(['id' => 1, 'deleted_at' => date('Y-m-d H:i:s')]);
+    $ref = new \ReflectionClass($instance);
+    $prop = $ref->getProperty('exists');
+    $prop->setValue($instance, true);
+
+    $instance->delete(1);
+
+    $t->assertEquals(0, $deletingCount, 'delete() should be skipped when instance is already trashed');
+    $modelClass::flushEventListeners();
 });
 
 $runner->summary();

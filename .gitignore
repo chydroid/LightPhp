@@ -21,3 +21,7 @@ git_bak/
 *.swp
 *.swo
 .git/COMMIT_MSG
+
+# Trae terminal auto-generated helper files
+Trae CN*.ps1
+desktop.ini

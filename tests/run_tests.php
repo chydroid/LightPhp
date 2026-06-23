@@ -2966,3 +2966,6 @@ $runner->run('TaggedCache - increment/decrement 打标签', function($t) {
 });
 
 $runner->summary();
+
+// 测试失败时返回非零退出码，确保 CI 环境能正确检测失败
+exit($runner->getFailed() > 0 ? 1 : 0);

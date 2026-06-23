@@ -75,10 +75,17 @@ class Helper
     {
         $uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
         $uri = is_string($uri) ? rtrim($uri, '/') : '/';
+        $uri = $uri !== '' ? $uri : '/';
         $path = rtrim($path, '/');
+        $path = $path !== '' ? $path : '/';
         
         if ($path === '*') {
             return $active;
+        }
+        
+        // 根路径仅匹配首页，避免在所有页面都激活
+        if ($path === '/') {
+            return $uri === '/' ? $active : '';
         }
         
         return $uri === $path || str_starts_with($uri, $path . '/') ? $active : '';

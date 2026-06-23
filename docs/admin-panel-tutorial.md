@@ -240,24 +240,24 @@ class AuthController extends Controller
 
         $admin = Admin::where('username', '=', $username)->first();
 
-        if (!$admin || !$admin->verifyPassword($password)) {
+        if (!$admin || !\core\Hash::verify($password, $admin['password'])) {
             return $this->error('Invalid credentials', 401);
         }
 
-        if ($admin->status !== 1) {
+        if ($admin['status'] !== 1) {
             return $this->error('Account is disabled', 403);
         }
 
-        Admin::updateLoginTime($admin->id);
+        Admin::updateLoginTime($admin['id']);
 
-        $token = $this->generateToken($admin->id, $admin->role);
+        $token = $this->generateToken($admin['id'], $admin['role']);
 
         return $this->success([
             'admin' => [
-                'id' => $admin->id,
-                'username' => $admin->username,
-                'nickname' => $admin->nickname,
-                'role' => $admin->role,
+                'id' => $admin['id'],
+                'username' => $admin['username'],
+                'nickname' => $admin['nickname'],
+                'role' => $admin['role'],
             ],
             'token' => $token,
         ], 'Login successful');
@@ -270,7 +270,7 @@ class AuthController extends Controller
 
     public function profile(Request $request): Response
     {
-        $adminId = $request->admin_id;
+        $adminId = $request->input('admin_id');
 
         $admin = Admin::find($adminId);
 
@@ -289,7 +289,7 @@ class AuthController extends Controller
 
     public function updateProfile(Request $request): Response
     {
-        $adminId = $request->admin_id;
+        $adminId = $request->input('admin_id');
         $data = $request->only(['nickname']);
 
         if (!empty($data['nickname'])) {
@@ -301,7 +301,7 @@ class AuthController extends Controller
 
     public function changePassword(Request $request): Response
     {
-        $adminId = $request->admin_id;
+        $adminId = $request->input('admin_id');
         $oldPassword = $request->input('old_password');
         $newPassword = $request->input('new_password');
 
@@ -361,7 +361,7 @@ class DashboardController extends Controller
     {
         $today = date('Y-m-d');
 
-        $db = app(\db\Connection::class);
+        $db = \core\Application::getInstance()->getContainer()->get('db');
 
         $todayOrders = $db->query(
             "SELECT COUNT(*) as count FROM orders WHERE DATE(created_at) = ?",
@@ -467,7 +467,7 @@ class ProductController extends Controller
         $categoryId = $request->input('category_id');
         $status = $request->input('status');
 
-        $db = app(\db\Connection::class);
+        $db = \core\Application::getInstance()->getContainer()->get('db');
         $query = $db->table('products');
 
         if ($keyword) {
@@ -563,7 +563,7 @@ class ProductController extends Controller
             return $this->error('IDs are required', 422);
         }
 
-        $db = app(\db\Connection::class);
+        $db = \core\Application::getInstance()->getContainer()->get('db');
         $db->table('products')->whereIn('id', $ids)->delete();
 
         return $this->success([], 'Products deleted');
@@ -578,7 +578,7 @@ class ProductController extends Controller
             return $this->error('IDs are required', 422);
         }
 
-        $db = app(\db\Connection::class);
+        $db = \core\Application::getInstance()->getContainer()->get('db');
         $db->table('products')->whereIn('id', $ids)->update(['status' => $status]);
 
         return $this->success([], 'Status updated');
@@ -675,7 +675,7 @@ class CategoryController extends Controller
         }
 
         // 检查是否有商品
-        $db = app(\db\Connection::class);
+        $db = \core\Application::getInstance()->getContainer()->get('db');
         $count = $db->table('products')->where('category_id', '=', $id)->count();
         if ($count > 0) {
             return $this->error('Cannot delete category with products', 422);
@@ -756,7 +756,7 @@ class OrderController extends Controller
         $startDate = $request->input('start_date');
         $endDate = $request->input('end_date');
 
-        $db = app(\db\Connection::class);
+        $db = \core\Application::getInstance()->getContainer()->get('db');
         $query = $db->table('orders');
 
         if ($status !== null && $status !== '') {
@@ -795,7 +795,7 @@ class OrderController extends Controller
         }
 
         $items = OrderItem::where('order_id', '=', $id)->fetchAll();
-        $order['items'] = $items;
+        $order->items = $items;
 
         return $this->success($order);
     }
@@ -815,7 +815,7 @@ class OrderController extends Controller
         }
 
         // 状态流转验证
-        $currentStatus = $order['status'];
+        $currentStatus = $order->status;
         $allowedTransitions = [
             1 => [2, 5],  // 待支付 -> 已支付/已取消
             2 => [3],     // 已支付 -> 已发货
@@ -841,7 +841,7 @@ class OrderController extends Controller
             return $this->error('Order not found', 404);
         }
 
-        if ($order['status'] != 2) {
+        if ($order->status != 2) {
             return $this->error('Only paid orders can be shipped', 422);
         }
 
@@ -858,14 +858,14 @@ class OrderController extends Controller
             return $this->error('Order not found', 404);
         }
 
-        if (!in_array($order['status'], [1, 2])) {
+        if (!in_array($order->status, [1, 2])) {
             return $this->error('Order cannot be cancelled', 422);
         }
 
         // 如果已支付，需要恢复库存
-        if ($order['status'] == 2) {
+        if ($order->status == 2) {
             $items = OrderItem::where('order_id', '=', $id)->fetchAll();
-            $db = app(\db\Connection::class);
+            $db = \core\Application::getInstance()->getContainer()->get('db');
 
             foreach ($items as $item) {
                 $product = $db->table('products')->where('id', '=', $item['product_id'])->fetch();
@@ -887,7 +887,7 @@ class OrderController extends Controller
         $startDate = $request->input('start_date', date('Y-m-01'));
         $endDate = $request->input('end_date', date('Y-m-d'));
 
-        $db = app(\db\Connection::class);
+        $db = \core\Application::getInstance()->getContainer()->get('db');
 
         $orderStats = $db->query(
             "SELECT

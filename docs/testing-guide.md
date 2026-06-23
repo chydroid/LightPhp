@@ -121,74 +121,19 @@ All tests passed!
 
 ### 测试类结构
 
-LightPHP 使用轻量级测试框架，核心类为 `tests\TestCase`：
+LightPHP 使用轻量级测试框架，核心类为 `TestRunner`，内联定义于 `tests/run_tests.php`（并非独立的 `tests/TestCase.php` 文件）。测试不通过继承基类来编写，而是通过 `$runner->run()` 注册一个闭包，闭包接收测试对象 `$t`，在其上调用断言方法：
 
 ```php
-<?php
-
-class TestCase
-{
-    protected int $passed = 0;
-    protected int $failed = 0;
-    protected array $errors = [];
-
-    public function assert(mixed $condition, string $message): void
-    {
-        if ($condition) {
-            $this->passed++;
-            echo "[PASS] $message\n";
-        } else {
-            $this->failed++;
-            $this->errors[] = $message;
-            echo "[FAIL] $message\n";
-        }
-    }
-
-    public function assertEquals(mixed $expected, mixed $actual, string $message): void
-    {
-        $this->assert($expected === $actual, "$message (expected: " . var_export($expected, true) . ", got: " . var_export($actual, true) . ")");
-    }
-
-    public function assertNull(mixed $value, string $message): void
-    {
-        $this->assert($value === null, $message);
-    }
-
-    public function assertNotNull(mixed $value, string $message): void
-    {
-        $this->assert($value !== null, $message);
-    }
-
-    public function assertTrue(mixed $value, string $message): void
-    {
-        $this->assert($value === true, $message);
-    }
-
-    public function assertFalse(mixed $value, string $message): void
-    {
-        $this->assert($value === false, $message);
-    }
-
-    public function assertCount(int $expected, array $array, string $message): void
-    {
-        $this->assertEquals($expected, count($array), $message);
-    }
-
-    public function assertStringContains(string $needle, string $haystack, string $message): void
-    {
-        $this->assert(str_contains($haystack, $needle), $message);
-    }
-
-    public function getResults(): array
-    {
-        return [
-            'passed' => $this->passed,
-            'failed' => $this->failed,
-            'errors' => $this->errors,
-        ];
-    }
-}
+$runner->run('Test Name', function($t) {
+    $t->assertEquals($expected, $actual);
+    $t->assertTrue($condition);
+    $t->assertIsString($value);
+    $t->assertThrows(\RuntimeException::class, fn() => throwIt());
+    $t->assertContains($needle, $haystack);
+});
 ```
+
+`TestRunner` 在文件末尾实例化（`$runner = new TestRunner();`），所有测试用例均以 `$runner->run('用例名称', function($t) { ... })` 的形式依次注册。每个用例独立运行：断言失败会抛出 `RuntimeException` 并被 `run()` 捕获，记为失败后继续执行下一个用例，不会中断整体流程。运行结束后调用 `$runner->summary()` 输出汇总结果。
 
 ---
 
@@ -223,7 +168,7 @@ class TestCase
 
 - **Model（19）**：静态方法、getForeignKey、ORM 方法（hasOne/hasMany/belongsTo/belongsToMany/eagerLoad）、toArray/toJson、with/LoadRelation、访问器（getNameAttribute）、修改器（setEmailAttribute）、查询作用域（scopeActive）
 - **Schema/Blueprint（20）**：Schema/Blueprint/Migration 类存在、setConnection、hasTable/hasColumn、字段定义、rename、truncate
-- **SoftDelete（6）**：trait 存在、trashed 方法、forceDelete/softDelete 模式切换
+- **SoftDelete（6）**：trait 存在、trashed 方法、force() 实例方法（启用强制删除模式，默认即软删除模式，无 softDelete() 方法）
 - **HasModelEvents（4）**：trait 存在、onEvent、fireEvent 返回 false 取消、observe 观察者
 - **Seeder（6）**：抽象类与 run/register/call/runAll 方法
 
@@ -273,54 +218,61 @@ class TestCase
 > 💡 **新手提示**：写测试就像写"检查清单"。你描述一个场景，调用一个方法，然后断言"结果应该是 X"。如果结果不是 X，测试就失败，提醒你这里有 bug。
 
 1. 打开 `tests/run_tests.php`
-2. 在 `TestRunner` 类中添加一个新的 `private function testXxx(): void` 方法
-3. 在 `run()` 方法中调用 `$this->testXxx();`
+2. 在 `$runner = new TestRunner();` 之后，添加一个新的 `$runner->run('用例名称', function($t) { ... });` 调用
+3. 在闭包内通过 `$t->assertXxx(...)` 编写断言
 
 ### 测试示例
 
 ```php
 // 基本断言：验证结果是否符合预期
-private function testMyFeature(): void
-{
+$runner->run('MyFeature - Do Something', function($t) {
     $result = MyFeature::doSomething('input');
-    $this->assertEquals('expected', $result, 'MyFeature::doSomething 返回了预期结果');
-}
+    $t->assertEquals('expected', $result, 'MyFeature::doSomething 返回了预期结果');
+});
 
 // 测试 null 值
-private function testNullHandling(): void
-{
+$runner->run('SomeClass - Find Missing ID', function($t) {
     $result = SomeClass::find(999);  // 不存在的 ID
-    $this->assertNull($result, 'find 不存在的 ID 应该返回 null');
-}
+    $t->assertNull($result, 'find 不存在的 ID 应该返回 null');
+});
 
 // 测试数组
-private function testArrayResult(): void
-{
+$runner->run('Service - Get List', function($t) {
     $items = Service::getList();
-    $this->assertCount(5, $items, 'getList 返回了 5 条数据');
-    $this->assertNotNull($items[0]['id'], '列表第一项有 id 字段');
-}
+    $t->assertCount(5, $items, 'getList 返回了 5 条数据');
+    $t->assertNotNull($items[0]['id'], '列表第一项有 id 字段');
+});
 
-// 测试字符串
-private function testStringOutput(): void
-{
-    $html = Blade::render('welcome', ['name' => 'World']);
-    $this->assertStringContains('World', $html, '渲染结果包含传入的变量值');
-}
+// 测试字符串（注意：Blade 的 render() 是实例方法，需先实例化）
+$runner->run('Blade - Render With Variable', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'cache/blade/');
+    $html = $blade->render('welcome', ['name' => 'World']);
+    $t->assertStringContains('World', $html, '渲染结果包含传入的变量值');
+});
 ```
 
 ### 可用的断言方法
 
+以下方法均在 `TestRunner` 中定义，通过测试对象 `$t` 调用（如 `$t->assertEquals(...)`）：
+
 | 方法 | 说明 | 示例 |
 |------|------|------|
-| `assert($condition, $msg)` | 通用断言，条件为真则通过 | `assert($count > 0, '数据不为空')` |
-| `assertEquals($expected, $actual, $msg)` | 验证等于（=== 严格比较） | `assertEquals(42, $answer, '答案是 42')` |
-| `assertNull($value, $msg)` | 验证值为 null | `assertNull($result, '结果为空')` |
-| `assertNotNull($value, $msg)` | 验证值不为 null | `assertNotNull($user, '用户存在')` |
-| `assertTrue($value, $msg)` | 验证值为 true | `assertTrue($success, '操作成功')` |
-| `assertFalse($value, $msg)` | 验证值为 false | `assertFalse($failed, '操作未失败')` |
-| `assertCount($n, $array, $msg)` | 验证数组元素个数 | `assertCount(3, $items, '有 3 条记录')` |
-| `assertStringContains($needle, $haystack, $msg)` | 验证字符串包含子串 | `assertStringContains('ok', $html, '包含 ok')` |
+| `assert($condition, $msg)` | 通用断言，条件为真则通过 | `$t->assert($count > 0, '数据不为空')` |
+| `assertEquals($expected, $actual, $msg)` | 验证等于（=== 严格比较） | `$t->assertEquals(42, $answer, '答案是 42')` |
+| `assertNotEquals($expected, $actual, $msg)` | 验证不等于 | `$t->assertNotEquals(0, $count, '数量不为 0')` |
+| `assertNull($value, $msg)` | 验证值为 null | `$t->assertNull($result, '结果为空')` |
+| `assertNotNull($value, $msg)` | 验证值不为 null | `$t->assertNotNull($user, '用户存在')` |
+| `assertTrue($value, $msg)` | 验证值为 true | `$t->assertTrue($success, '操作成功')` |
+| `assertFalse($value, $msg)` | 验证值为 false | `$t->assertFalse($failed, '操作未失败')` |
+| `assertIsArray($value, $msg)` | 验证值为数组 | `$t->assertIsArray($list, '返回数组')` |
+| `assertIsString($value, $msg)` | 验证值为字符串 | `$t->assertIsString($name, '名称是字符串')` |
+| `assertIsInt($value, $msg)` | 验证值为整数 | `$t->assertIsInt($id, 'ID 是整数')` |
+| `assertCount($n, $array, $msg)` | 验证数组元素个数 | `$t->assertCount(3, $items, '有 3 条记录')` |
+| `assertArrayHasKey($key, $array, $msg)` | 验证数组包含指定键 | `$t->assertArrayHasKey('id', $row, '包含 id 键')` |
+| `assertStringContains($needle, $haystack, $msg)` | 验证字符串包含子串 | `$t->assertStringContains('ok', $html, '包含 ok')` |
+| `assertContains($needle, $array, $msg)` | 验证数组包含指定值 | `$t->assertContains(2, $ids, '包含 ID 2')` |
+| `assertInstanceOf($class, $object, $msg)` | 验证对象为指定类的实例 | `$t->assertInstanceOf(User::class, $obj, '是 User 实例')` |
+| `assertThrows($exceptionClass, $callback, $msg)` | 验证回调抛出指定异常 | `$t->assertThrows(\RuntimeException::class, fn() => doBad(), '应抛异常')` |
 
 ### 测试数据库相关功能
 
@@ -346,16 +298,15 @@ return [
 > ⚠️ **强烈建议使用独立的测试数据库**，避免测试过程影响开发和生产数据。
 
 ```php
-private function testDatabaseQuery(): void
-{
+$runner->run('Database - Query User', function($t) {
     $config = \config\Config::get('database');
     $default = $config['default'] ?? 'mysql';
     $connection = $config['connections'][$default] ?? [];
 
     $db = new \db\Connection($connection);
     $result = $db->table('users')->where('id', '=', 1)->fetch();
-    $this->assertNotNull($result, '数据库查询返回了结果');
-}
+    $t->assertNotNull($result, '数据库查询返回了结果');
+});
 ```
 
 ---

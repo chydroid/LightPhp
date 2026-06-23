@@ -335,7 +335,7 @@ try {
 ```php
 namespace model;
 
-use core\Controller;
+use model\Model;
 
 class User extends Model
 {
@@ -549,10 +549,10 @@ $post->delete(1);  // 设置 deleted_at 而非真正删除
 $posts = Post::all();                       // 自动排除已软删除的记录
 
 // 包含已软删除的记录
-$allPosts = (new Post())->withTrashed()->fetchAll();
+$allPosts = Post::withTrashed()->fetchAll();
 
 // 仅查询已软删除的记录
-$trashed = (new Post())->onlyTrashed()->fetchAll();
+$trashed = Post::onlyTrashed()->fetchAll();
 
 // ===== 恢复软删除 =====
 $post = Post::find(1);

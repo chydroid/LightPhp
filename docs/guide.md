@@ -857,10 +857,10 @@ $post->delete(1);     // deleted_at 被设为当前时间
 $posts = Post::all(); // 不含 deleted_at IS NOT NULL
 
 // 包含软删除记录
-$allPosts = (new Post())->withTrashed()->fetchAll();
+$allPosts = Post::withTrashed()->fetchAll();
 
 // 仅查询软删除记录
-$trashed = (new Post())->onlyTrashed()->fetchAll();
+$trashed = Post::onlyTrashed()->fetchAll();
 
 // 恢复软删除
 $post = Post::find(1);

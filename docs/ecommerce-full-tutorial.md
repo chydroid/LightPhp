@@ -388,7 +388,7 @@ class AuthController extends Controller
         }
 
         $user = User::where('username', '=', $username)
-            ->whereOr('email', '=', $username)
+            ->whereOr(['email' => $username])
             ->first();
 
         if (!$user || !\core\Hash::verify($password, $user->password)) {
@@ -420,7 +420,7 @@ class AuthController extends Controller
 
     public function user(Request $request): Response
     {
-        $userId = $request->user_id ?? null;
+        $userId = $request->input('user_id') ?? null;
 
         if (!$userId) {
             return $this->error('Unauthorized', 401);
@@ -443,7 +443,7 @@ class AuthController extends Controller
 
     public function updateProfile(Request $request): Response
     {
-        $userId = $request->user_id ?? null;
+        $userId = $request->input('user_id') ?? null;
 
         if (!$userId) {
             return $this->error('Unauthorized', 401);
@@ -726,7 +726,7 @@ class ProductController extends Controller
 
         foreach ($result['items'] as &$product) {
             $category = Category::find($product['category_id']);
-            $product['category_name'] = $category ? $category['name'] : '';
+            $product['category_name'] = $category ? $category->name : '';
         }
 
         return $this->success($result);
@@ -736,14 +736,15 @@ class ProductController extends Controller
     {
         $product = Product::find($id);
 
-        if (!$product || $product['status'] != 1) {
+        if (!$product || $product->status != 1) {
             return $this->error('Product not found', 404);
         }
 
-        $category = Category::find($product['category_id']);
-        $product['category_name'] = $category ? $category['name'] : '';
+        $category = Category::find($product->category_id);
+        $productData = $product->toArray();
+        $productData['category_name'] = $category ? $category->name : '';
 
-        return $this->success($product);
+        return $this->success($productData);
     }
 
     public function featured(): Response
@@ -800,7 +801,7 @@ class CartController extends Controller
 {
     public function index(Request $request): Response
     {
-        $userId = $request->user_id;
+        $userId = $request->input('user_id');
 
         $cartItems = CartItem::where('user_id', '=', $userId)->fetchAll();
 
@@ -842,7 +843,7 @@ class CartController extends Controller
 
     public function add(Request $request): Response
     {
-        $userId = $request->user_id;
+        $userId = $request->input('user_id');
         $productId = (int) $request->input('product_id');
         $quantity = (int) $request->input('quantity', 1);
 
@@ -851,11 +852,11 @@ class CartController extends Controller
         }
 
         $product = Product::find($productId);
-        if (!$product || $product['status'] != 1) {
+        if (!$product || $product->status != 1) {
             return $this->error('Product not found', 404);
         }
 
-        if ($product['stock'] < $quantity) {
+        if ($product->stock < $quantity) {
             return $this->error('Insufficient stock', 422);
         }
 
@@ -865,7 +866,7 @@ class CartController extends Controller
 
         if ($existingItem) {
             $newQuantity = $existingItem['quantity'] + $quantity;
-            if ($product['stock'] < $newQuantity) {
+            if ($product->stock < $newQuantity) {
                 return $this->error('Insufficient stock', 422);
             }
             CartItem::update($existingItem['id'], ['quantity' => $newQuantity]);
@@ -882,7 +883,7 @@ class CartController extends Controller
 
     public function update(Request $request): Response
     {
-        $userId = $request->user_id;
+        $userId = $request->input('user_id');
         $cartItemId = (int) $request->input('id');
         $quantity = (int) $request->input('quantity');
 
@@ -891,12 +892,12 @@ class CartController extends Controller
         }
 
         $cartItem = CartItem::find($cartItemId);
-        if (!$cartItem || $cartItem['user_id'] != $userId) {
+        if (!$cartItem || $cartItem->user_id != $userId) {
             return $this->error('Cart item not found', 404);
         }
 
-        $product = Product::find($cartItem['product_id']);
-        if (!$product || $product['stock'] < $quantity) {
+        $product = Product::find($cartItem->product_id);
+        if (!$product || $product->stock < $quantity) {
             return $this->error('Insufficient stock', 422);
         }
 
@@ -907,11 +908,11 @@ class CartController extends Controller
 
     public function remove(Request $request): Response
     {
-        $userId = $request->user_id;
+        $userId = $request->input('user_id');
         $cartItemId = (int) $request->input('id');
 
         $cartItem = CartItem::find($cartItemId);
-        if (!$cartItem || $cartItem['user_id'] != $userId) {
+        if (!$cartItem || $cartItem->user_id != $userId) {
             return $this->error('Cart item not found', 404);
         }
 
@@ -922,9 +923,9 @@ class CartController extends Controller
 
     public function clear(Request $request): Response
     {
-        $userId = $request->user_id;
+        $userId = $request->input('user_id');
 
-        $db = app(\db\Connection::class);
+        $db = \core\Application::getInstance()->getContainer()->get('db');
         $db->table('cart_items')->where('user_id', '=', $userId)->delete();
 
         return $this->success([], 'Cart cleared');
@@ -1016,7 +1017,7 @@ class OrderController extends Controller
 {
     public function create(Request $request): Response
     {
-        $userId = $request->user_id;
+        $userId = $request->input('user_id');
         $receiverName = $request->input('receiver_name');
         $receiverPhone = $request->input('receiver_phone');
         $receiverAddress = $request->input('receiver_address');
@@ -1046,7 +1047,7 @@ class OrderController extends Controller
             }
         }
 
-        $db = new Connection();
+        $db = \core\Application::getInstance()->getContainer()->get('db');
         try {
             $db->beginTransaction();
 
@@ -1109,7 +1110,7 @@ class OrderController extends Controller
 
     public function index(Request $request): Response
     {
-        $userId = $request->user_id;
+        $userId = $request->input('user_id');
         $page = (int) $request->input('page', 1);
         $pageSize = (int) $request->input('page_size', 10);
 
@@ -1127,35 +1128,36 @@ class OrderController extends Controller
 
     public function show(int $id, Request $request): Response
     {
-        $userId = $request->user_id;
+        $userId = $request->input('user_id');
 
         $order = Order::find($id);
 
-        if (!$order || $order['user_id'] != $userId) {
+        if (!$order || $order->user_id != $userId) {
             return $this->error('Order not found', 404);
         }
 
         $items = OrderItem::where('order_id', '=', $id)->fetchAll();
-        $order['items'] = $items;
+        $orderData = $order->toArray();
+        $orderData['items'] = $items;
 
-        return $this->success($order);
+        return $this->success($orderData);
     }
 
     public function cancel(int $id, Request $request): Response
     {
-        $userId = $request->user_id;
+        $userId = $request->input('user_id');
 
         $order = Order::find($id);
 
-        if (!$order || $order['user_id'] != $userId) {
+        if (!$order || $order->user_id != $userId) {
             return $this->error('Order not found', 404);
         }
 
-        if ($order['status'] != 1) {
+        if ($order->status != 1) {
             return $this->error('Only pending orders can be cancelled', 422);
         }
 
-        $db = new Connection();
+        $db = \core\Application::getInstance()->getContainer()->get('db');
         try {
             $db->beginTransaction();
 
@@ -1163,7 +1165,7 @@ class OrderController extends Controller
             foreach ($items as $item) {
                 $product = Product::find($item['product_id']);
                 $db->table('products')->where('id', '=', $item['product_id'])->update([
-                    'stock' => $product['stock'] + $item['quantity'],
+                    'stock' => $product->stock + $item['quantity'],
                 ]);
             }
 

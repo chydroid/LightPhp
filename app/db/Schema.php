@@ -669,7 +669,7 @@ class Migration
 
             if (!file_exists($filePath)) continue;
 
-            require $filePath;
+            require_once $filePath;
             $class = $this->getClassFromFile($file);
 
             if (class_exists($class)) {

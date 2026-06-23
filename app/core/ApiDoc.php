@@ -97,7 +97,7 @@ class ApiDoc
                 continue;
             }
 
-            if (!in_array($methodName, ['__construct', 'index', 'show', 'store', 'update', 'destroy'], true)) {
+            if (!in_array($methodName, ['index', 'show', 'store', 'update', 'destroy'], true)) {
                 continue;
             }
 

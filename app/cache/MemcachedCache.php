@@ -100,7 +100,14 @@ class MemcachedCache implements CacheInterface
         if (!is_array($result)) {
             return false;
         }
-        return !in_array(false, $result, true);
+        // deleteMulti 对每个 key 返回 true 或错误码（整数），而非布尔 false。
+        // 与 delete() 一致：RES_SUCCESS 和 RES_NOTFOUND 视为成功。
+        foreach ($result as $code) {
+            if ($code !== true && $code !== \Memcached::RES_SUCCESS && $code !== \Memcached::RES_NOTFOUND) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public function clear(): bool
@@ -213,7 +220,7 @@ class MemcachedCache implements CacheInterface
         $keyMap = [];
 
         foreach ($keys as $key) {
-            $fullKey = $this->key($key);
+            $fullKey = $this->key((string) $key);
             $fullKeys[] = $fullKey;
             $keyMap[$fullKey] = $key;
         }

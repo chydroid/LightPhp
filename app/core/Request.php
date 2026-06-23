@@ -111,8 +111,8 @@ class Request
     }
 
     /**
-     * 获取 POST 参数（优先 JSON）
-     * 
+     * 获取 POST 参数（POST > JSON）
+     *
      * @param string|null $key 参数名，为 null 时返回所有 POST 参数
      * @param mixed $default 默认值
      * @return mixed 参数值
@@ -125,11 +125,11 @@ class Request
             }
             return $this->post;
         }
-        if ($this->json !== null && array_key_exists($key, $this->json)) {
-            return $this->json[$key];
-        }
         if (array_key_exists($key, $this->post)) {
             return $this->post[$key];
+        }
+        if ($this->json !== null && array_key_exists($key, $this->json)) {
+            return $this->json[$key];
         }
         return $default;
     }

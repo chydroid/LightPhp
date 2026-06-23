@@ -354,9 +354,11 @@ class Validate
             return false;
         }
         $size = (int) $params[0];
+        // 类型检查顺序需与 validateMin/validateMax/validateBetween 保持一致：
+        // is_numeric 优先，避免数字字符串（如 "10"）被当作字符串按长度校验
+        if (is_numeric($value)) return $value == $size;
         if (is_string($value)) return \strlen($value) === $size;
         if (is_array($value)) return \count($value) === $size;
-        if (is_numeric($value)) return $value == $size;
         return false;
     }
 

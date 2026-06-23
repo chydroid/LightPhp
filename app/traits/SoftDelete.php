@@ -82,32 +82,20 @@ trait SoftDelete
     /**
      * 包含软删除的模型在内的查询
      */
-    public function withTrashed(): static
+    public static function withTrashed(): static
     {
-        $pk = $this->attributes[$this->primaryKey] ?? null;
-        $wasExists = $this->exists;
-        $instance = clone $this;
+        $instance = new static();
         $instance->trashedQuery = 'with';
-        $instance->exists = $wasExists;
-        if ($pk !== null) {
-            $instance->attributes[$this->primaryKey] = $pk;
-        }
         return $instance;
     }
 
     /**
      * 仅查询软删除的模型
      */
-    public function onlyTrashed(): static
+    public static function onlyTrashed(): static
     {
-        $pk = $this->attributes[$this->primaryKey] ?? null;
-        $wasExists = $this->exists;
-        $instance = clone $this;
+        $instance = new static();
         $instance->trashedQuery = 'only';
-        $instance->exists = $wasExists;
-        if ($pk !== null) {
-            $instance->attributes[$this->primaryKey] = $pk;
-        }
         return $instance;
     }
 

@@ -58,12 +58,18 @@ class TaggedCache
 
     public function increment(string $key, int $step = 1): int
     {
-        return $this->store->increment($key, $step);
+        $result = $this->store->increment($key, $step);
+        // increment 可能在 key 不存在时创建新 key（如 MemcachedCache 通过 add() 初始化），
+        // 需要打标签以确保 flush() 能清除该 key
+        $this->tagKey($key);
+        return $result;
     }
 
     public function decrement(string $key, int $step = 1): int
     {
-        return $this->store->decrement($key, $step);
+        $result = $this->store->decrement($key, $step);
+        $this->tagKey($key);
+        return $result;
     }
 
     public function deleteMany(array $keys): bool

@@ -19,11 +19,19 @@ class RequestLogMiddleware extends Middleware
         $method = $request->method();
         $uri = $request->uri();
 
+        $result = null;
         try {
             $result = $next($request);
         } finally {
             $duration = round((microtime(true) - $startTime) * 1000, 2);
-            $statusCode = http_response_code() ?: 200;
+            // 从 Response 对象提取状态码，而非依赖 http_response_code()，
+            // 因为 Response::send() 尚未执行，http_response_code() 始终返回默认值 200
+            $statusCode = 200;
+            if (is_object($result) && method_exists($result, 'getStatusCode')) {
+                $statusCode = $result->getStatusCode();
+            } else {
+                $statusCode = http_response_code() ?: 200;
+            }
             $ip = $request->ip();
 
             $message = sprintf(

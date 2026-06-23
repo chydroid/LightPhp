@@ -212,61 +212,72 @@ class Blade
     private function compileEchos(string $content): string
     {
         $content = (string) preg_replace('/\{\!!\s*(.+?)\s*!!\}/s', '<?= $1 ?>', $content);
-        $content = (string) preg_replace('/\{\{(.+?)\}\}/s', '<?= htmlspecialchars($1, ENT_QUOTES, \'UTF-8\') ?>', $content);
-        $content = (string) preg_replace('/@json\((.+?)\)/s', '<?= json_encode($1, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP) ?>', $content);
+        $content = (string) preg_replace('/\{\{(.+?)\}\}/s', '<?= htmlspecialchars((string) $1, ENT_QUOTES, \'UTF-8\') ?>', $content);
+        $content = (string) preg_replace_callback(
+            '/@json\(((?:[^()]++|\((?1)\))*+)\)/s',
+            fn ($m) => '<?= json_encode(' . $m[1] . ', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP) ?>',
+            $content
+        );
         return $content;
     }
 
     /**
      * 编译控制语句
-     * 
+     *
      * @param string $content 模板内容
      * @return string 编译后的内容
      */
     private function compileStatements(string $content): string
     {
+        // 需要解析平衡括号的指令：prefix / suffix 中的 $1 由平衡括号匹配替换
+        $balanced = [
+            ['if',          '<?php if (',                            '): ?>'],
+            ['elseif',      '<?php elseif (',                        '): ?>'],
+            ['unless',      '<?php if (!(',                           ')): ?>'],
+            ['foreach',     '<?php foreach (',                        '): ?>'],
+            ['for',         '<?php for (',                            '): ?>'],
+            ['while',       '<?php while (',                           '): ?>'],
+            ['isset',       '<?php if (isset(',                        ')): ?>'],
+            ['empty',       '<?php if (empty(',                        ')): ?>'],
+            ['switch',      '<?php switch (',                           '): ?>'],
+            ['case',        '<?php case ',                             ': ?>'],
+            ['section',     '<?php $__blade->startSection(',           '); ?>'],
+            ['yield',       '<?= $__blade->yieldSection(',             ') ?>'],
+            ['extends',     '<?php $__blade->startLayout(',             '); ?>'],
+            ['push',        '<?php $__blade->startPush(',              '); ?>'],
+            ['prepend',     '<?php $__blade->startPrepend(',           '); ?>'],
+            ['stack',       '<?= $__blade->yieldPushContent(',          ') ?>'],
+            ['env',         '<?php if (env(\'APP_ENV\') === ',          '): ?>'],
+            ['method',      '<input type="hidden" name="_method" value="<?= htmlspecialchars(', ', ENT_QUOTES, \'UTF-8\') ?>">'],
+        ];
+
+        foreach ($balanced as [$directive, $prefix, $suffix]) {
+            $content = $this->compileBalanced($content, $directive, $prefix, $suffix);
+        }
+
         $statements = [
-            '@extends\((.+?)\)'            => '<?php $__blade->startLayout($1); ?>',
-            '@section\((.+?)\)'            => '<?php $__blade->startSection($1); ?>',
             '@endsection'                  => '<?php $__blade->endSection(); ?>',
-            '@yield\((.+?)\)'              => '<?= $__blade->yieldSection($1) ?>',
             '@csrf(?!\w)'                   => '<input type="hidden" name="_token" value="<?= htmlspecialchars(\core\Session::token(), ENT_QUOTES, \'UTF-8\') ?>">',
-            '@method\((.+?)\)'             => '<input type="hidden" name="_method" value="<?= htmlspecialchars($1, ENT_QUOTES, \'UTF-8\') ?>">',
             '@php(?!\w)'                   => '<?php ',
             '@endphp'                      => '?>',
-            '@if\((.+?)\)'                 => '<?php if ($1): ?>',
-            '@elseif\((.+?)\)'             => '<?php elseif ($1): ?>',
             '@else(?!\w)'                    => '<?php else: ?>',
             '@endif'                       => '<?php endif; ?>',
-            '@unless\((.+?)\)'             => '<?php if (!($1)): ?>',
             '@endunless'                   => '<?php endif; ?>',
-            '@foreach\((.+?)\)'            => '<?php foreach ($1): ?>',
             '@endforeach'                  => '<?php endforeach; ?>',
-            '@for\((.+?)\)'                => '<?php for ($1): ?>',
             '@endfor'                      => '<?php endfor; ?>',
-            '@while\((.+?)\)'              => '<?php while ($1): ?>',
             '@endwhile'                    => '<?php endwhile; ?>',
-            '@isset\((.+?)\)'              => '<?php if (isset($1)): ?>',
             '@endisset'                    => '<?php endif; ?>',
-            '@empty\((.+?)\)'              => '<?php if (empty($1)): ?>',
             '@endempty'                    => '<?php endif; ?>',
-            '@switch\((.+?)\)'             => '<?php switch ($1): ?>',
-            '@case\((.+?)\)'              => '<?php case $1: ?>',
             '@break(?!\w)'                  => '<?php break; ?>',
             '@default(?!\w)'                => '<?php default: ?>',
             '@endswitch'                   => '<?php endswitch; ?>',
             '@continue(?!\w)'               => '<?php continue; ?>',
             '@verbatim'                    => '',
             '@endverbatim'                 => '',
-            '@push\((.+?)\)'              => '<?php $__blade->startPush($1); ?>',
             '@endpush'                    => '<?php $__blade->endPush(); ?>',
-            '@prepend\((.+?)\)'           => '<?php $__blade->startPrepend($1); ?>',
             '@endprepend'                 => '<?php $__blade->endPrepend(); ?>',
-            '@stack\((.+?)\)'             => '<?= $__blade->yieldPushContent($1) ?>',
             '@production(?!\w)'           => '<?php if (env(\'APP_ENV\') === \'production\'): ?>',
             '@endproduction'              => '<?php endif; ?>',
-            '@env\((.+?)\)'               => '<?php if (env(\'APP_ENV\') === $1): ?>',
-            '@endenv'                     => '<?php endif; ?>',
         ];
 
         foreach ($statements as $pattern => $replacement) {
@@ -277,15 +288,91 @@ class Blade
     }
 
     /**
+     * 编译带平衡括号的指令
+     *
+     * 使用递归正则匹配成对括号，避免 @if($a && ($b || $c)) 等嵌套表达式被截断。
+     *
+     * @param string $content 模板内容
+     * @param string $directive 指令名
+     * @param string $prefix 参数前的前缀
+     * @param string $suffix 参数后的后缀
+     * @return string 编译后的内容
+     */
+    private function compileBalanced(string $content, string $directive, string $prefix, string $suffix): string
+    {
+        return (string) preg_replace_callback(
+            '/@' . preg_quote($directive, '/') . '\(((?:[^()]++|\((?1)\))*+)\)/s',
+            fn ($m) => $prefix . $m[1] . $suffix,
+            $content
+        );
+    }
+
+    /**
+     * 按顶层逗号分割平衡括号内的参数
+     *
+     * 支持参数内部包含圆括号、方括号、花括号以及引号字符串。
+     *
+     * @param string $args 参数字符串
+     * @return array 分割后的参数数组
+     */
+    private function splitBalancedArgs(string $args): array
+    {
+        $parts = [];
+        $current = '';
+        $depth = 0;
+        $len = strlen($args);
+        $inQuote = null;
+
+        for ($i = 0; $i < $len; $i++) {
+            $ch = $args[$i];
+            if ($inQuote !== null) {
+                $current .= $ch;
+                if ($ch === $inQuote && ($i === 0 || $args[$i - 1] !== '\\')) {
+                    $inQuote = null;
+                }
+                continue;
+            }
+            if ($ch === '"' || $ch === "'") {
+                $current .= $ch;
+                $inQuote = $ch;
+                continue;
+            }
+            if ($ch === '(' || $ch === '[' || $ch === '{') {
+                $depth++;
+                $current .= $ch;
+                continue;
+            }
+            if ($ch === ')' || $ch === ']' || $ch === '}') {
+                $depth--;
+                $current .= $ch;
+                continue;
+            }
+            if ($ch === ',' && $depth === 0) {
+                $parts[] = trim($current);
+                $current = '';
+                continue;
+            }
+            $current .= $ch;
+        }
+
+        $trimmed = trim($current);
+        if ($trimmed !== '' || !empty($parts)) {
+            $parts[] = $trimmed;
+        }
+
+        return $parts;
+    }
+
+    /**
      * 编译自定义指令
-     * 
+     *
      * @param string $content 模板内容
      * @return string 编译后的内容
      */
     private function compileDirectives(string $content): string
     {
         $content = (string) preg_replace_callback(
-            '/@(\w+)\s*\((.+?)\)/',
+            '/@(\w+)\s*\(((?:[^()]++|\((?2)\))*)\)/',
             function ($match) {
                 $name = $match[1];
                 if (isset(self::$directives[$name])) {
@@ -302,7 +389,7 @@ class Blade
 
     /**
      * 编译 include 语句
-     * 
+     *
      * @param string $content 模板内容
      * @return string 编译后的内容
      */
@@ -310,11 +397,11 @@ class Blade
     {
         $counter = 0;
         return (string) preg_replace_callback(
-            '/@include\((.+?)\)/',
+            '/@include\(((?:[^()]++|\((?1)\))*)\)/',
             function ($match) use (&$counter) {
                 $suffix = $counter++;
-                $parts = array_map('trim', explode(',', $match[1], 2));
-                $view = trim($parts[0], "'\"");
+                $parts = $this->splitBalancedArgs($match[1]);
+                $view = trim($parts[0] ?? '', "'\"");
                 $vars = $parts[1] ?? '[]';
 
                 $sourcePath = $this->templatePath . $view . '.blade.php';
@@ -344,11 +431,15 @@ class Blade
     private function compileEach(string $content): string
     {
         return (string) preg_replace_callback(
-            '/@each\((.+?),\s*(.+?),\s*(.+?)\)/',
+            '/@each\(((?:[^()]++|\((?1)\))*)\)/',
             function ($match) {
-                $view = trim($match[1], "'\"");
-                $items = $match[2];
-                $var = trim($match[3], "'\"");
+                $parts = $this->splitBalancedArgs($match[1]);
+                if (count($parts) < 3) {
+                    return $match[0];
+                }
+                $view = trim($parts[0], "'\"");
+                $items = $parts[1];
+                $var = trim($parts[2], "'\"");
                 return '<?php foreach ((array)(' . $items . ') as $__key => $' . $var . '): ?><?= $__blade->resolveInclude(\'' . addslashes($view) . '\') ?><?php endforeach; ?>';
             },
             $content

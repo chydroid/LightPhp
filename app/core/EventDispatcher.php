@@ -104,17 +104,32 @@ class EventDispatcher
      */
     public function until(string $event, mixed ...$payload): mixed
     {
-        $listeners = $this->getListenersForEvent($event);
+        // 与 dispatch() 共享递归检测，避免监听器内调用 until() 触发同一事件导致无限递归
+        if (in_array($event, $this->dispatchingStack, true)) {
+            trigger_error(
+                "EventDispatcher: Recursive dispatch detected for event [{$event}]",
+                E_USER_WARNING
+            );
+            return null;
+        }
 
-        foreach ($listeners as $listener) {
-            try {
-                $result = $listener($event, ...$payload);
-            } catch (\Throwable $e) {
-                continue;
+        $this->dispatchingStack[] = $event;
+
+        try {
+            $listeners = $this->getListenersForEvent($event);
+
+            foreach ($listeners as $listener) {
+                try {
+                    $result = $listener($event, ...$payload);
+                } catch (\Throwable $e) {
+                    continue;
+                }
+                if ($result !== null) {
+                    return $result;
+                }
             }
-            if ($result !== null) {
-                return $result;
-            }
+        } finally {
+            array_pop($this->dispatchingStack);
         }
 
         return null;

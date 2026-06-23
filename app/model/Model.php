@@ -656,6 +656,15 @@ class Model
                 array_unshift($args, $instance->newQuery());
                 return call_user_func_array([$instance, $scopeMethod], $args);
             }
+
+            // 允许通过静态方式调用模型实例方法（如 SoftDelete 的 withTrashed/onlyTrashed/restore）
+            if (method_exists($instance, $method)) {
+                $reflection = new \ReflectionMethod($instance, $method);
+                if ($reflection->isPublic()) {
+                    return call_user_func_array([$instance, $method], $args);
+                }
+            }
+
             throw new \BadMethodCallException(sprintf('Method %s::%s does not exist', static::class, $method));
         }
 

@@ -293,7 +293,10 @@ class Router
             '/\{([a-zA-Z_][a-zA-Z0-9_]*)(?::[^}]*)?\}/',
             function ($m) use ($parameters) {
                 $key = $m[1];
-                return isset($parameters[$key]) ? \urlencode((string) $parameters[$key]) : $m[0];
+                if (!array_key_exists($key, $parameters)) {
+                    throw new \RuntimeException("Missing required parameter [{$key}] for route [{$m[0]}].");
+                }
+                return \urlencode((string) $parameters[$key]);
             },
             $uri
         );
@@ -532,20 +535,26 @@ class Router
                     if (method_exists($instance, 'handle')) {
                         return $instance->handle($request, $next);
                     }
+                    throw new \RuntimeException("Middleware {$middleware} does not implement handle() method");
                 }
                 // 数组形式 [类名, 方法名]
                 if (is_array($middleware) && count($middleware) === 2) {
                     [$class, $method] = $middleware;
-                    $instance = $this->container ? $this->container->get($class) : new $class();
-                    if (method_exists($instance, $method)) {
-                        return $instance->$method($request, $next);
+                    if (class_exists($class)) {
+                        $instance = $this->container ? $this->container->get($class) : new $class();
+                        if (method_exists($instance, $method)) {
+                            return $instance->$method($request, $next);
+                        }
+                        throw new \RuntimeException("Middleware method {$method} does not exist on {$class}");
                     }
                 }
                 // 可调用对象
                 if (is_callable($middleware)) {
                     return $middleware($request, $next);
                 }
-                return $next();
+
+                $identifier = is_string($middleware) ? $middleware : gettype($middleware);
+                throw new \RuntimeException("Invalid middleware: {$identifier}");
             };
         }
 

@@ -165,6 +165,8 @@ class View
                 $escaped[$key] = $this->escapeArray($value);
             } elseif (is_string($value)) {
                 $escaped[$key] = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+            } elseif ($value instanceof \Stringable) {
+                $escaped[$key] = htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
             } else {
                 $escaped[$key] = $value;
             }
@@ -262,6 +264,7 @@ class View
         $prevRenderData = $this->renderData;
         $prevSharedData = $this->sharedData;
         $prevExtendDepth = $this->extendDepth;
+        $prevAutoEscape = $this->autoEscape;
         try {
             echo $this->render($view, $data);
         } finally {
@@ -270,6 +273,7 @@ class View
             $this->currentSection = $prevCurrentSection;
             $this->renderData = $prevRenderData;
             $this->extendDepth = $prevExtendDepth;
+            $this->autoEscape = $prevAutoEscape;
         }
     }
 

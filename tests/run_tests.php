@@ -2965,6 +2965,155 @@ $runner->run('TaggedCache - increment/decrement 打标签', function($t) {
     $t->assertTrue(in_array('counter2', $taggedKeys['users'] ?? [], true), 'decrement 的 key 应被打标签');
 });
 
+// === 第三轮 BUG 修复回归测试 ===
+
+// 7. Session - ageFlash 重新 flash 同 key 不被误删
+//    修复前：ageFlash 先按 _flash_old 删除旧 key 再提升 _flash_new；
+//    若同 key 被重新 flash，新值会被旧值清理逻辑误删
+//    修复后：先提升 _flash_new 为 _flash_old，再删除旧 key 中未被重新 flash 的
+$runner->run('Session - ageFlash 重新 flash 同 key 不被误删', function($t) {
+    $ref = new \ReflectionClass(\core\Session::class);
+    $ageFlash = $ref->getMethod('ageFlash');
+    $ageFlash->setAccessible(true);
+
+    // 请求1 结束态：name 已 flash 为 John
+    $_SESSION = ['_flash_name' => 'John', '_flash_new' => ['name'], '_flash_old' => []];
+
+    // 请求2 开始：ageFlash（John 保留，name 移入 _flash_old）
+    $ageFlash->invoke(null);
+
+    // 请求2 中重新 flash name=Jane
+    $_SESSION['_flash_name'] = 'Jane';
+    $_SESSION['_flash_new'][] = 'name';
+
+    // 请求3 开始：ageFlash
+    $ageFlash->invoke(null);
+
+    // 修复前：Jane 会被误删；修复后：Jane 保留
+    $t->assertArrayHasKey('_flash_name', $_SESSION, '重新 flash 的值不应被 ageFlash 误删');
+    $t->assertEquals('Jane', $_SESSION['_flash_name'] ?? null, '重新 flash 后应保留最新值');
+
+    // 清理 flash 相关 key，避免污染其他测试
+    unset($_SESSION['_flash_name'], $_SESSION['_flash_new'], $_SESSION['_flash_old']);
+});
+
+// 8. Request - post() 无参时 POST 优先于 JSON
+//    修复前：post() 返回 array_merge($this->post, $this->json)，JSON 覆盖 POST，
+//    与 all()/input() 的 "POST > JSON" 优先级相反
+//    修复后：post() 返回 array_merge($this->json, $this->post)，POST 覆盖 JSON
+$runner->run('Request - post() 无参时 POST 优先于 JSON', function($t) {
+    $originalPost = $_POST;
+    $_POST = ['key' => 'post_value', 'only_post' => 'p'];
+
+    $request = new \core\Request();
+    $ref = new \ReflectionClass($request);
+    $prop = $ref->getProperty('json');
+    $prop->setValue($request, ['key' => 'json_value', 'only_json' => 'j']);
+
+    $all = $request->post();
+    $t->assertEquals('post_value', $all['key'] ?? null, 'post() 无参时 POST 应覆盖 JSON');
+    $t->assertEquals('p', $all['only_post'] ?? null, 'post() 应包含 POST 独有字段');
+    $t->assertEquals('j', $all['only_json'] ?? null, 'post() 应包含 JSON 独有字段');
+
+    $_POST = $originalPost;
+});
+
+// 9. Model - create 时同时设置 created_at 与 updated_at
+//    修复前：syncTimestamps 在 create 场景仅设置 created_at，updated_at 缺失，
+//    若手动建表 updated_at 为 NOT NULL 无默认值，INSERT 会失败
+//    修复后：create 场景同时填充 created_at 与 updated_at
+$runner->run('Model - create 时同步填充 updated_at', function($t) {
+    $model = new \model\User();
+    $ref = new \ReflectionClass($model);
+    $method = $ref->getMethod('syncTimestamps');
+    $method->setAccessible(true);
+
+    $data = ['name' => 'test'];
+    $result = $method->invoke($model, $data, 'create');
+
+    $t->assertArrayHasKey('created_at', $result, 'create 应设置 created_at');
+    $t->assertArrayHasKey('updated_at', $result, 'create 应同时设置 updated_at');
+    $t->assertEquals($result['created_at'], $result['updated_at'], 'created_at 与 updated_at 应相等');
+});
+
+// 10. Response - download 拒绝危险流包装器
+//     加固：download() 拒绝 php://、phar://、data:// 等流包装器，
+//     防止开发者误传用户输入导致任意读取/RCE
+$runner->run('Response - download 拒绝危险流包装器', function($t) {
+    $t->assertThrows(\InvalidArgumentException::class, function() {
+        \core\Response::download('php://filter/convert.base64-encode/resource=/etc/passwd');
+    }, 'php:// 包装器应被拒绝');
+
+    $t->assertThrows(\InvalidArgumentException::class, function() {
+        \core\Response::download('phar://evil.phar/internal.php');
+    }, 'phar:// 包装器应被拒绝');
+
+    $t->assertThrows(\InvalidArgumentException::class, function() {
+        \core\Response::download('data://text/plain;base64,SGVsbG8=');
+    }, 'data:// 包装器应被拒绝');
+});
+
+// 11. OutputCache - collectHeaders 捕获 Response 对象的 headers
+//     修复前：collectHeaders 仅用 headers_list()，无法捕获 Response 通过 setHeader() 设置的头
+//     （send() 之前未通过 header() 发出），导致 JSON 接口缓存命中后 Content-Type 退化为 text/html
+//     修复后：collectHeaders 接收 Response 的 headers 并合并
+$runner->run('OutputCache - collectHeaders 捕获 Response headers', function($t) {
+    $mockStore = new class implements \core\contract\CacheInterface {
+        public array $captured = [];
+        public function get(string $key, mixed $default = null): mixed { return $default; }
+        public function set(string $key, mixed $value, ?int $ttl = null): bool { $this->captured = $value; return true; }
+        public function has(string $key): bool { return false; }
+        public function delete(string $key): bool { return true; }
+        public function clear(): bool { return true; }
+        public function remember(string $key, int $ttl, callable $callback): mixed { return $callback(); }
+        public function increment(string $key, int $step = 1): int { return $step; }
+        public function decrement(string $key, int $step = 1): int { return 0; }
+        public function many(array $keys): array { return []; }
+        public function setMany(array $values, ?int $ttl = null): bool { return true; }
+        public function deleteMany(array $keys): bool { return true; }
+        public function pull(string $key, mixed $default = null): mixed { return $default; }
+        public function tags(array $tags): \cache\TaggedCache { throw new \RuntimeException('not supported'); }
+        public function flushByTag(string $tag): bool { return true; }
+        public function attachTag(string $key, string $tag): void {}
+        public function getTaggedKeys(): array { return []; }
+    };
+
+    $cacheManager = new \cache\CacheManager(['default' => 'mock']);
+    $cacheManager->extend('mock', fn() => $mockStore);
+    $middleware = new \middleware\OutputCache($cacheManager, 60);
+
+    $originalServer = $_SERVER;
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+    $_SERVER['REQUEST_URI'] = '/test-cache-headers';
+    try {
+        $request = new \core\Request();
+    } finally {
+        $_SERVER = $originalServer;
+    }
+
+    $response = \core\Response::json(['ok' => true]);
+
+    $middleware->handle($request, function () use ($response) {
+        return $response;
+    });
+
+    $captured = $mockStore->captured;
+    $headerNames = array_column($captured['headers'] ?? [], 'name');
+    $t->assertContains('Content-Type', $headerNames, '缓存应捕获 Response 的 Content-Type 头');
+
+    $contentType = null;
+    foreach ($captured['headers'] ?? [] as $h) {
+        if ($h['name'] === 'Content-Type') {
+            $contentType = $h['value'];
+            break;
+        }
+    }
+    $t->assertTrue(
+        $contentType !== null && str_contains($contentType, 'application/json'),
+        '缓存的 Content-Type 应为 application/json'
+    );
+});
+
 $runner->summary();
 
 // 测试失败时返回非零退出码，确保 CI 环境能正确检测失败

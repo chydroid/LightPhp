@@ -40,17 +40,26 @@ class Session
      */
     private static function ageFlash(): void
     {
-        // 删除上一轮标记为旧的 flash 数据
         $old = $_SESSION['_flash_old'] ?? [];
-        if (is_array($old)) {
-            foreach ($old as $key) {
+        $new = $_SESSION['_flash_new'] ?? [];
+        if (!is_array($old)) {
+            $old = [];
+        }
+        if (!is_array($new)) {
+            $new = [];
+        }
+
+        // 当前轮的 new 变为下一轮的 old
+        $_SESSION['_flash_old'] = $new;
+        $_SESSION['_flash_new'] = [];
+
+        // 删除上一轮旧 flash 数据，但保留被本轮重新 flash 的 key
+        // （否则重新 flash 同一 key 时新值会被旧值清理逻辑误删）
+        foreach ($old as $key) {
+            if (!in_array($key, $new, true)) {
                 unset($_SESSION['_flash_' . $key]);
             }
         }
-        // 当前轮的 new 变为下一轮的 old
-        $new = $_SESSION['_flash_new'] ?? [];
-        $_SESSION['_flash_old'] = is_array($new) ? $new : [];
-        $_SESSION['_flash_new'] = [];
     }
 
     public static function set(string $key, mixed $value): void

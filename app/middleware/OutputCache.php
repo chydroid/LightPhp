@@ -73,10 +73,12 @@ class OutputCache extends Middleware
         if ($shouldCache) {
             $statusCode = is_object($response) && method_exists($response, 'getStatusCode')
                 ? $response->getStatusCode() : 200;
+            $responseHeaders = is_object($response) && method_exists($response, 'getHeaders')
+                ? $response->getHeaders() : [];
             $this->cache->set($cacheKey, [
                 'content'    => $content,
                 'status'     => $statusCode,
-                'headers'    => $this->collectHeaders(),
+                'headers'    => $this->collectHeaders($responseHeaders),
                 'created_at' => time(),
             ], $this->ttl);
         }
@@ -101,16 +103,30 @@ class OutputCache extends Middleware
     }
 
     /**
+     * @param array<string,string> $responseHeaders Response 对象通过 setHeader() 设置的头
      * @return array<int, array{name: string, value: string}>
      */
-    private function collectHeaders(): array
+    private function collectHeaders(array $responseHeaders = []): array
     {
-        $headers = [];
+        $merged = [];
+        // Response 对象通过 setHeader() 设置的头（send() 之前尚未通过 header() 发出，
+        // headers_list() 无法捕获，需直接读取）
+        foreach ($responseHeaders as $name => $value) {
+            $merged[$name] = $value;
+        }
+        // 合并已通过 header() 直接发送的头
         foreach (headers_list() as $header) {
             $parts = explode(':', $header, 2);
             if (count($parts) === 2) {
-                $headers[] = ['name' => trim($parts[0]), 'value' => trim($parts[1])];
+                $name = trim($parts[0]);
+                if (!isset($merged[$name])) {
+                    $merged[$name] = trim($parts[1]);
+                }
             }
+        }
+        $headers = [];
+        foreach ($merged as $name => $value) {
+            $headers[] = ['name' => $name, 'value' => $value];
         }
         return $headers;
     }

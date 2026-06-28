@@ -346,7 +346,7 @@ PHP;
             switch ($type) {
                 case 'int':
                 case 'float':
-                    $fieldRules[] = 'number';
+                    $fieldRules[] = 'numeric';
                     break;
                 case 'string':
                     if (preg_match('/varchar\((\d+)\)/', $column['Type'], $m)) {

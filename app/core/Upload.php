@@ -23,6 +23,8 @@ class Upload
         'pht', 'phps', 'shtml', 'htaccess', 'htpasswd',
         'jsp', 'jspx', 'asp', 'aspx', 'cgi', 'pl', 'py',
         'sh', 'bash', 'bat', 'cmd', 'ps1',
+        // 可承载脚本/XSS 的内容型扩展名，上传到 PUBLIC_PATH 会被浏览器执行
+        'html', 'htm', 'xhtml', 'svg', 'xml', 'swf',
     ];
 
     public static function file(string $name): ?self

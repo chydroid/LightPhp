@@ -103,6 +103,11 @@ class Response
      */
     public static function download(string $filePath, ?string $name = null): self
     {
+        // 拒绝危险的 PHP 流包装器，防止开发者误传用户输入导致任意读取/RCE
+        if (preg_match('#^(php|phar|data|glob|expect|zip|compress\.zlib|compress\.bzip2)://#i', $filePath)) {
+            throw new \InvalidArgumentException("Unsupported file path scheme: {$filePath}");
+        }
+
         if (!file_exists($filePath)) {
             throw new \InvalidArgumentException("File not found: {$filePath}");
         }
@@ -246,6 +251,16 @@ class Response
     public function getStatusCode(): int
     {
         return $this->statusCode;
+    }
+
+    /**
+     * 获取所有已设置的响应头
+     *
+     * @return array<string,string> name => value
+     */
+    public function getHeaders(): array
+    {
+        return $this->headers;
     }
 
     /**

@@ -136,12 +136,18 @@ class Pipeline
         return fn (\Closure $stack, mixed $pipe) => function (mixed $passable) use ($stack, $pipe) {
             if (is_string($pipe) && class_exists($pipe)) {
                 $instance = $this->container ? $this->container->get($pipe) : new $pipe();
+                if (!method_exists($instance, $this->method)) {
+                    throw new \RuntimeException(sprintf('Middleware [%s] missing method [%s]', $pipe, $this->method));
+                }
                 return $instance->{$this->method}($passable, $stack);
             }
             if (is_callable($pipe)) {
                 return $pipe($passable, $stack);
             }
             if (is_object($pipe)) {
+                if (!method_exists($pipe, $this->method)) {
+                    throw new \RuntimeException(sprintf('Middleware [%s] missing method [%s]', get_class($pipe), $this->method));
+                }
                 return $pipe->{$this->method}($passable, $stack);
             }
             throw new \RuntimeException('Invalid pipe type: ' . gettype($pipe));

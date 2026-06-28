@@ -549,8 +549,13 @@ class Model
     {
         $now = date($this->dateFormat);
 
-        if ($type === 'create' && !isset($data['created_at'])) {
-            $data['created_at'] = $now;
+        if ($type === 'create') {
+            if (!isset($data['created_at'])) {
+                $data['created_at'] = $now;
+            }
+            if (!isset($data['updated_at'])) {
+                $data['updated_at'] = $now;
+            }
         }
 
         if ($type === 'update' && !isset($data['updated_at'])) {

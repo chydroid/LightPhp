@@ -21,9 +21,10 @@ abstract class Middleware
                 return true;
             }
             if (str_contains($pattern, '*')) {
-                $regex = preg_quote($pattern, '/');
+                // 使用 # 作分隔符，避免替换值 [^/]* 中的 / 被误当作正则结束分隔符
+                $regex = preg_quote($pattern, '#');
                 $regex = str_replace('\\*', '[^/]*', $regex);
-                if (preg_match('/^' . $regex . '$/', $uri)) {
+                if (preg_match('#^' . $regex . '$#', $uri)) {
                     return true;
                 }
             }

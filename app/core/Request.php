@@ -121,7 +121,7 @@ class Request
     {
         if ($key === null) {
             if ($this->json !== null) {
-                return array_merge($this->post, $this->json);
+                return array_merge($this->json, $this->post);
             }
             return $this->post;
         }

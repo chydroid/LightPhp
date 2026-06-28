@@ -253,16 +253,28 @@ class Container implements PsrContainerInterface
 
     /**
      * 检查容器是否有指定服务（PSR-11）
-     * 
+     *
+     * PSR-11 契约要求：has() 返回 true 时，get() 不得抛 NotFoundExceptionInterface。
+     * 因此对 class_exists 但不可实例化的抽象类/接口/trait 返回 false。
+     *
      * @param string $abstract 抽象接口或类名
      * @return bool 是否存在
      */
     public function has(string $abstract): bool
     {
-        return isset($this->bindings[$abstract])
+        if (isset($this->bindings[$abstract])
             || isset($this->instances[$abstract])
-            || isset($this->aliases[$abstract])
-            || class_exists($abstract);
+            || isset($this->aliases[$abstract])) {
+            return true;
+        }
+        if (!class_exists($abstract)) {
+            return false;
+        }
+        try {
+            return (new \ReflectionClass($abstract))->isInstantiable();
+        } catch (\ReflectionException $e) {
+            return false;
+        }
     }
 
     /**

@@ -56,7 +56,7 @@ class MemcachedCache implements CacheInterface
     {
         $result = @unserialize($value, ['allowed_classes' => false]);
         if ($result === false && $value !== serialize(false)) {
-            return $value;
+            return null;
         }
         return $result;
     }

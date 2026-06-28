@@ -2,6 +2,28 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.9.0] - 2026-06-29
+
+### 重构 (Refactors)
+
+- **[MEDIUM] Container `has()` PSR-11 契约对齐** — `has()` 对抽象类/接口返回 true 但 `get()` 抛 `NotFoundException`，违反 PSR-11。修复：排除非实例化类，仅对 `ReflectionClass::isInstantiable()` 为 true 的类返回 true
+- **[MEDIUM] Blade `endSection`/`endPush`/`endPrepend` 栈空保护** — 孤儿结束指令会通过 `ob_get_clean()` 关闭外层输出缓冲，导致后续输出错位。修复：在三个 end 方法开头增加 `if (empty($this->stack)) return;` 守卫
+- **[MEDIUM] RedisCache `attachTag` TTL 对齐** — 标签 SET 永不过期，过期缓存项的键名在 SET 中永久累积（内存泄漏）。修复：attachTag 后对齐标签 TTL 到 `max(itemTtl, tagTtl)`，只延长不缩短
+- **[MEDIUM] Model `create()`/`update()` 事件顺序** — `creating`/`updating` 事件在 `filterFillable()` 之前触发，监听器收到空属性模型，无法读取或修改即将写入的字段。修复：先 `filterFillable` 写入 `$this->attributes` 再触发事件，与 `save()` 实现一致
+- **[LOW] FileCache `attachTag` 失败可观测性** — `@fopen` 失败时静默 return，调用方无法感知。修复：增加 `error_log()` 记录，保持 void 契约不变
+- **[LOW] MemcachedCache `unserialize` 失败语义统一** — 反序列化失败时返回原始字符串，与 FileCache 返回 null 不一致，可能导致脏数据透传。修复：失败时返回 null
+
+### 测试 (Tests)
+
+- 新增 6 项重构的回归测试（共 43 个新断言）
+  - Blade 栈空守卫：5 个测试（孤儿 endSection/endPush/endPrepend + 正常流程回归）
+  - FileCache attachTag 失败日志：1 个测试
+  - MemcachedCache unserialize 语义：2 个测试（损坏数据返回 null + serialize(false) 边界）
+  - Container has() PSR-11：4 个测试（抽象类/接口/具体类/契约综合）
+  - RedisCache attachTag TTL：3 个测试（TTL 设置/永久保留/只延长不缩短）
+  - Model 事件顺序：5 个测试（create/update 监听器收属性/可修改/false 中止/save 回归）
+- 测试总数从 526 提升至 569
+
 ## [2.8.1] - 2026-06-22
 
 ### 缺陷修复 (Bug Fixes)

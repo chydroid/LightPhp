@@ -450,6 +450,7 @@ class FileCache implements CacheInterface
         $tagFile = $this->getTagFile($tag);
         $fp = @fopen($tagFile, 'c+');
         if ($fp === false) {
+            error_log("FileCache: failed to open tag file {$tagFile} for tag '{$tag}'");
             return;
         }
 

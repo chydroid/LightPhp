@@ -371,7 +371,10 @@ class RedisCache implements CacheInterface
 
     /**
      * 为缓存键附加标签
-     * 
+     *
+     * 对齐标签 SET 与被引用缓存项的 TTL，避免过期键名在 SET 中永久累积导致内存泄漏。
+     * 策略：取缓存项 TTL 与标签当前 TTL 的最大值，只延长不缩短。
+     *
      * @param string $key 缓存键
      * @param string $tag 标签名
      */
@@ -379,7 +382,24 @@ class RedisCache implements CacheInterface
     {
         $tagKey = $this->prefix . 'tag:' . $tag;
         $this->redis->sAdd($tagKey, $key);
-        // 不设置固定过期时间，标签应与缓存项同生命周期
+
+        $fullKey = $this->key($key);
+        $itemTtl = $this->redis->ttl($fullKey);  // -2=不存在, -1=永久, >0=秒
+        $tagTtl = $this->redis->ttl($tagKey);     // -2=不存在(刚创建), -1=永久, >0=秒
+
+        // 缓存项或标签为永久，标签保持永久（不 expire）
+        if ($itemTtl === -1 || $tagTtl === -1) {
+            return;
+        }
+        // 双方都不存在或无 TTL 信息，不操作
+        if ($itemTtl <= 0 && $tagTtl <= 0) {
+            return;
+        }
+        $maxTtl = max($itemTtl, $tagTtl);
+        // 只延长不缩短，避免误删活跃标签
+        if ($maxTtl > 0 && $maxTtl > $tagTtl) {
+            $this->redis->expire($tagKey, $maxTtl);
+        }
     }
 
     /**

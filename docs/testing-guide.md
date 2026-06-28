@@ -4,12 +4,12 @@
 
 ## 概述
 
-LightPHP 使用自带的轻量级测试框架，测试文件全部集中在 `tests/` 目录下。当前共 **343 个测试用例**，覆盖了框架所有核心组件：
+LightPHP 使用自带的轻量级测试框架，测试文件全部集中在 `tests/` 目录下。当前共 **569 个测试断言**（283 个测试用例），覆盖了框架所有核心组件：
 
 | 测试模块 | 说明 | 测试数量 |
 |---------|------|---------|
 | Router | 路由注册、匹配、参数、中间件、别名、组 | 14 |
-| Container | 依赖注入容器（PSR-11） | 7 |
+| Container | 依赖注入容器（PSR-11）、has() 契约对齐 | 17 |
 | Request | HTTP 请求参数与方法、类型过滤 | 13 |
 | Response | HTTP 响应构建 | 1 |
 | Validate | 验证规则与 passes/fails | 8 |
@@ -17,17 +17,17 @@ LightPHP 使用自带的轻量级测试框架，测试文件全部集中在 `tes
 | Cookie | Cookie 静态方法与安全选项 | 6 |
 | Hash | 密码哈希、AES 加密解密 | 8 |
 | Env | 环境变量加载、读取、批量 | 5 |
-| Model | ORM 方法、访问器、修改器、作用域、关联 | 19 |
+| Model | ORM 方法、访问器、修改器、作用域、关联、事件顺序 | 34 |
 | View | 视图自动转义 | 3 |
 | Middleware | 抽象类、CSRF、CORS、Throttle | 8 |
-| FileCache | 文件缓存、标签集成、pull、批量操作 | 22 |
+| FileCache | 文件缓存、标签集成、pull、批量操作、attachTag 日志 | 24 |
 | ApiDoc | API 文档生成、Markdown、JSON | 5 |
 | EventDispatcher | 事件监听、触发、优先级、订阅 | 14 |
 | Collection | 数组集合 map/filter/groupBy 等 | 45 |
 | Facade | 门面模式与容器解析 | 3 |
 | ServiceProvider | 服务提供者抽象与注册 | 5 |
 | Contracts | 接口契约定义 | 3 |
-| Blade | 模板编译、指令、echo 转义 | 9 |
+| Blade | 模板编译、指令、echo 转义、栈空守卫 | 17 |
 | Command/Console | CLI 命令签名、参数、选项、注册 | 9 |
 | Schema/Blueprint | 数据库迁移建表、字段定义 | 20 |
 | Application | 容器配置、事件、Provider 注册 | 4 |
@@ -37,10 +37,10 @@ LightPHP 使用自带的轻量级测试框架，测试文件全部集中在 `tes
 | SoftDelete | 软删除 trait、trashed、force 切换 | 6 |
 | HasModelEvents | 模型事件、观察者、返回 false 取消 | 4 |
 | Seeder | 数据填充抽象类 | 6 |
-| RedisCache | 类结构、接口契约、完整功能 | 20 |
-| MemcachedCache | 类结构、接口契约、完整功能 | 20 |
+| RedisCache | 类结构、接口契约、完整功能、attachTag TTL | 23 |
+| MemcachedCache | 类结构、接口契约、完整功能、unserialize 语义 | 25 |
 | TaggedCache | 标签化缓存、flush、批量 | 23 |
-| **合计** | | **343** |
+| **合计** | | **569** |
 
 > 💡 **单元测试 vs 集成测试**：单元测试是测试单个函数/方法的正确性（例如"Hash::make 能生成 bcrypt 哈希吗？"）；集成测试是测试多个模块协同工作的正确性（例如"用户注册接口能正确处理 POST 请求吗？"）。当前项目以单元测试为主，覆盖了框架所有独立功能点。
 
@@ -111,7 +111,7 @@ LightPHP Unit Tests
 [PASS] FileCache::remember caches callback result
 [PASS] FileCache::increment/decrement
 
-Results: 343 passed, 0 failed
+Results: 569 passed, 0 failed
 All tests passed!
 ```
 
@@ -139,12 +139,12 @@ $runner->run('Test Name', function($t) {
 
 ## 测试覆盖范围
 
-`tests/run_tests.php` 包含 343 个测试用例，覆盖框架所有核心模块。下表给出每个模块的代表性测试场景与目的：
+`tests/run_tests.php` 包含 569 个测试断言（283 个测试用例），覆盖框架所有核心模块。下表给出每个模块的代表性测试场景与目的：
 
 ### 1. 核心组件测试
 
 - **Router（14）**：基础路由注册、路由分组、参数匹配、middleware 方法、aliasMiddleware、middlewareGroup、setGlobalMiddleware
-- **Container（7）**：bind/singleton/has、自动依赖解析、实例方法（instance）
+- **Container（17）**：bind/singleton/has、自动依赖解析、实例方法（instance）、has() PSR-11 契约对齐（抽象类/接口/具体类/契约一致性）
 - **Request（13）**：method/isPost、string/integer/float/boolean/arrayInput 类型过滤、merge 数据合并
 - **Response（1）**：JSON 响应构建
 - **Application（4）**：setConfig（支持点分键）、getEvents、registerProvider
@@ -157,16 +157,16 @@ $runner->run('Test Name', function($t) {
 - **Cookie（6）**：静态方法存在性、delete 安全参数
 - **Env（5）**：load/get/默认值、has/all 批量读取
 
-### 3. 缓存体系（85）
+### 3. 缓存体系（95）
 
-- **FileCache（22）**：has、remember、increment/decrement、tags、attachTag/flushByTag、pull、deleteMany、setMany/many
+- **FileCache（24）**：has、remember、increment/decrement、tags、attachTag/flushByTag、pull、deleteMany、setMany/many、attachTag 失败日志记录
 - **TaggedCache（23）**：set/get/has/delete、remember、many/setMany、flush、tags 追加、默认值
-- **RedisCache（20）**：类结构、扩展未安装抛异常、接口契约、connection、完整功能
-- **MemcachedCache（20）**：类结构、扩展未安装抛异常、接口契约、connection、完整功能
+- **RedisCache（23）**：类结构、扩展未安装抛异常、接口契约、connection、完整功能、attachTag TTL 对齐（设 TTL、保留永久、只延长不缩短）
+- **MemcachedCache（25）**：类结构、扩展未安装抛异常、接口契约、connection、完整功能、unserialize 语义（损坏返回 null、保留 false 值）
 
-### 4. 数据库与模型（55）
+### 4. 数据库与模型（70）
 
-- **Model（19）**：静态方法、getForeignKey、ORM 方法（hasOne/hasMany/belongsTo/belongsToMany/eagerLoad）、toArray/toJson、with/LoadRelation、访问器（getNameAttribute）、修改器（setEmailAttribute）、查询作用域（scopeActive）
+- **Model（34）**：静态方法、getForeignKey、ORM 方法（hasOne/hasMany/belongsTo/belongsToMany/eagerLoad）、toArray/toJson、with/LoadRelation、访问器（getNameAttribute）、修改器（setEmailAttribute）、查询作用域（scopeActive）、create/update 事件顺序（监听器收到已填充属性、可修改字段、返回 false 中止、save() 回归）
 - **Schema/Blueprint（20）**：Schema/Blueprint/Migration 类存在、setConnection、hasTable/hasColumn、字段定义、rename、truncate
 - **SoftDelete（6）**：trait 存在、trashed 方法、force() 实例方法（启用强制删除模式，默认即软删除模式，无 softDelete() 方法）
 - **HasModelEvents（4）**：trait 存在、onEvent、fireEvent 返回 false 取消、observe 观察者
@@ -190,10 +190,10 @@ $runner->run('Test Name', function($t) {
 
 **Collection**：basic、map、filter、filter 无回调、where、whereIn、pluck、pluck with key、only、except、sum、avg、min/max、sortBy、take、skip、first/last、first with callback、groupBy、keyBy、contains、isEmpty/isNotEmpty、unique、reduce、each、tap、pipe、json serialize、array access、countable
 
-### 8. 视图与模板（12）
+### 8. 视图与模板（20）
 
 - **View（3）**：自动转义 HTML、withoutAutoEscape 关闭转义
-- **Blade（9）**：类与 render/compileString 存在、echo 转义编译、原始 echo、if/foreach 指令编译、自定义 directive
+- **Blade（17）**：类与 render/compileString 存在、echo 转义编译、原始 echo、if/foreach 指令编译、自定义 directive、endSection/endPush/endPrepend 栈空守卫（孤儿结束指令、正常流程回归）
 
 ### 9. CLI 控制台（9）
 

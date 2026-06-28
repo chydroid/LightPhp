@@ -142,11 +142,11 @@ class Model
 
     public function create(array $data): int|string
     {
+        $this->attributes = $this->filterFillable($data);
         if (!$this->fireEvent('creating')) {
             return 0;
         }
-        $data = $this->filterFillable($data);
-        $data = $this->syncTimestamps($data, 'create');
+        $data = $this->syncTimestamps($this->attributes, 'create');
         $id = $this->newQuery()->insert($data);
         $this->fireEvent('created');
         return $id;
@@ -154,12 +154,12 @@ class Model
 
     public function update(int|string $id, array $data): int
     {
+        $this->attributes = $this->filterFillable($data);
         if (!$this->fireEvent('updating')) {
             return 0;
         }
-        $data = $this->filterFillable($data);
-        unset($data[$this->primaryKey]);
-        $data = $this->syncTimestamps($data, 'update');
+        unset($this->attributes[$this->primaryKey]);
+        $data = $this->syncTimestamps($this->attributes, 'update');
         $result = $this->newQuery()->where($this->primaryKey, '=', $id)->update($data);
         if ($result > 0) {
             $this->fireEvent('updated');

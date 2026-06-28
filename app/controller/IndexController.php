@@ -12,7 +12,7 @@ class IndexController extends Controller
     {
         $data = [
             'title' => 'LightPHP Framework',
-            'version' => '2.8.1',
+            'version' => '2.9.0',
             'features' => [
                 'MVC Architecture',
                 'Routing System',

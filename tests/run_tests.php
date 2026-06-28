@@ -3114,6 +3114,455 @@ $runner->run('OutputCache - collectHeaders 捕获 Response headers', function($t
     );
 });
 
+// === 第四轮重构回归测试 (v2.9.0 设计权衡修复) ===
+
+// Item 2: Blade endSection/endPush/endPrepend 栈空守卫
+$runner->run('Blade - endSection stack guard (orphan endsection)', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    // 不调用 startSection，直接 endSection，栈空应直接 return 不触发 ob_get_clean
+    // 启动一个外层 ob 以验证守卫不会误关它
+    ob_start();
+    echo 'OUTER_BUFFER';
+    $blade->endSection(); // 应该是 no-op
+    $outer = ob_get_clean();
+    $t->assertEquals('OUTER_BUFFER', $outer, '孤儿 endSection 不应关闭外层 ob');
+
+    $ref = new \ReflectionProperty(\view\Blade::class, 'stack');
+    $ref->setAccessible(true);
+    $t->assertEquals([], $ref->getValue($blade), 'stack 应保持空');
+});
+
+$runner->run('Blade - endPush stack guard (orphan endpush)', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    ob_start();
+    echo 'OUTER';
+    $blade->endPush(); // no-op
+    $outer = ob_get_clean();
+    $t->assertEquals('OUTER', $outer, '孤儿 endPush 不应关闭外层 ob');
+
+    $ref = new \ReflectionProperty(\view\Blade::class, 'pushStack');
+    $ref->setAccessible(true);
+    $t->assertEquals([], $ref->getValue($blade), 'pushStack 应保持空');
+});
+
+$runner->run('Blade - endPrepend stack guard (orphan endprepend)', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    ob_start();
+    echo 'OUTER';
+    $blade->endPrepend(); // no-op
+    $outer = ob_get_clean();
+    $t->assertEquals('OUTER', $outer, '孤儿 endPrepend 不应关闭外层 ob');
+
+    $ref = new \ReflectionProperty(\view\Blade::class, 'prependStack');
+    $ref->setAccessible(true);
+    $t->assertEquals([], $ref->getValue($blade), 'prependStack 应保持空');
+});
+
+$runner->run('Blade - section normal flow still works', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $blade->startSection('content');
+    echo 'HELLO';
+    $blade->endSection();
+    $t->assertEquals('HELLO', $blade->yieldSection('content'), '正常 section 流应保留内容');
+});
+
+$runner->run('Blade - push and prepend normal flow', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $blade->startPush('scripts');
+    echo 'push1';
+    $blade->endPush();
+    $blade->startPrepend('scripts');
+    echo 'prepend1';
+    $blade->endPrepend();
+    $result = $blade->yieldPushContent('scripts');
+    $t->assertEquals('prepend1push1', $result, 'push/prepend 顺序应为 prepend 在前 push 在后');
+});
+
+// Item 3: FileCache attachTag 失败可观测性
+$runner->run('FileCache - attachTag failure logs error and does not throw', function($t) {
+    $cache = new \cache\FileCache(STORAGE_PATH . 'cache/');
+    // 通过反射将 path 设为不存在的目录，使 fopen('c+') 失败
+    $ref = new \ReflectionProperty(\cache\FileCache::class, 'path');
+    $ref->setAccessible(true);
+    $ref->setValue($cache, STORAGE_PATH . 'nonexistent_dir_' . uniqid() . '/sub/');
+
+    // 捕获 error_log 输出到临时文件
+    $logFile = tempnam(sys_get_temp_dir(), 'errlog');
+    $origLog = ini_get('error_log');
+    ini_set('error_log', $logFile);
+
+    try {
+        $cache->attachTag('some_key', 'some_tag'); // 应不抛异常
+        $logContent = file_get_contents($logFile) ?: '';
+    } finally {
+        ini_set('error_log', $origLog === false ? '' : $origLog);
+        @unlink($logFile);
+    }
+
+    $t->assertStringContains('FileCache', $logContent, 'error_log 应包含 FileCache 标识');
+    $t->assertStringContains('some_tag', $logContent, 'error_log 应包含标签名');
+});
+
+// Item 5: MemcachedCache unserialize 失败语义统一（返回 null，不依赖 Memcached 扩展）
+$runner->run('MemcachedCache - unserialize returns null on corrupted data', function($t) {
+    if (!class_exists(\cache\MemcachedCache::class)) {
+        $t->assertTrue(true, 'MemcachedCache 类不存在，跳过');
+        return;
+    }
+    // 绕过构造函数（避免需要 Memcached 扩展和服务器）
+    $ref = new \ReflectionClass(\cache\MemcachedCache::class);
+    $cache = $ref->newInstanceWithoutConstructor();
+    $method = new \ReflectionMethod(\cache\MemcachedCache::class, 'unserialize');
+    $method->setAccessible(true);
+
+    // 损坏的序列化字符串应返回 null（之前返回原始字符串）
+    $result = $method->invoke($cache, 'corrupted_data_not_serialized');
+    $t->assertNull($result, '损坏的序列化数据应返回 null');
+
+    // 另一种损坏形式：截断的序列化字符串
+    $result2 = $method->invoke($cache, 'a:2:{i:0;s:1:"a";');
+    $t->assertNull($result2, '截断的序列化数据应返回 null');
+});
+
+$runner->run('MemcachedCache - unserialize preserves false value', function($t) {
+    if (!class_exists(\cache\MemcachedCache::class)) {
+        $t->assertTrue(true, 'MemcachedCache 类不存在，跳过');
+        return;
+    }
+    $ref = new \ReflectionClass(\cache\MemcachedCache::class);
+    $cache = $ref->newInstanceWithoutConstructor();
+    $method = new \ReflectionMethod(\cache\MemcachedCache::class, 'unserialize');
+    $method->setAccessible(true);
+
+    // serialize(false) 的边界用例必须保留
+    $result = $method->invoke($cache, serialize(false));
+    $t->assertFalse($result, 'serialize(false) 应正确返回 false 而非 null');
+
+    // 正常值
+    $result2 = $method->invoke($cache, serialize(['a', 'b', 'c']));
+    $t->assertEquals(['a', 'b', 'c'], $result2, '正常数组应正确反序列化');
+
+    $result3 = $method->invoke($cache, serialize(42));
+    $t->assertEquals(42, $result3, '正常整数应正确反序列化');
+});
+
+// Item 1: Container has() PSR-11 契约对齐
+$runner->run('Container - has returns false for abstract class', function($t) {
+    $container = new \core\Container();
+    // middleware\Middleware 是抽象类
+    $t->assertFalse($container->has(\middleware\Middleware::class), '抽象类应返回 false');
+    // 抽象类即使显式绑定，has 也应返回 true（绑定优先于可实例化检查）
+    $container->bind(\middleware\Middleware::class, fn() => new \middleware\CsrfMiddleware());
+    $t->assertTrue($container->has(\middleware\Middleware::class), '已绑定的抽象类应返回 true');
+});
+
+$runner->run('Container - has returns false for interface', function($t) {
+    $container = new \core\Container();
+    // class_exists 对接口返回 false，has 应返回 false
+    $t->assertFalse($container->has(\core\contract\CacheInterface::class), '接口应返回 false');
+    $t->assertFalse($container->has(\core\contract\LoggerInterface::class), '接口应返回 false');
+});
+
+$runner->run('Container - has returns true for concrete class', function($t) {
+    $container = new \core\Container();
+    $t->assertTrue($container->has(\core\Response::class), '具体类应返回 true');
+    $t->assertTrue($container->has(\core\Validate::class), '具体类应返回 true');
+    $t->assertFalse($container->has('NonExistentClass_' . uniqid()), '不存在的类应返回 false');
+});
+
+$runner->run('Container - PSR-11 contract: has true implies get no NotFoundException', function($t) {
+    $container = new \core\Container();
+    // 对所有 has() 返回 true 的具体类，get() 不应抛 NotFoundException
+    $classes = [\core\Response::class, \core\Validate::class, \core\Request::class];
+    foreach ($classes as $cls) {
+        if ($container->has($cls)) {
+            try {
+                $container->get($cls);
+                $t->assertTrue(true, "{$cls} has=true 且 get 成功");
+            } catch (\core\contract\NotFoundException $e) {
+                $t->assertTrue(false, "{$cls} has=true 但 get 抛 NotFoundException，违反 PSR-11: " . $e->getMessage());
+            }
+        }
+    }
+});
+
+// Item 4: RedisCache attachTag TTL 对齐（需 Redis 扩展，沿用跳过模式）
+$runner->run('RedisCache - attachTag sets TTL on tag set', function($t) {
+    if (!class_exists(\Redis::class)) {
+        $t->assertTrue(true, 'Redis 扩展未安装，跳过');
+        return;
+    }
+    $redis = new \Redis();
+    if (!@$redis->connect('127.0.0.1', 6379, 2)) {
+        $t->assertTrue(true, 'Redis 服务器不可达，跳过');
+        return;
+    }
+    $cache = new \cache\RedisCache(['prefix' => 'test_attachTag_ttl_']);
+    $key = 'item_with_ttl_' . uniqid();
+    $tag = 'tag_' . uniqid();
+    try {
+        $cache->set($key, 'value', 60);
+        $cache->attachTag($key, $tag);
+        $tagKey = 'test_attachTag_ttl_tag:' . $tag;
+        $ttl = $redis->ttl($tagKey);
+        $t->assertTrue($ttl > 0, "标签 SET 应有 TTL (>0)，实际: {$ttl}");
+    } finally {
+        $redis->del($redis->keys('test_attachTag_ttl_*'));
+        $redis->close();
+    }
+});
+
+$runner->run('RedisCache - attachTag preserves permanent tag for permanent item', function($t) {
+    if (!class_exists(\Redis::class)) {
+        $t->assertTrue(true, 'Redis 扩展未安装，跳过');
+        return;
+    }
+    $redis = new \Redis();
+    if (!@$redis->connect('127.0.0.1', 6379, 2)) {
+        $t->assertTrue(true, 'Redis 服务器不可达，跳过');
+        return;
+    }
+    $cache = new \cache\RedisCache(['prefix' => 'test_attachTag_perm_']);
+    $key = 'perm_item_' . uniqid();
+    $tag = 'tag_' . uniqid();
+    try {
+        $cache->set($key, 'value', null); // 永久
+        $cache->attachTag($key, $tag);
+        $tagKey = 'test_attachTag_perm_tag:' . $tag;
+        $ttl = $redis->ttl($tagKey);
+        $t->assertEquals(-1, $ttl, "永久缓存项的标签也应为永久 (-1)，实际: {$ttl}");
+    } finally {
+        $redis->del($redis->keys('test_attachTag_perm_*'));
+        $redis->close();
+    }
+});
+
+$runner->run('RedisCache - attachTag extends but does not shrink TTL', function($t) {
+    if (!class_exists(\Redis::class)) {
+        $t->assertTrue(true, 'Redis 扩展未安装，跳过');
+        return;
+    }
+    $redis = new \Redis();
+    if (!@$redis->connect('127.0.0.1', 6379, 2)) {
+        $t->assertTrue(true, 'Redis 服务器不可达，跳过');
+        return;
+    }
+    $cache = new \cache\RedisCache(['prefix' => 'test_attachTag_ext_']);
+    $shortKey = 'short_' . uniqid();
+    $longKey = 'long_' . uniqid();
+    $tag = 'tag_' . uniqid();
+    try {
+        // 先 attach 短 TTL 项（30s）
+        $cache->set($shortKey, 'v', 30);
+        $cache->attachTag($shortKey, $tag);
+        $tagKey = 'test_attachTag_ext_tag:' . $tag;
+        $ttl1 = $redis->ttl($tagKey);
+        $t->assertTrue($ttl1 > 0 && $ttl1 <= 30, "短 TTL 项后标签 TTL 应在 (0, 30]，实际: {$ttl1}");
+
+        // 再 attach 长 TTL 项（120s），应延长标签到 120
+        $cache->set($longKey, 'v', 120);
+        $cache->attachTag($longKey, $tag);
+        $ttl2 = $redis->ttl($tagKey);
+        $t->assertTrue($ttl2 > 30, "长 TTL 项应延长标签 TTL 至 >30，实际: {$ttl2}");
+    } finally {
+        $redis->del($redis->keys('test_attachTag_ext_*'));
+        $redis->close();
+    }
+});
+
+// Item 6: Model create()/update() 事件顺序对齐 save()
+// 辅助函数：创建 SQLite in-memory Connection（绕过 MySQL 硬编码）
+$modelEventSetupConn = function(): \db\Connection {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        throw new \RuntimeException('sqlite driver not available');
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+    $pdo->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_ASSOC);
+
+    $connRef = new \ReflectionClass(\db\Connection::class);
+    $connection = $connRef->newInstanceWithoutConstructor();
+    $pdoProp = $connRef->getProperty('pdo');
+    $pdoProp->setAccessible(true);
+    $pdoProp->setValue($connection, $pdo);
+    $configProp = $connRef->getProperty('config');
+    $configProp->setAccessible(true);
+    $configProp->setValue($connection, []);
+    $dbProp = $connRef->getProperty('database');
+    $dbProp->setAccessible(true);
+    $dbProp->setValue($connection, 'memory');
+    return $connection;
+};
+
+$runner->run('Model - create event fires with filled attributes', function($t) use ($modelEventSetupConn) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $connection = $modelEventSetupConn();
+    $pdo = $connection->getPdo();
+    $pdo->exec('CREATE TABLE event_tests (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, status TEXT, created_at TEXT, updated_at TEXT)');
+
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'event_tests';
+        protected array $fillable = ['name', 'status'];
+        use \traits\HasModelEvents;
+    };
+
+    $captured = null;
+    $modelClass::onEvent('creating', function($m) use (&$captured) {
+        $captured = $m;
+    });
+
+    \model\Model::setDb($connection);
+    try {
+        $instance = new $modelClass();
+        $instance->create(['name' => 'alice', 'status' => 'active']);
+
+        $t->assertNotNull($captured, 'creating 监听器应被调用');
+        $attrs = $captured->toArray();
+        $t->assertEquals('alice', $attrs['name'] ?? null, '监听器收到的模型应包含 name 字段');
+        $t->assertEquals('active', $attrs['status'] ?? null, '监听器收到的模型应包含 status 字段');
+    } finally {
+        $modelClass::flushEventListeners();
+    }
+});
+
+$runner->run('Model - create event listener can modify attributes', function($t) use ($modelEventSetupConn) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $connection = $modelEventSetupConn();
+    $pdo = $connection->getPdo();
+    $pdo->exec('CREATE TABLE event_modify (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, ip TEXT, created_at TEXT, updated_at TEXT)');
+
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'event_modify';
+        protected array $fillable = ['name', 'ip'];
+        use \traits\HasModelEvents;
+    };
+
+    // 监听器在 creating 中注入 ip 字段
+    $modelClass::onEvent('creating', function($m) {
+        $m->setAttribute('ip', '127.0.0.1');
+    });
+
+    \model\Model::setDb($connection);
+    try {
+        $instance = new $modelClass();
+        $id = $instance->create(['name' => 'bob']);
+        $t->assertTrue($id > 0, 'create 应返回新 ID');
+
+        $row = $pdo->query("SELECT name, ip FROM event_modify WHERE id = {$id}")->fetch();
+        $t->assertEquals('bob', $row['name'], 'name 应写入');
+        $t->assertEquals('127.0.0.1', $row['ip'], '监听器注入的 ip 应写入数据库');
+    } finally {
+        $modelClass::flushEventListeners();
+    }
+});
+
+$runner->run('Model - update event fires with filled attributes', function($t) use ($modelEventSetupConn) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $connection = $modelEventSetupConn();
+    $pdo = $connection->getPdo();
+    $pdo->exec('CREATE TABLE event_upd (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, status TEXT, created_at TEXT, updated_at TEXT)');
+    $pdo->exec("INSERT INTO event_upd (name, status) VALUES ('orig', 'draft')");
+
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'event_upd';
+        protected array $fillable = ['name', 'status'];
+        use \traits\HasModelEvents;
+    };
+
+    $captured = null;
+    $modelClass::onEvent('updating', function($m) use (&$captured) {
+        $captured = $m;
+    });
+
+    \model\Model::setDb($connection);
+    try {
+        $instance = new $modelClass();
+        $instance->update(1, ['name' => 'updated', 'status' => 'published']);
+
+        $t->assertNotNull($captured, 'updating 监听器应被调用');
+        $attrs = $captured->toArray();
+        $t->assertEquals('updated', $attrs['name'] ?? null, '监听器收到的模型应包含更新后的 name');
+        $t->assertEquals('published', $attrs['status'] ?? null, '监听器收到的模型应包含更新后的 status');
+    } finally {
+        $modelClass::flushEventListeners();
+    }
+});
+
+$runner->run('Model - create event returning false aborts insert', function($t) use ($modelEventSetupConn) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $connection = $modelEventSetupConn();
+    $pdo = $connection->getPdo();
+    $pdo->exec('CREATE TABLE event_abort (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_at TEXT, updated_at TEXT)');
+
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'event_abort';
+        protected array $fillable = ['name'];
+        use \traits\HasModelEvents;
+    };
+
+    $modelClass::onEvent('creating', function($m) { return false; });
+
+    \model\Model::setDb($connection);
+    try {
+        $instance = new $modelClass();
+        $result = $instance->create(['name' => 'should_not_insert']);
+        $t->assertEquals(0, $result, 'creating 返回 false 时 create 应返回 0');
+
+        $count = (int) $pdo->query("SELECT COUNT(*) FROM event_abort")->fetchColumn();
+        $t->assertEquals(0, $count, '不应有数据被插入');
+    } finally {
+        $modelClass::flushEventListeners();
+    }
+});
+
+$runner->run('Model - save() still works correctly (regression)', function($t) use ($modelEventSetupConn) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $connection = $modelEventSetupConn();
+    $pdo = $connection->getPdo();
+    $pdo->exec('CREATE TABLE event_save (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_at TEXT, updated_at TEXT)');
+
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'event_save';
+        protected array $fillable = ['*'];
+        use \traits\HasModelEvents;
+    };
+
+    $creatingCalled = false;
+    $createdCalled = false;
+    $modelClass::onEvent('creating', function($m) use (&$creatingCalled) { $creatingCalled = true; });
+    $modelClass::onEvent('created', function($m) use (&$createdCalled) { $createdCalled = true; });
+
+    \model\Model::setDb($connection);
+    try {
+        $instance = new $modelClass();
+        $instance->setAttribute('name', 'via_save');
+        $id = $instance->save();
+        $t->assertTrue($id > 0, 'save() 应返回新 ID');
+        $t->assertTrue($creatingCalled, 'creating 事件应触发');
+        $t->assertTrue($createdCalled, 'created 事件应触发');
+
+        $row = $pdo->query("SELECT name FROM event_save WHERE id = {$id}")->fetch();
+        $t->assertEquals('via_save', $row['name'], '数据应正确写入');
+    } finally {
+        $modelClass::flushEventListeners();
+    }
+});
+
 $runner->summary();
 
 // 测试失败时返回非零退出码，确保 CI 环境能正确检测失败

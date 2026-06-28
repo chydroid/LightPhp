@@ -493,6 +493,9 @@ class Blade
 
     public function endSection(): void
     {
+        if (empty($this->stack)) {
+            return;
+        }
         $content = ob_get_clean();
         if ($content === false) {
             $content = '';
@@ -520,6 +523,9 @@ class Blade
 
     public function endPush(): void
     {
+        if (empty($this->stack)) {
+            return;
+        }
         $content = ob_get_clean();
         if ($content === false) {
             $content = '';
@@ -543,6 +549,9 @@ class Blade
 
     public function endPrepend(): void
     {
+        if (empty($this->stack)) {
+            return;
+        }
         $content = ob_get_clean();
         if ($content === false) {
             $content = '';

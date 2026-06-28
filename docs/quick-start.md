@@ -1,6 +1,6 @@
-# LightPHP v2.7.0 快速上手指南
+# LightPHP v2.9.0 快速上手指南
 
-本指南将帮助你快速上手 LightPHP v2.7.0，涵盖所有核心功能的代码示例。
+本指南将帮助你快速上手 LightPHP v2.9.0，涵盖所有核心功能的代码示例。
 
 ---
 
@@ -239,7 +239,7 @@ if ($request->isMobile()) {
     return self::make('', 204);
 });
 
-$core\Response::macro('csv', function(string $content) {
+\core\Response::macro('csv', function(string $content) {
     return self::make($content)
         ->header('Content-Type', 'text/csv')
         ->header('Content-Disposition', 'attachment; filename="export.csv"');

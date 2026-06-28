@@ -809,7 +809,8 @@ use model\User;
 
 // 方式一：闭包监听
 User::onEvent('creating', function($user) {
-    $user->attributes['created_at'] = date('Y-m-d H:i:s');
+    // 监听器内可通过魔术属性或 setAttribute 修改即将写入的字段
+    $user->created_at = date('Y-m-d H:i:s');
 });
 
 User::onEvent('deleted', function($user) {

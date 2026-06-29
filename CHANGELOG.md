@@ -2,6 +2,56 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.10.0] - 2026-06-29
+
+### 缺陷修复 (Bug Fixes)
+
+#### 高风险 (High)
+
+- **[HIGH] Collection `collapse()` 关联数组解包崩溃** — `array_push($result, ...$item)` 在 PHP 8.0+ 中对含字符串键的数组抛 `Cannot unpack array with string keys`。修复：改用 `array_merge`
+- **[HIGH] Blade `@each` 使用 echo 而非 require** — 编译为 `<?= resolveInclude(...) ?>` 输出文件路径字符串而非渲染内容。修复：改用 `require $__inc_each` 模式
+- **[HIGH] RedisCache `attachTag` sAdd 在 ttl 检查前执行** — `sAdd()` 创建 key 后 `ttl()` 返回 `-1`（永久）而非 `-2`（不存在），导致新标签 SET 永不过期。修复：将 `ttl()` 读取移到 `sAdd()` 之前
+- **[HIGH] Collection `take(-N)` 返回错误结果** — `array_slice($items, 0, -2)` 返回"除最后2个外的所有元素"，但 `take(-2)` 应返回最后2个。修复：负数时使用 `array_slice($items, $limit, abs($limit))`
+- **[HIGH] Middleware 通配符 `[^/]*` 不匹配嵌套路径** — `/admin/*` 编译为 `^/admin/[^/]*$`，不匹配 `/admin/users/edit`，导致 OutputCache 排除项失效。修复：改用 `.*`
+
+#### 中风险 (Medium)
+
+- **[MEDIUM] Container `isset()` 对 null 单例失效** — `isset($this->instances[$abstract])` 对 null 值返回 false，破坏单例缓存。修复：改用 `array_key_exists`
+- **[MEDIUM] Container `has()` 别名未递归验证** — 别名指向不存在的绑定时 `has()` 仍返回 true，违反 PSR-11。修复：递归验证别名目标
+- **[MEDIUM] Model `create()` 未设主键和 exists** — `created` 事件触发前未设置 `$this->attributes[$primaryKey]` 和 `$this->exists`，监听器无法访问主键。修复：在触发事件前设置两者
+- **[MEDIUM] Model `save()` 的 `saved` 事件在 0 行更新时跳过** — `saved` 事件在 `if ($result > 0)` 块内，0 行更新时跳过。修复：移出 if 块
+- **[MEDIUM] Blade `render()` 未重置 pushStack/prependStack** — 多次 `render()` 调用间 @push/@prepend 内容跨渲染泄漏。修复：在 `render()` 开头重置
+- **[MEDIUM] Request Content-Type 大小写敏感** — `str_contains` 大小写敏感，违反 RFC 7231。修复：改用 `stripos`
+- **[MEDIUM] Application `setConfig()` 引用断裂容器同步** — `$config = &$this->config` 触发 COW 分离，容器中 config 副本不更新。修复：末尾同步到容器
+- **[MEDIUM] Blade `@csrf()` 遗留 `()`** — `@csrf(?!\w)` 匹配后 `()` 残留在输出中。修复：正则消费可选 `()`
+- **[MEDIUM] Blade `{{{ }}}` 导致 PHP 致命错误** — `\{\{(.+?)\}\}` 对 `{{{ $var }}}` 匹配出 `{ $var }`，`(string) { $var }` 是语法错误。修复：先处理三花括号
+- **[MEDIUM] QueryBuilder `having()` 拒绝 LIKE 操作符** — `ALLOWED_HAVING_OPERATORS` 缺少 `LIKE`/`NOT LIKE`，但 null 处理代码中检查了它们（死代码）。修复：添加到允许列表
+
+#### 低风险 (Low)
+
+- **[LOW] Validate `date` 空格式参数** — `$params[0] ?? 'Y-m-d'` 空字符串不触发 `??`，`DateTime::createFromFormat('', ...)` 行为异常。修复：改用 `!empty()` 检查
+- **[LOW] Validate `digits` 空参数长度为 0** — 空字符串转 0，`strlen($digits) === 0` 永远为 false。修复：空参数时跳过长度检查
+- **[LOW] Validate `:length` 占位符映射错误** — `digits` 规则的 `:length` 映射到不存在的 `$params[2]`，错误消息中 `:length` 不被替换。修复：调整占位符顺序
+- **[LOW] MemcachedCache TTL > 30 天被当作时间戳** — Memcached 协议规定 TTL > 2592000 秒被解释为 Unix 时间戳，导致立即过期。修复：转换为 `time() + $ttl`
+- **[LOW] QueryBuilder 聚合方法未重置 forUpdate/lock** — clone 后携带不必要的锁。修复：聚合方法中重置 `forUpdate`/`lock`
+- **[LOW] Throttle 边界秒数判断** — `$decoded['expire'] >= time()` 将过期边界秒仍计为活跃。修复：改为 `> time()`
+- **[LOW] Model `firstOrCreate` 未检查 `create()` 返回 0** — `creating` 事件返回 false 时 `create()` 返回 0，`firstOrCreate` 继续用 `find(0)` 构造幽灵模型。修复：返回 0 时抛异常
+- **[LOW] Collection `last()` null 键提前终止** — `key()` 对"指针越过起点"和"实际键为 null"都返回 null。修复：使用 `array_keys()` 显式遍历
+
+### 文档修正 (Documentation)
+
+- **api.md**: 修正 `each()` 箭头函数 echo 语法错误、datetime cast 描述、`first()` 返回类型、`select()` 逗号分隔字符串、聚合查询改用 `Connection::raw()`、补充 `restoring`/`restored` 事件
+- **quick-start.md**: 修正 `whereOr` 格式（改用 `column => [op, value]`）、`CacheManager` 配置（补充 `default`/`stores` 键）、补充 `restoring`/`restored` 事件
+- **guide.md**: 修正 datetime cast 描述、`app()` 辅助函数不存在（改用 `Container::getInstance()`）
+- **admin-panel-tutorial.md**: `success()` 传入 Model 实例改为 `->toArray()`（2 处）
+- **ecommerce-full-tutorial.md**: `success()` 第三参数不存在改用 `Response::json`、`fetchAll()` 返回原始数组需 `json_decode` 解码 images 字段
+- **testing-guide.md**: 更新测试用例数和断言数
+
+### 测试 (Tests)
+
+- 新增 23 项回归测试覆盖以上所有 Bug 修复
+- 测试总数从 569 提升至 608
+
 ## [2.9.0] - 2026-06-29
 
 ### 重构 (Refactors)

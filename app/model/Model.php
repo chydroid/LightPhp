@@ -100,6 +100,9 @@ class Model
         }
         $data = array_merge($attributes, $values);
         $id = $this->create($data);
+        if (!$id) {
+            throw new \RuntimeException('firstOrCreate failed: create() returned empty ID (creating event may have been cancelled)');
+        }
         return $this->find($id) ?? $this->newFromBuilder(array_merge([$this->primaryKey => $id], $data));
     }
 
@@ -148,6 +151,8 @@ class Model
         }
         $data = $this->syncTimestamps($this->attributes, 'create');
         $id = $this->newQuery()->insert($data);
+        $this->attributes[$this->primaryKey] = $id;
+        $this->exists = true;
         $this->fireEvent('created');
         return $id;
     }
@@ -502,8 +507,8 @@ class Model
         $result = $this->newQuery()->where($this->primaryKey, '=', $pk)->update($data);
         if ($result > 0) {
             $this->fireEvent('updated');
-            $this->fireEvent('saved');
         }
+        $this->fireEvent('saved');
         return $result;
     }
 

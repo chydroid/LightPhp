@@ -115,7 +115,7 @@ class Throttle
             if ($content !== false && $content !== '') {
                 $decoded = json_decode($content, true);
                 if (is_array($decoded) && isset($decoded['attempts'])) {
-                    if (!isset($decoded['expire']) || $decoded['expire'] <= 0 || $decoded['expire'] >= time()) {
+                    if (!isset($decoded['expire']) || $decoded['expire'] <= 0 || $decoded['expire'] > time()) {
                         $attempts = (int) $decoded['attempts'];
                         if (isset($decoded['expire']) && $decoded['expire'] > 0) {
                             $expire = $decoded['expire'];

@@ -72,7 +72,7 @@ class QueryBuilder
     private const ALLOWED_JOIN_TYPES = ['INNER', 'LEFT', 'RIGHT', 'CROSS'];
 
     /** @var string[] 允许的 HAVING 操作符 */
-    private const ALLOWED_HAVING_OPERATORS = ['=', '!=', '<>', '<', '>', '<=', '>='];
+    private const ALLOWED_HAVING_OPERATORS = ['=', '!=', '<>', '<', '>', '<=', '>=', 'LIKE', 'NOT LIKE'];
 
     /**
      * 构造函数
@@ -731,6 +731,8 @@ class QueryBuilder
         $clone->limit = 0;
         $clone->offset = 0;
         $clone->orderBy = '';
+        $clone->forUpdate = false;
+        $clone->lock = null;
 
         if ($this->groupBy !== '') {
             // GROUP BY 查询：用子查询包裹以正确计算分组数
@@ -757,6 +759,8 @@ class QueryBuilder
         $this->validateAggregateColumn($column);
         $clone = clone $this;
         $clone->select = "SUM(`{$column}`) as __sum";
+        $clone->forUpdate = false;
+        $clone->lock = null;
         $clone->limit = 0;
         $clone->offset = 0;
         $clone->orderBy = '';
@@ -775,6 +779,8 @@ class QueryBuilder
         $this->validateAggregateColumn($column);
         $clone = clone $this;
         $clone->select = "AVG(`{$column}`) as __avg";
+        $clone->forUpdate = false;
+        $clone->lock = null;
         $clone->limit = 0;
         $clone->offset = 0;
         $clone->orderBy = '';
@@ -793,6 +799,8 @@ class QueryBuilder
         $this->validateAggregateColumn($column);
         $clone = clone $this;
         $clone->select = "MAX(`{$column}`) as __max";
+        $clone->forUpdate = false;
+        $clone->lock = null;
         $clone->limit = 0;
         $clone->offset = 0;
         $clone->orderBy = '';
@@ -811,6 +819,8 @@ class QueryBuilder
         $this->validateAggregateColumn($column);
         $clone = clone $this;
         $clone->select = "MIN(`{$column}`) as __min";
+        $clone->forUpdate = false;
+        $clone->lock = null;
         $clone->limit = 0;
         $clone->offset = 0;
         $clone->orderBy = '';

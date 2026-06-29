@@ -273,6 +273,8 @@ class Application
             }
             $config = &$config[$k];
         }
+
+        $this->container->instance('config', $this->config);
     }
 
     /**

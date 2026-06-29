@@ -381,11 +381,12 @@ class RedisCache implements CacheInterface
     public function attachTag(string $key, string $tag): void
     {
         $tagKey = $this->prefix . 'tag:' . $tag;
+        $tagTtl = $this->redis->ttl($tagKey);  // BEFORE sAdd: -2=不存在, -1=永久, >0=秒
+
         $this->redis->sAdd($tagKey, $key);
 
         $fullKey = $this->key($key);
         $itemTtl = $this->redis->ttl($fullKey);  // -2=不存在, -1=永久, >0=秒
-        $tagTtl = $this->redis->ttl($tagKey);     // -2=不存在(刚创建), -1=永久, >0=秒
 
         // 缓存项或标签为永久，标签保持永久（不 expire）
         if ($itemTtl === -1 || $tagTtl === -1) {
@@ -395,7 +396,7 @@ class RedisCache implements CacheInterface
         if ($itemTtl <= 0 && $tagTtl <= 0) {
             return;
         }
-        $maxTtl = max($itemTtl, $tagTtl);
+        $maxTtl = max($itemTtl > 0 ? $itemTtl : 0, $tagTtl > 0 ? $tagTtl : 0);
         // 只延长不缩短，避免误删活跃标签
         if ($maxTtl > 0 && $maxTtl > $tagTtl) {
             $this->redis->expire($tagKey, $maxTtl);

@@ -73,6 +73,9 @@ class MemcachedCache implements CacheInterface
     public function set(string $key, mixed $value, ?int $ttl = null): bool
     {
         $ttl = $ttl ?? $this->defaultTtl;
+        if ($ttl > 2592000) {
+            $ttl = time() + $ttl;
+        }
         $data = $this->serialize($value);
         return $this->memcached->set($this->key($key), $data, $ttl);
     }

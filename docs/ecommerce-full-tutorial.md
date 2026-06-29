@@ -368,14 +368,18 @@ class AuthController extends Controller
 
         $token = $this->generateToken($userId);
 
-        return $this->success([
-            'user' => [
-                'id' => $userId,
-                'username' => $data['username'],
-                'email' => $data['email'],
+        return Response::json([
+            'code' => 0,
+            'message' => 'Registration successful',
+            'data' => [
+                'user' => [
+                    'id' => $userId,
+                    'username' => $data['username'],
+                    'email' => $data['email'],
+                ],
+                'token' => $token,
             ],
-            'token' => $token,
-        ], 'Registration successful', 201);
+        ], 201);
     }
 
     public function login(Request $request): Response
@@ -826,7 +830,7 @@ class CartController extends Controller
                     'product_id' => $product['id'],
                     'name' => $product['name'],
                     'price' => $product['price'],
-                    'image' => $product['images'][0] ?? '',
+                    'image' => json_decode($product['images'], true)[0] ?? '',
                     'quantity' => $item['quantity'],
                     'subtotal' => $subtotal,
                     'stock' => $product['stock'],

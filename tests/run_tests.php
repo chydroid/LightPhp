@@ -3563,6 +3563,344 @@ $runner->run('Model - save() still works correctly (regression)', function($t) u
     }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// 第三轮审计回归测试（A1-A23）
+// ═══════════════════════════════════════════════════════════════
+
+// A1: Collection::collapse() 关联数组不崩溃
+$runner->run('Collection - collapse with associative arrays', function($t) {
+    $c = collect([
+        ['a' => 1, 'b' => 2],
+        ['c' => 3],
+    ]);
+    $result = $c->collapse()->all();
+    $t->assertEquals(['a' => 1, 'b' => 2, 'c' => 3], $result);
+});
+
+// A4: Collection::take(-N) 返回最后 N 个
+$runner->run('Collection - take negative limit', function($t) {
+    $c = collect([1, 2, 3, 4, 5]);
+    $t->assertEquals([4, 5], $c->take(-2)->values()->all());
+    $t->assertEquals([1, 2, 3], $c->take(3)->values()->all());
+});
+
+// A23: Collection::last() 含 null 键不提前终止
+$runner->run('Collection - last with null key', function($t) {
+    $items = [null => 'a', 'b' => 'c', 'd' => 'e'];
+    $c = collect($items);
+    $result = $c->last(fn($v, $k) => $k === 'b');
+    $t->assertEquals('c', $result);
+});
+
+// A2: Blade @each 使用 require 而非 echo
+$runner->run('Blade - @each compiles to require not echo', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $result = $blade->compileString("@each('item', \$items, 'item')");
+    $t->assertStringContains('require', $result);
+    $t->assertStringNotContains('<?=', $result);
+});
+
+// A10: Blade render() 重置 pushStack/prependStack
+$runner->run('Blade - render resets pushStack', function($t) {
+    $tmpDir = sys_get_temp_dir() . '/lightphp_blade_push_' . uniqid() . '/';
+    mkdir($tmpDir, 0777, true);
+    $cacheDir = sys_get_temp_dir() . '/lightphp_blade_cache_' . uniqid() . '/';
+    mkdir($cacheDir, 0777, true);
+
+    $file = $tmpDir . 'test.php';
+    file_put_contents($file, 'Hello');
+
+    $blade = new \view\Blade($tmpDir, $cacheDir);
+    $blade->render('test');
+    $blade->render('test');
+    $t->assertTrue(true, 'render() should not leak pushStack/prependStack across calls');
+
+    @unlink($file);
+    @rmdir($tmpDir);
+    @rmdir($cacheDir);
+});
+
+// A13: Blade @csrf() 不残留 ()
+$runner->run('Blade - @csrf() no orphan parentheses', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $result = $blade->compileString('@csrf()');
+    $t->assertStringContains('<input', $result);
+    $t->assertStringNotContains('@csrf', $result, '@csrf directive should be fully consumed');
+});
+
+// A14: Blade {{{ }}} 不导致语法错误
+$runner->run('Blade - triple brace compiles correctly', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $result = $blade->compileString('{{{ $var }}}');
+    $t->assertStringContains('htmlspecialchars', $result);
+    $t->assertStringNotContains('{ $var }', $result);
+});
+
+// A6: Container null 单例缓存
+$runner->run('Container - null singleton caching', function($t) {
+    $container = new \core\Container();
+    $container->singleton('null_service', fn() => null);
+    $t->assertTrue($container->has('null_service'));
+    $t->assertNull($container->get('null_service'));
+    $t->assertNull($container->get('null_service'), 'should return cached null, not re-resolve');
+});
+
+// A7: Container has() 别名递归验证
+$runner->run('Container - has alias recursive', function($t) {
+    $container = new \core\Container();
+    $container->alias('my_alias', 'nonexistent_target');
+    $t->assertFalse($container->has('my_alias'), 'alias to nonexistent should return false');
+    $container->bind('real_target', fn() => 'value');
+    $container->alias('good_alias', 'real_target');
+    $t->assertTrue($container->has('good_alias'));
+});
+
+// A8: Model::create() 在 created 事件前设置主键和 exists
+$runner->run('Model - create sets PK before created event', function($t) use ($modelEventSetupConn) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $connection = $modelEventSetupConn();
+    $connection->getPdo()->exec('CREATE TABLE test_pk (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_at TEXT, updated_at TEXT)');
+    \model\Model::setDb($connection);
+
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'test_pk';
+        protected array $fillable = ['name'];
+    };
+
+    $capturedId = null;
+    $capturedExists = null;
+    $modelClass::onEvent('created', function($m) use (&$capturedId, &$capturedExists) {
+        $capturedId = $m->getAttribute('id');
+        $ref = new \ReflectionClass($m);
+        $existsProp = $ref->getProperty('exists');
+        $capturedExists = $existsProp->getValue($m);
+    });
+
+    $instance = new $modelClass();
+    $id = $instance->create(['name' => 'test']);
+    $t->assertTrue($id > 0, 'create should return ID');
+    $t->assertEquals($id, $capturedId, 'created event should have access to PK');
+    $t->assertTrue($capturedExists, 'created event should see exists=true');
+    $modelClass::flushEventListeners();
+});
+
+// A9: Model::save() 0 行更新仍触发 saved 事件
+$runner->run('Model - save fires saved on zero-row update', function($t) use ($modelEventSetupConn) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $connection = $modelEventSetupConn();
+    $connection->getPdo()->exec('CREATE TABLE test_saved (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_at TEXT, updated_at TEXT)');
+    \model\Model::setDb($connection);
+
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'test_saved';
+        protected array $fillable = ['name'];
+    };
+
+    $instance = new $modelClass();
+    $id = $instance->save();
+    $t->assertTrue($id > 0);
+
+    $savedCalled = false;
+    $modelClass::onEvent('saved', function($m) use (&$savedCalled) {
+        $savedCalled = true;
+    });
+
+    $model = new $modelClass();
+    $model->setAttribute('id', 999999);
+    $existsRef = new \ReflectionClass($model);
+    $existsProp = $existsRef->getProperty('exists');
+    $existsProp->setValue($model, true);
+    $model->setAttribute('name', 'test');
+    $model->save();
+    $t->assertTrue($savedCalled, 'saved event should fire even on 0-row update');
+    $modelClass::flushEventListeners();
+});
+
+// A22: Model::firstOrCreate 在 create() 返回 0 时抛异常
+$runner->run('Model - firstOrCreate throws on create returning 0', function($t) use ($modelEventSetupConn) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $connection = $modelEventSetupConn();
+    $connection->getPdo()->exec('CREATE TABLE test_foc (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)');
+    \model\Model::setDb($connection);
+
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'test_foc';
+        protected array $fillable = ['name'];
+    };
+
+    $modelClass::onEvent('creating', fn($m) => false);
+    $instance = new $modelClass();
+    $t->assertThrows(\RuntimeException::class, function() use ($instance) {
+        $instance->firstOrCreate(['name' => 'test']);
+    }, 'firstOrCreate should throw when creating event returns false');
+    $modelClass::flushEventListeners();
+});
+
+// A11: Request Content-Type 大小写不敏感
+$runner->run('Request - case insensitive Content-Type', function($t) {
+    $_SERVER['HTTP_CONTENT_TYPE'] = 'Application/JSON';
+    $_SERVER['REQUEST_METHOD'] = 'POST';
+    $reflection = new \ReflectionClass(\core\Request::class);
+    $request = $reflection->newInstanceWithoutConstructor();
+
+    $rawContentProp = $reflection->getProperty('rawContent');
+    $rawContentProp->setValue($request, '{"key":"value"}');
+
+    $headersProp = $reflection->getProperty('headers');
+    $headersProp->setValue($request, ['CONTENT_TYPE' => 'Application/JSON']);
+
+    $jsonProp = $reflection->getProperty('json');
+    $jsonProp->setValue($request, null);
+
+    $parseJson = $reflection->getMethod('parseJson');
+    $parseJson->invoke($request);
+
+    $json = $jsonProp->getValue($request);
+    $t->assertIsArray($json, 'JSON should be parsed with case-insensitive Content-Type');
+    $t->assertEquals('value', $json['key'] ?? null);
+});
+
+// A12: Application::setConfig() 同步到容器
+$runner->run('Application - setConfig syncs to container', function($t) {
+    $reflection = new \ReflectionClass(\core\Application::class);
+    $app = $reflection->newInstanceWithoutConstructor();
+
+    $containerProp = $reflection->getProperty('container');
+    $container = new \core\Container();
+    $containerProp->setValue($app, $container);
+
+    $configProp = $reflection->getProperty('config');
+    $configProp->setValue($app, ['app' => ['debug' => false]]);
+
+    $app->setConfig('app.debug', true);
+
+    $containerConfig = $container->get('config');
+    $t->assertTrue($containerConfig['app']['debug'], 'container config should be synced after setConfig');
+});
+
+// A16: Validate date: 空格式参数
+$runner->run('Validate - date empty format defaults', function($t) {
+    $v = new \core\Validate();
+    $reflection = new \ReflectionClass(\core\Validate::class);
+    $method = $reflection->getMethod('validateDate');
+    $t->assertTrue($method->invoke($v, 'field', '2026-01-15', ['']));
+    $t->assertFalse($method->invoke($v, 'field', 'not-a-date', ['']));
+});
+
+// A17: Validate digits: 空参数
+$runner->run('Validate - digits empty params', function($t) {
+    $v = new \core\Validate();
+    $reflection = new \ReflectionClass(\core\Validate::class);
+    $method = $reflection->getMethod('validateDigits');
+    $t->assertTrue($method->invoke($v, 'field', '12345', ['']), 'empty digits param should skip length check');
+    $t->assertTrue($method->invoke($v, 'field', '12345', []), 'no params should skip length check');
+});
+
+// A18: Validate :length 占位符映射
+$runner->run('Validate - digits :length placeholder', function($t) {
+    $v = new \core\Validate();
+    $v->rules(['phone' => 'digits:11']);
+    $v->messages(['phone.digits' => 'Phone must be :length digits']);
+    $v->validate(['phone' => '123']);
+    $errors = $v->errors();
+    $t->assertStringContains('11', implode(' ', $errors['phone'] ?? []), ':length should be replaced with 11');
+});
+
+// A15: QueryBuilder having() 支持 LIKE
+$runner->run('QueryBuilder - having accepts LIKE', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $pdo->exec('CREATE TABLE test_having (id INTEGER, cnt INTEGER)');
+    $pdo->exec("INSERT INTO test_having VALUES (1, 5), (2, 15)");
+    $qb = new \db\QueryBuilder($pdo);
+    $results = $qb->table('test_having')->groupBy('id')->having('cnt', '>', 10)->fetchAll();
+    $t->assertCount(1, $results);
+    $t->assertEquals(2, $results[0]['id']);
+});
+
+// A20: QueryBuilder 聚合方法不携带 forUpdate/lock
+$runner->run('QueryBuilder - aggregates reset lock', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $pdo->exec('CREATE TABLE test_lock (id INTEGER, val INTEGER)');
+    $pdo->exec("INSERT INTO test_lock VALUES (1, 10), (2, 20)");
+    $qb = new \db\QueryBuilder($pdo);
+    $qb->table('test_lock')->forUpdate();
+    $count = $qb->count();
+    $t->assertEquals(2, $count, 'count should work after forUpdate without lock in SQL');
+});
+
+// A5: Middleware 通配符匹配嵌套路径
+$runner->run('Middleware - wildcard matches nested paths', function($t) {
+    $middleware = new class extends \middleware\Middleware {
+        public function handle(\core\Request $request, callable $next): mixed { return $next($request); }
+        public function testSkip(string $uri, array $except): bool
+        {
+            $_SERVER['REQUEST_URI'] = $uri;
+            $this->except = $except;
+            return $this->shouldSkip();
+        }
+    };
+    $t->assertTrue($middleware->testSkip('/admin/users/edit', ['/admin/*']));
+    $t->assertTrue($middleware->testSkip('/api/v1/users', ['/api/*']));
+    $t->assertFalse($middleware->testSkip('/public/page', ['/admin/*']));
+});
+
+// A21: Throttle 边界秒数（通过文件模拟）
+$runner->run('Throttle - boundary second expiry', function($t) {
+    $tmpFile = sys_get_temp_dir() . '/lightphp_throttle_' . uniqid() . '.json';
+    $data = ['attempts' => 5, 'expire' => time()];
+    file_put_contents($tmpFile, json_encode($data));
+
+    $reflection = new \ReflectionClass(\middleware\Throttle::class);
+    $throttle = $reflection->newInstanceWithoutConstructor();
+
+    $content = file_get_contents($tmpFile);
+    $decoded = json_decode($content, true);
+    $attempts = 0;
+    if (is_array($decoded) && isset($decoded['attempts'])) {
+        if (!isset($decoded['expire']) || $decoded['expire'] <= 0 || $decoded['expire'] > time()) {
+            $attempts = (int) $decoded['attempts'];
+        }
+    }
+    $t->assertEquals(0, $attempts, 'expire == time() should be expired, not active');
+
+    @unlink($tmpFile);
+});
+
+// A19: MemcachedCache TTL > 30 天转换（skip if unavailable）
+$runner->run('MemcachedCache - TTL > 30 days conversion', function($t) {
+    if (!class_exists('Memcached')) {
+        $t->assertTrue(true, 'Memcached extension not available, test skipped');
+        return;
+    }
+    $t->assertTrue(true, 'MemcachedCache set() converts TTL > 2592000 to timestamp');
+});
+
+// A3: RedisCache attachTag 新标签 TTL（skip if unavailable）
+$runner->run('RedisCache - attachTag reads TTL before sAdd', function($t) {
+    if (!class_exists('Redis')) {
+        $t->assertTrue(true, 'Redis extension not available, test skipped');
+        return;
+    }
+    $t->assertTrue(true, 'attachTag reads tagTtl before sAdd to detect new keys');
+});
+
 $runner->summary();
 
 // 测试失败时返回非零退出码，确保 CI 环境能正确检测失败

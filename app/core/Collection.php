@@ -173,6 +173,9 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
 
     public function take(int $limit): self
     {
+        if ($limit < 0) {
+            return new static(array_slice($this->items, $limit, abs($limit)));
+        }
         return new static(array_slice($this->items, 0, $limit));
     }
 
@@ -199,10 +202,12 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
         if ($callback === null) {
             return empty($this->items) ? (is_callable($default) ? $default() : $default) : end($this->items);
         }
-        // Iterate in reverse to preserve original keys
-        for (end($this->items); ($key = key($this->items)) !== null; prev($this->items)) {
-            if ($callback(current($this->items), $key)) {
-                return current($this->items);
+        // Iterate in reverse using array_keys to avoid key() returning null for null keys
+        $keys = array_keys($this->items);
+        for ($i = count($keys) - 1; $i >= 0; $i--) {
+            $key = $keys[$i];
+            if ($callback($this->items[$key], $key)) {
+                return $this->items[$key];
             }
         }
         return is_callable($default) ? $default() : $default;
@@ -419,7 +424,7 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
         $result = [];
         foreach ($this->items as $item) {
             if (is_array($item)) {
-                array_push($result, ...$item);
+                $result = array_merge($result, $item);
             }
         }
         return new static($result);

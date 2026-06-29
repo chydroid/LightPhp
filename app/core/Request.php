@@ -87,7 +87,7 @@ class Request
     private function parseJson(): void
     {
         $contentType = $this->header('Content-Type', '');
-        if (str_contains($contentType, 'application/json') && !empty($this->rawContent)) {
+        if (stripos($contentType, 'application/json') !== false && !empty($this->rawContent)) {
             $decoded = json_decode($this->rawContent, true);
             if (is_array($decoded)) {
                 $this->json = $decoded;

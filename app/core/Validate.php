@@ -166,7 +166,7 @@ class Validate
         $message = $this->messages[$key] ?? $this->messages[$field] ?? "{$field} is invalid";
         
         if (!empty($params)) {
-            $placeholders = [':min', ':max', ':length'];
+            $placeholders = $rule === 'digits' ? [':length', ':min', ':max'] : [':min', ':max', ':length'];
             $search = [];
             $replace = [];
             foreach ($params as $i => $param) {
@@ -317,7 +317,7 @@ class Validate
         if (!is_string($value)) {
             return false;
         }
-        $format = $params[0] ?? 'Y-m-d';
+        $format = !empty($params[0]) ? $params[0] : 'Y-m-d';
         $d = \DateTime::createFromFormat($format, $value);
         return $d && $d->format($format) === $value;
     }
@@ -449,7 +449,7 @@ class Validate
         if (!preg_match('/^\d+$/', $digits)) {
             return false;
         }
-        if (!empty($params)) {
+        if (!empty($params) && $params[0] !== '') {
             $length = (int) $params[0];
             return strlen($digits) === $length;
         }

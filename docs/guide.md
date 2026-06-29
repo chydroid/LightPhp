@@ -644,7 +644,7 @@ class Post extends Model
 | `array` | JSON 字符串转 PHP 数组 | `'["a","b"]'` → `['a','b']` |
 | `json` | PHP 数组转 JSON 字符串 | `['a','b']` → `'["a","b"]'` |
 | `date` | 转为日期字符串（Y-m-d） | — |
-| `datetime` | 转为 DateTime 对象 | — |
+| `datetime` | 转为日期时间字符串（Y-m-d H:i:s） | — |
 
 ### 6.4 模型基础 CRUD 操作
 
@@ -1578,12 +1578,13 @@ $container->flush();
 
 ### 13.2 在应用中使用容器
 
-框架在 Application 中自动初始化了容器，通过辅助函数 `app()` 可以获取服务：
+框架在 Application 中自动初始化了容器，通过 `Container::getInstance()` 可以获取服务：
 
 ```php
-$db    = app(\db\Connection::class);
-$cache = app(\cache\FileCache::class);
-$log   = app(\log\Logger::class);
+$container = \core\Container::getInstance();
+$db    = $container->get(\db\Connection::class);
+$cache = $container->get(\cache\FileCache::class);
+$log   = $container->get(\log\Logger::class);
 ```
 
 ### 13.3 PSR-11 兼容说明
@@ -2354,7 +2355,7 @@ Blade::directive('datetime', function($expr) {
 use db\Schema;
 use db\Blueprint;
 
-$pdo = app(\db\Connection::class)->getPdo();
+$pdo = \core\Container::getInstance()->get(\db\Connection::class)->getPdo();
 $schema = Schema::setConnection($pdo);
 
 // 创建表

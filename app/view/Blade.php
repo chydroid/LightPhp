@@ -85,6 +85,8 @@ class Blade
     {
         $this->sections = [];
         $this->stack = [];
+        $this->pushStack = [];
+        $this->prependStack = [];
 
         $rendered = [$template];
         $content = $this->renderTemplate($template, $data);
@@ -212,6 +214,7 @@ class Blade
     private function compileEchos(string $content): string
     {
         $content = (string) preg_replace('/\{\!!\s*(.+?)\s*!!\}/s', '<?= $1 ?>', $content);
+        $content = (string) preg_replace('/\{\{\{\s*(.+?)\s*\}\}\}/s', '<?= htmlspecialchars((string) $1, ENT_QUOTES, \'UTF-8\') ?>', $content);
         $content = (string) preg_replace('/\{\{(.+?)\}\}/s', '<?= htmlspecialchars((string) $1, ENT_QUOTES, \'UTF-8\') ?>', $content);
         $content = (string) preg_replace_callback(
             '/@json\(((?:[^()]++|\((?1)\))*+)\)/s',
@@ -257,7 +260,7 @@ class Blade
 
         $statements = [
             '@endsection'                  => '<?php $__blade->endSection(); ?>',
-            '@csrf(?!\w)'                   => '<input type="hidden" name="_token" value="<?= htmlspecialchars(\core\Session::token(), ENT_QUOTES, \'UTF-8\') ?>">',
+            '@csrf(?:\(\s*\))?(?!\w)'                   => '<input type="hidden" name="_token" value="<?= htmlspecialchars(\core\Session::token(), ENT_QUOTES, \'UTF-8\') ?>">',
             '@php(?!\w)'                   => '<?php ',
             '@endphp'                      => '?>',
             '@else(?!\w)'                    => '<?php else: ?>',
@@ -440,7 +443,9 @@ class Blade
                 $view = trim($parts[0], "'\"");
                 $items = $parts[1];
                 $var = trim($parts[2], "'\"");
-                return '<?php foreach ((array)(' . $items . ') as $__key => $' . $var . '): ?><?= $__blade->resolveInclude(\'' . addslashes($view) . '\') ?><?php endforeach; ?>';
+                return '<?php foreach ((array)(' . $items . ') as $__key => $' . $var . '): ?>'
+                     . '<?php $__inc_each = $__blade->resolveInclude(\'' . addslashes($view) . '\'); if ($__inc_each) { require $__inc_each; } ?>'
+                     . '<?php endforeach; ?>';
             },
             $content
         );

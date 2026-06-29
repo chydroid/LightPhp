@@ -273,8 +273,8 @@ $db->table('users')
 $db->table('users')
     ->where('status', '=', 'active')
     ->whereOr([
-        ['role', '=', 'admin'],
-        ['role', '=', 'editor'],
+        'username' => ['=', 'admin'],
+        'email' => ['=', 'admin@example.com'],
     ])
     ->fetchAll();
 
@@ -434,7 +434,7 @@ User::onEvent('deleting', function($user) {
 });
 ```
 
-支持的事件：`creating`、`created`、`updating`、`updated`、`saving`、`saved`、`deleting`、`deleted`
+支持的事件：`creating`、`created`、`updating`、`updated`、`saving`、`saved`、`deleting`、`deleted`、`restoring`、`restored`
 
 ### 观察者
 
@@ -741,7 +741,12 @@ $response = $handler->render($request, $exception);
 ```php
 use cache\CacheManager;
 
-$cache = new CacheManager(['driver' => 'file']);
+$cache = new CacheManager([
+    'default' => 'file',
+    'stores' => [
+        'file' => ['driver' => 'file', 'path' => STORAGE_PATH . 'cache/'],
+    ],
+]);
 
 // 基础操作
 $cache->set('key', 'value', 3600);     // 设置（1小时过期）

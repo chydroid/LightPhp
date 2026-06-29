@@ -76,7 +76,7 @@ class Container implements PsrContainerInterface
     {
         unset($this->instances[$abstract]);
         $this->bindings[$abstract] = function ($container) use ($abstract, $concrete) {
-            if (!isset($this->instances[$abstract])) {
+            if (!array_key_exists($abstract, $this->instances)) {
                 $this->instances[$abstract] = $concrete($container);
             }
             return $this->instances[$abstract];
@@ -142,7 +142,7 @@ class Container implements PsrContainerInterface
      */
     private function resolved(string $abstract, array $parameters = []): mixed
     {
-        if (isset($this->instances[$abstract])) {
+        if (array_key_exists($abstract, $this->instances)) {
             return $this->instances[$abstract];
         }
 
@@ -262,9 +262,11 @@ class Container implements PsrContainerInterface
      */
     public function has(string $abstract): bool
     {
+        if (isset($this->aliases[$abstract])) {
+            return $this->has($this->aliases[$abstract]);
+        }
         if (isset($this->bindings[$abstract])
-            || isset($this->instances[$abstract])
-            || isset($this->aliases[$abstract])) {
+            || array_key_exists($abstract, $this->instances)) {
             return true;
         }
         if (!class_exists($abstract)) {

@@ -517,7 +517,7 @@ class ProductController extends Controller
             return $this->error('Product not found', 404);
         }
 
-        return $this->success($product);
+        return $this->success($product->toArray());
     }
 
     public function update(int $id, Request $request): Response
@@ -797,7 +797,7 @@ class OrderController extends Controller
         $items = OrderItem::where('order_id', '=', $id)->fetchAll();
         $order->items = $items;
 
-        return $this->success($order);
+        return $this->success($order->toArray());
     }
 
     public function updateStatus(int $id, Request $request): Response

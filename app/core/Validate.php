@@ -286,12 +286,12 @@ class Validate
 
     private function validateIn(string $field, $value, array $params): bool
     {
-        return in_array((string)$value, $params, true);
+        return in_array($value, $params, true);
     }
 
     private function validateNotIn(string $field, $value, array $params): bool
     {
-        return !in_array((string)$value, $params, true);
+        return !in_array($value, $params, true);
     }
 
     private function validateRegex(string $field, $value, array $params): bool

@@ -23,6 +23,9 @@ class Session
                 'httponly'  => true,
                 'samesite'  => 'Lax',
             ]);
+            // 启用 strict mode 防止 session fixation 攻击
+            // 拒绝未初始化的 session ID，强制服务端生成新 ID
+            @ini_set('session.use_strict_mode', '1');
             if (!@session_start()) {
                 error_log('LightPHP Session: Failed to start session');
             } else {

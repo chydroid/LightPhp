@@ -71,9 +71,10 @@ class Env
                 }
 
                 $originalValue = $value;
-                if ($value === 'true') $value = true;
-                elseif ($value === 'false') $value = false;
-                elseif ($value === 'null') $value = null;
+                $lower = strtolower($value);
+                if ($lower === 'true') $value = true;
+                elseif ($lower === 'false') $value = false;
+                elseif ($lower === 'null') $value = null;
 
                 // 仅当系统环境变量不存在时，才使用 .env 文件值
                 if (!isset($_ENV[$key]) && getenv($key) === false) {
@@ -95,17 +96,19 @@ class Env
 
         $envValue = getenv($key);
         if ($envValue !== false) {
-            if ($envValue === 'true') return true;
-            if ($envValue === 'false') return false;
-            if ($envValue === 'null') return null;
+            $lower = strtolower($envValue);
+            if ($lower === 'true') return true;
+            if ($lower === 'false') return false;
+            if ($lower === 'null') return null;
             return $envValue;
         }
 
         if (isset($_ENV[$key])) {
             $val = $_ENV[$key];
-            if ($val === 'true') return true;
-            if ($val === 'false') return false;
-            if ($val === 'null') return null;
+            $lower = strtolower($val);
+            if ($lower === 'true') return true;
+            if ($lower === 'false') return false;
+            if ($lower === 'null') return null;
             return $val;
         }
 

@@ -2,6 +2,44 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.11.0] - 2026-06-29
+
+### 缺陷修复 (Bug Fixes)
+
+#### 回归修复 (Regression)
+
+- **[HIGH] FileCache `read()` 未剥离 die 前缀** — 第四轮 H3 在 `write()` 添加 `<?php die; ?>\n` 前缀防止缓存文件被直接下载/执行，但 `read()` 未剥离前缀就 `json_decode`，导致所有缓存读取返回 null。修复：在 `json_decode` 前剥离前缀，并向后兼容无前缀的旧缓存文件
+- **[MEDIUM] Env `.env` 加载器布尔值大小写敏感** — `env()` helper 已用 `strtolower` 规范化布尔值，但 `.env` 文件加载器仍区分大小写，`True`/`FALSE`/`Null` 不被转换。修复：加载器统一使用 `strtolower`
+- **[LOW] Console 版本号与 README/CHANGELOG 不同步** — `Console.php` 仍是 `2.9.0`，落后于 `2.10.0`。修复：同步至 `2.11.0`
+
+### 安全加固 (Security Hardening)
+
+第四轮已应用的安全加固（本次补录 CHANGELOG）：
+
+- **[SEC] Hash 空密钥绕过** — `setApplicationKey('')` 接受空字符串导致加密无密钥保护。修复：空密钥抛出 `RuntimeException`
+- **[SEC] Cors 通配符与凭证同时启用** — `allowed_origins: ['*']` + `supports_credentials: true` 违反 W3C CORS 规范。修复：构造函数抛出 `InvalidArgumentException`
+- **[SEC] Blade 路径遍历** — `compile()` 和 `compileIncludes` 的前缀检查用 `str_starts_with` 可被 `/view-evil` 绕过。修复：改用 `realpath` + `DIRECTORY_SEPARATOR` 严格匹配
+- **[SEC] Response `download()` 流包装器** — 黑名单方式无法覆盖所有流包装器（如 `php://filter`）。修复：改用白名单正则拒绝所有带 scheme 的路径
+- **[SEC] Session `use_strict_mode`** — 未启用严格模式导致会话固定攻击风险。修复：`ini_set('session.use_strict_mode', '1')`
+- **[SEC] ExceptionHandler 调试信息暴露** — 生产环境调试模式开启时向所有客户端暴露堆栈。修复：仅信任 IP（127.0.0.1/::1）可见调试信息
+- **[SEC] FileCache die 前缀** — `storage/` 误暴露为 web 可访问时缓存文件可被直接下载。修复：写入 `<?php die; ?>\n` 前缀
+
+### 缺陷修复（第四轮补录）
+
+- **[MEDIUM] QueryBuilder 聚合方法残留 having 绑定** — `count/sum/avg/max/min` 未清理 `:h_` 前缀的 having 绑定。修复：新增 `clearHavingBindings()`
+- **[MEDIUM] QueryBuilder `chunkById` 表前缀列名** — `users.id` 列名导致 `end($results)[$column]` 取值失败。修复：提取裸列名
+- **[MEDIUM] Model `create()/save()` 主键为 0 时误标 exists** — `if ($id)` 仅当主键有值时才标记 `exists = true`
+- **[MEDIUM] OutputCache 未跟踪 ob 层级** — 中间件内意外开启的输出缓冲未清理。修复：跟踪 `initialLevel` 并在 finally 中清理
+- **[MEDIUM] Throttle `expire<=0` 未视为过期** — `attempt()` 将 `expire<=0` 当作有效计数。修复：仅 `expire>0 && expire>time()` 才保留计数
+- **[LOW] EventDispatcher `wildcardCache` 无大小限制** — 通配符事件缓存无界增长。修复：超过 1024 项时清空
+- **[LOW] Validate `in/notIn` 类型强转** — `(string)$value` 破坏严格比较。修复：移除强转，使用 `in_array` 严格模式
+
+### 测试 (Tests)
+
+- 新增 7 个第四轮修复回归测试：Hash 空密钥、Cors 通配符+凭证、Blade 路径遍历、Response 流包装器、Throttle expire<=0、Validate 严格比较、Env 大小写不敏感布尔值
+- 修复 2 个 `incrementFallback` 测试以剥离 die 前缀
+- 全部 619 个测试通过
+
 ## [2.10.0] - 2026-06-29
 
 ### 缺陷修复 (Bug Fixes)

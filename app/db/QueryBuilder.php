@@ -744,6 +744,7 @@ class QueryBuilder
                 : "COUNT(`{$column}`) as __count";
             $clone->groupBy = '';
             $clone->having = [];
+            $clone->clearHavingBindings();
             $sql = $clone->buildSelect();
         }
 
@@ -751,6 +752,19 @@ class QueryBuilder
         $stmt->execute($clone->bindings);
         $result = $stmt->fetch();
         return (int) (is_array($result) ? ($result['__count'] ?? 0) : 0);
+    }
+
+    /**
+     * 清除 HAVING 子句对应的绑定参数（:h_ 前缀）
+     * 聚合方法清空 having 后必须调用此方法，否则 PDO 会因占位符不匹配报错
+     */
+    private function clearHavingBindings(): void
+    {
+        foreach (array_keys($this->bindings) as $key) {
+            if (str_starts_with($key, ':h_')) {
+                unset($this->bindings[$key]);
+            }
+        }
     }
 
     public function sum(string $column): float
@@ -766,6 +780,7 @@ class QueryBuilder
         $clone->orderBy = '';
         $clone->groupBy = '';
         $clone->having = [];
+        $clone->clearHavingBindings();
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
@@ -786,6 +801,7 @@ class QueryBuilder
         $clone->orderBy = '';
         $clone->groupBy = '';
         $clone->having = [];
+        $clone->clearHavingBindings();
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
@@ -806,6 +822,7 @@ class QueryBuilder
         $clone->orderBy = '';
         $clone->groupBy = '';
         $clone->having = [];
+        $clone->clearHavingBindings();
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
@@ -826,6 +843,7 @@ class QueryBuilder
         $clone->orderBy = '';
         $clone->groupBy = '';
         $clone->having = [];
+        $clone->clearHavingBindings();
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
@@ -950,7 +968,9 @@ class QueryBuilder
                 break;
             }
 
-            $lastId = end($results)[$column] ?? null;
+            // PDO 返回行中的列名为非限定名（users.id → id），需剥离表前缀
+            $bareColumn = str_contains($column, '.') ? substr(strrchr($column, '.'), 1) : $column;
+            $lastId = end($results)[$bareColumn] ?? null;
             if ($lastId === null) {
                 break;
             }

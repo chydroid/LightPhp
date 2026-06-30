@@ -66,6 +66,9 @@ class Hash
 
     public static function setApplicationKey(string $key): void
     {
+        if ($key === '') {
+            throw new \RuntimeException('APP_KEY cannot be empty. Set it in app/config/app.php [key] or .env file.');
+        }
         self::$appKey = $key;
     }
 

@@ -115,11 +115,11 @@ class Throttle
             if ($content !== false && $content !== '') {
                 $decoded = json_decode($content, true);
                 if (is_array($decoded) && isset($decoded['attempts'])) {
-                    if (!isset($decoded['expire']) || $decoded['expire'] <= 0 || $decoded['expire'] > time()) {
+                    // 仅当 expire 为有效未来时间戳时才保留计数；
+                    // expire<=0 或缺失视为无效数据，重置计数
+                    if (isset($decoded['expire']) && $decoded['expire'] > 0 && $decoded['expire'] > time()) {
                         $attempts = (int) $decoded['attempts'];
-                        if (isset($decoded['expire']) && $decoded['expire'] > 0) {
-                            $expire = $decoded['expire'];
-                        }
+                        $expire = $decoded['expire'];
                     }
                 }
             }

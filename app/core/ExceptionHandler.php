@@ -172,15 +172,18 @@ class ExceptionHandler
      */
     public function renderException(\Throwable $e): Response
     {
+        // 调试模式下的详细异常信息仅对可信 IP 暴露，防止生产环境误开 debug 时泄露堆栈
+        $showDebug = $this->debug && $this->isTrustedIp();
+
         if ($this->currentRequest !== null && $this->shouldReturnJson($this->currentRequest)) {
             $data = [
                 'error' => [
                     'code' => 500,
-                    'message' => $this->debug ? $e->getMessage() : '服务器内部错误',
+                    'message' => $showDebug ? $e->getMessage() : '服务器内部错误',
                 ],
             ];
 
-            if ($this->debug) {
+            if ($showDebug) {
                 $data['error']['exception'] = get_class($e);
                 $data['error']['file'] = $e->getFile();
                 $data['error']['line'] = $e->getLine();
@@ -190,13 +193,26 @@ class ExceptionHandler
             return Response::json($data, 500);
         }
 
-        if ($this->debug) {
+        if ($showDebug) {
             $content = $this->buildDebugHtml(500, $e->getMessage(), $e);
         } else {
             $content = $this->buildProductionHtml(500, '服务器内部错误');
         }
 
         return new Response($content, 500);
+    }
+
+    /**
+     * 判断当前请求 IP 是否为可信本地地址
+     * 仅本地 IP（127.0.0.1/::1）可在 debug 模式下查看详细异常
+     */
+    private function isTrustedIp(): bool
+    {
+        if ($this->currentRequest === null) {
+            return true;
+        }
+        $ip = $this->currentRequest->ip();
+        return $ip === '127.0.0.1' || $ip === '::1' || $ip === '';
     }
 
     /**

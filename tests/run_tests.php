@@ -2517,7 +2517,12 @@ $runner->run('FileCache - incrementFallback 使用默认 TTL', function($t) {
     $file = $ref->getMethod('getFile')->invoke($cache, $key);
     $t->assertTrue(file_exists($file));
 
-    $data = json_decode(file_get_contents($file), true);
+    $raw = file_get_contents($file);
+    $diePrefix = '<?php die; ?>' . "\n";
+    if (str_starts_with($raw, $diePrefix)) {
+        $raw = substr($raw, strlen($diePrefix));
+    }
+    $data = json_decode($raw, true);
     $t->assertIsArray($data);
     $t->assertGreaterThanOrEqual(1, $data['expire'] ?? 0, 'Fallback increment should use default TTL, not permanent');
 
@@ -2536,7 +2541,12 @@ $runner->run('FileCache - incrementFallback 保持永久 TTL', function($t) {
     $method->invoke($cache, $key, 1);
 
     $file = $ref->getMethod('getFile')->invoke($cache, $key);
-    $data = json_decode(file_get_contents($file), true);
+    $raw = file_get_contents($file);
+    $diePrefix = '<?php die; ?>' . "\n";
+    if (str_starts_with($raw, $diePrefix)) {
+        $raw = substr($raw, strlen($diePrefix));
+    }
+    $data = json_decode($raw, true);
     $t->assertIsArray($data);
     $t->assertEquals(0, $data['expire'] ?? null, 'Fallback increment should preserve permanent TTL');
     $t->assertEquals(6, $data['value'] ?? null);
@@ -3899,6 +3909,103 @@ $runner->run('RedisCache - attachTag reads TTL before sAdd', function($t) {
         return;
     }
     $t->assertTrue(true, 'attachTag reads tagTtl before sAdd to detect new keys');
+});
+
+// === 第五轮回归测试：验证第四轮关键修复 ===
+
+$runner->run('Hash - setApplicationKey 空密钥抛异常', function($t) {
+    $t->assertThrows(\RuntimeException::class, function() {
+        \core\Hash::setApplicationKey('');
+    }, '空 APP_KEY 应抛出 RuntimeException');
+});
+
+$runner->run('Cors - 通配符与凭证同时启用抛异常', function($t) {
+    $t->assertThrows(\InvalidArgumentException::class, function() {
+        new \middleware\Cors(['allowed_origins' => ['*'], 'supports_credentials' => true]);
+    }, '通配符 Origin 与 Credentials 不可同时启用');
+});
+
+$runner->run('Blade - 路径遍历被阻止', function($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $ref = new \ReflectionClass($blade);
+    $method = $ref->getMethod('compile');
+
+    set_error_handler(function ($errno, $errstr) {
+        throw new \RuntimeException($errstr);
+    }, E_USER_WARNING);
+
+    $threw = false;
+    try {
+        $method->invoke($blade, '../../../etc/passwd', STORAGE_PATH . 'views/trav_test.php');
+    } catch (\RuntimeException $e) {
+        $threw = str_contains($e->getMessage(), 'traversal');
+    }
+    restore_error_handler();
+    $t->assertTrue($threw, '路径遍历模板应被拒绝并触发警告');
+});
+
+$runner->run('Response - download 拒绝流包装器', function($t) {
+    $t->assertThrows(\InvalidArgumentException::class, function() {
+        \core\Response::download('php://filter/convert.base64-decode/resource=/etc/passwd');
+    }, '流包装器路径应被拒绝');
+});
+
+$runner->run('Throttle - expire<=0 视为过期', function($t) {
+    $throttle = new \middleware\Throttle(2, 60);
+    $ref = new \ReflectionClass($throttle);
+    $getCacheFile = $ref->getMethod('getCacheFile');
+    $attempt = $ref->getMethod('attempt');
+
+    $key = 'throttle_test_expire0_' . uniqid();
+    $file = $getCacheFile->invoke($throttle, $key);
+
+    // 写入 expire=0 且 attempts=99 的损坏数据，正常情况下 99>=2 应被拦截
+    file_put_contents($file, json_encode(['attempts' => 99, 'expire' => 0]));
+
+    // attempt 应将 expire<=0 视为无效，重置计数为 1，返回 true（允许）
+    $result = $attempt->invoke($throttle, $key);
+    $t->assertTrue($result, 'expire<=0 应视为过期，请求应被允许');
+
+    $decoded = json_decode(file_get_contents($file), true);
+    $t->assertEquals(1, $decoded['attempts'], 'expire<=0 时计数应重置为 1');
+
+    @unlink($file);
+});
+
+$runner->run('Validate - in 规则严格比较', function($t) {
+    // int 0 与字符串参数在严格模式下不匹配 → 验证失败
+    $v = new \core\Validate();
+    $v->validate(['status' => 0], ['status' => 'in:0,1,2']);
+    $t->assertFalse($v->passes(), 'int 0 在严格模式下不应匹配字符串 "0"');
+
+    // string '0' 与字符串参数匹配 → 验证通过
+    $v2 = new \core\Validate();
+    $v2->validate(['status' => '0'], ['status' => 'in:0,1,2']);
+    $t->assertTrue($v2->passes(), 'string "0" 应匹配字符串 "0"');
+});
+
+$runner->run('Env - .env 大小写不敏感布尔值', function($t) {
+    $ref = new \ReflectionClass(\core\Env::class);
+    $loadedProp = $ref->getProperty('loaded');
+    $varsProp = $ref->getProperty('vars');
+    $oldLoaded = $loadedProp->getValue(null);
+    $oldVars = $varsProp->getValue(null);
+
+    $tempFile = tempnam(sys_get_temp_dir(), 'env_');
+    file_put_contents($tempFile, "FIFTH_TRUE=True\nFIFTH_FALSE=FALSE\nFIFTH_NULL=Null\n");
+
+    try {
+        $loadedProp->setValue(null, false);
+        \core\Env::load($tempFile);
+
+        $t->assertTrue(\core\Env::get('FIFTH_TRUE') === true, 'True 应规范化为 bool true');
+        $t->assertTrue(\core\Env::get('FIFTH_FALSE') === false, 'FALSE 应规范化为 bool false');
+        $t->assertNull(\core\Env::get('FIFTH_NULL'), 'Null 应规范化为 null');
+    } finally {
+        $loadedProp->setValue(null, $oldLoaded);
+        $varsProp->setValue(null, $oldVars);
+        @unlink($tempFile);
+    }
 });
 
 $runner->summary();

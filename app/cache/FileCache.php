@@ -106,6 +106,12 @@ class FileCache implements CacheInterface
             return null;
         }
 
+        // 剥离 die 前缀（向后兼容无前缀的旧缓存文件）
+        $diePrefix = '<?php die; ?>' . "\n";
+        if (str_starts_with($content, $diePrefix)) {
+            $content = substr($content, strlen($diePrefix));
+        }
+
         $data = @json_decode($content, true);
         if (!is_array($data) || !array_key_exists('value', $data)) {
             return null;
@@ -144,6 +150,9 @@ class FileCache implements CacheInterface
         if ($content === false) {
             return false;
         }
+
+        // 加 die 前缀防止 storage 误暴露为 web 可访问时缓存文件被直接下载/执行
+        $content = '<?php die; ?>' . "\n" . $content;
 
         $tmpFile = $file . '.' . bin2hex(random_bytes(8)) . '.tmp';
         if (file_put_contents($tmpFile, $content, LOCK_EX) === false) {

@@ -51,9 +51,14 @@ class OutputCache extends Middleware
 
         ob_start();
         $response = null;
+        $initialLevel = ob_get_level();
         try {
             $response = $next($request);
         } finally {
+            // 清理内部遗留的未关闭缓冲，确保只回收本层输出
+            while (ob_get_level() > $initialLevel) {
+                ob_end_clean();
+            }
             $output = ob_get_clean();
         }
 

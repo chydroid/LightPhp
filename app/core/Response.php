@@ -103,8 +103,9 @@ class Response
      */
     public static function download(string $filePath, ?string $name = null): self
     {
-        // 拒绝危险的 PHP 流包装器，防止开发者误传用户输入导致任意读取/RCE
-        if (preg_match('#^(php|phar|data|glob|expect|zip|compress\.zlib|compress\.bzip2)://#i', $filePath)) {
+        // 拒绝所有流包装器（file://、ftp://、php://、phar:// 等），
+        // 防止开发者误传用户输入导致任意文件读取/RCE
+        if (preg_match('#^[a-zA-Z][a-zA-Z0-9+.\-]*://#', $filePath)) {
             throw new \InvalidArgumentException("Unsupported file path scheme: {$filePath}");
         }
 

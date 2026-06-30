@@ -151,6 +151,10 @@ class EventDispatcher
             }
         }
 
+        // 防止长驻进程派发大量唯一事件名导致内存泄漏
+        if (count($this->wildcardCache) >= 1024) {
+            $this->wildcardCache = [];
+        }
         $this->wildcardCache[$event] = $listeners;
 
         return $listeners;

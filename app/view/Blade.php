@@ -156,9 +156,12 @@ class Blade
         $sourcePath = $this->templatePath . $template . '.blade.php';
 
         // 防止路径遍历：验证模板路径在模板目录内
+        // 必须附加 DIRECTORY_SEPARATOR，否则 /app/view-evil 会匹配 /app/view 前缀
         $realSourceDir = realpath(dirname($sourcePath));
         $realTemplateDir = realpath($this->templatePath);
-        if ($realSourceDir === false || $realTemplateDir === false || !str_starts_with($realSourceDir, $realTemplateDir)) {
+        if ($realSourceDir === false || $realTemplateDir === false
+            || $realSourceDir !== $realTemplateDir
+            && !str_starts_with($realSourceDir, $realTemplateDir . DIRECTORY_SEPARATOR)) {
             trigger_error("Blade: Template path traversal detected: {$template}", E_USER_WARNING);
             return;
         }
@@ -412,7 +415,9 @@ class Blade
                 // 防止路径遍历：验证 include 路径在模板目录内
                 $realIncludeDir = realpath(dirname($sourcePath));
                 $realTemplateDir = realpath($this->templatePath);
-                if ($realIncludeDir === false || $realTemplateDir === false || !str_starts_with($realIncludeDir, $realTemplateDir)) {
+                if ($realIncludeDir === false || $realTemplateDir === false
+                    || $realIncludeDir !== $realTemplateDir
+                    && !str_starts_with($realIncludeDir, $realTemplateDir . DIRECTORY_SEPARATOR)) {
                     trigger_error("Blade: Include path traversal detected: {$view}", E_USER_WARNING);
                     return '';
                 }

@@ -152,7 +152,11 @@ class Model
         $data = $this->syncTimestamps($this->attributes, 'create');
         $id = $this->newQuery()->insert($data);
         $this->attributes[$this->primaryKey] = $id;
-        $this->exists = true;
+        // 仅在获得有效主键时标记为已存在，避免 lastInsertId=0 时
+        // 后续 save() 误走 UPDATE 分支 where pk=0
+        if ($id) {
+            $this->exists = true;
+        }
         $this->fireEvent('created');
         return $id;
     }
@@ -492,7 +496,11 @@ class Model
             $data = $this->syncTimestamps($data, 'create');
             $id = $this->newQuery()->insert($data);
             $this->attributes[$this->primaryKey] = $id;
-            $this->exists = true;
+            // 仅在获得有效主键时标记为已存在，避免 lastInsertId=0 时
+            // 后续 save() 误走 UPDATE 分支 where pk=0
+            if ($id) {
+                $this->exists = true;
+            }
             $this->fireEvent('created');
             $this->fireEvent('saved');
             return $id;

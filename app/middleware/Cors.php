@@ -20,6 +20,16 @@ class Cors
             'max_age' => 86400,
             'supports_credentials' => false,
         ];
+
+        // W3C CORS 规范明确禁止通配符 Origin 与 Credentials 同时启用
+        // 此组合会导致任意站点可携带 Cookie 发起跨域请求
+        if (in_array('*', $this->config['allowed_origins'], true)
+            && !empty($this->config['supports_credentials'])) {
+            throw new \InvalidArgumentException(
+                'Cors: "allowed_origins: *" cannot be used together with "supports_credentials: true". '
+                . 'Use an explicit origin whitelist instead.'
+            );
+        }
     }
 
     /**

@@ -214,7 +214,7 @@ class Validate
 
         if (method_exists($this, $ruleMethod)) {
             if (!$this->$ruleMethod($field, $value, $params)) {
-                $this->addError($field, $rule, $params);
+                $this->addError($field, $rule, $params, $value);
             }
         } else {
             trigger_error("Validate: Unknown validation rule '{$rule}' for field '{$field}'", E_USER_WARNING);
@@ -223,16 +223,17 @@ class Validate
 
     /**
      * 添加错误信息
-     * 
+     *
      * @param string $field 字段名
      * @param string $rule 规则名
      * @param array $params 规则参数
+     * @param mixed $value 字段值（用于 :value 占位符）
      */
-    private function addError(string $field, string $rule, array $params = []): void
+    private function addError(string $field, string $rule, array $params = [], mixed $value = null): void
     {
         $key = $field . '.' . $rule;
         $message = $this->messages[$key] ?? $this->messages[$field] ?? "{$field} is invalid";
-        
+
         if (!empty($params)) {
             if ($rule === 'digits') {
                 $placeholders = [':length', ':min', ':max'];
@@ -252,9 +253,34 @@ class Validate
             if (!empty($search)) {
                 $message = str_replace($search, $replace, $message);
             }
+            $message = str_replace(':params', implode(', ', array_map(fn($p) => (string) $p, $params)), $message);
+        }
+
+        if (str_contains($message, ':value')) {
+            $message = str_replace(':value', $this->stringifyValue($value), $message);
         }
 
         $this->errors[$field][] = $message;
+    }
+
+    /**
+     * 将值转为字符串用于 :value 占位符
+     */
+    private function stringifyValue(mixed $value): string
+    {
+        if (is_string($value) || is_numeric($value)) {
+            return (string) $value;
+        }
+        if (is_bool($value)) {
+            return $value ? 'true' : 'false';
+        }
+        if (is_array($value)) {
+            return json_encode($value, JSON_UNESCAPED_UNICODE) ?: '';
+        }
+        if ($value === null) {
+            return 'null';
+        }
+        return '';
     }
 
     /**

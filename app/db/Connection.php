@@ -142,6 +142,10 @@ class Connection implements ConnectionInterface
      */
     public function beginTransaction(): bool
     {
+        if ($this->transactionLevel > 0 && !$this->pdo->inTransaction()) {
+            $this->transactionLevel = 0;
+        }
+
         if ($this->transactionLevel === 0) {
             $result = $this->pdo->beginTransaction();
         } else {
@@ -164,6 +168,10 @@ class Connection implements ConnectionInterface
         if ($this->transactionLevel <= 0) {
             return false;
         }
+        if (!$this->pdo->inTransaction()) {
+            $this->transactionLevel = 0;
+            return false;
+        }
         $this->transactionLevel--;
         if ($this->transactionLevel === 0) {
             return $this->pdo->commit();
@@ -180,6 +188,10 @@ class Connection implements ConnectionInterface
     public function rollback(): bool
     {
         if ($this->transactionLevel <= 0) {
+            return false;
+        }
+        if (!$this->pdo->inTransaction()) {
+            $this->transactionLevel = 0;
             return false;
         }
         $this->transactionLevel--;

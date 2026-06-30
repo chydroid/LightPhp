@@ -44,6 +44,14 @@ class Router
     /** @var string|null 当前路由名称（用于链式调用） */
     private ?string $pendingRouteName = null;
 
+    public function __construct()
+    {
+        $current = ini_get('pcre.backtrack_limit');
+        if ($current === false || (int) $current > 100000) {
+            ini_set('pcre.backtrack_limit', '100000');
+        }
+    }
+
     /**
      * 注册中间件别名
      * 
@@ -499,7 +507,8 @@ class Router
         }
 
         // 执行正则匹配
-        if (preg_match($regex, $uri, $matches)) {
+        $result = preg_match($regex, $uri, $matches);
+        if ($result === 1) {
             $params = [];
             foreach ($matches as $key => $value) {
                 if (is_string($key)) {
@@ -507,6 +516,10 @@ class Router
                 }
             }
             return $params;
+        }
+
+        if ($result === false && preg_last_error() !== PREG_NO_ERROR) {
+            return false;
         }
 
         return false;

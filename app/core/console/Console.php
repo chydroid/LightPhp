@@ -12,9 +12,9 @@ class Console
     private array $commands = [];
 
     private string $name = 'LightPHP Console';
-    private string $version = '2.12.0';
+    private string $version = '2.13.0';
 
-    public function __construct(string $name = 'LightPHP Console', string $version = '2.12.0')
+    public function __construct(string $name = 'LightPHP Console', string $version = '2.13.0')
     {
         $this->name = $name;
         $this->version = $version;

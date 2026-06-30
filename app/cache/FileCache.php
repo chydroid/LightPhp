@@ -533,19 +533,61 @@ class FileCache implements CacheInterface
 
     private function incrementFallback(string $key, int $step): int
     {
-        $data = $this->read($key);
-        $current = $data !== null ? (int) $data['value'] : 0;
-        $new = $current + $step;
-        $ttl = ($data !== null && $data['expire'] > 0) ? max(1, $data['expire'] - time()) : ($data !== null ? 0 : null);
-        $this->set($key, $new, $ttl);
-        return $new;
+        return $this->modifyFallback($key, $step, true);
     }
 
     private function decrementFallback(string $key, int $step): int
     {
+        return $this->modifyFallback($key, $step, false);
+    }
+
+    /**
+     * 无独立锁文件时的回退读写（尝试直接对缓存文件加锁）
+     */
+    private function modifyFallback(string $key, int $step, bool $increment): int
+    {
+        $file = $this->getFile($key);
+        $fp = @fopen($file, 'c+');
+        if ($fp !== false) {
+            try {
+                if (flock($fp, LOCK_EX)) {
+                    $content = stream_get_contents($fp);
+                    $diePrefix = '<?php die; ?>' . "\n";
+                    $raw = str_starts_with($content, $diePrefix) ? substr($content, strlen($diePrefix)) : $content;
+                    $data = @json_decode($raw, true);
+
+                    if (is_array($data) && array_key_exists('value', $data) && !$this->isExpired($data)) {
+                        $current = (int) $data['value'];
+                        $ttl = $data['expire'] > 0 ? max(1, $data['expire'] - time()) : 0;
+                    } else {
+                        $current = 0;
+                        $ttl = $this->defaultTtl;
+                    }
+
+                    $new = $increment ? $current + $step : max(0, $current - $step);
+                    $newData = [
+                        'value'    => $new,
+                        'expire'   => $ttl > 0 ? time() + $ttl : 0,
+                        'created'  => time(),
+                    ];
+                    $newContent = $diePrefix . json_encode($newData, JSON_UNESCAPED_UNICODE);
+
+                    ftruncate($fp, 0);
+                    rewind($fp);
+                    fwrite($fp, $newContent);
+                    return $new;
+                }
+            } finally {
+                if (is_resource($fp)) {
+                    flock($fp, LOCK_UN);
+                    fclose($fp);
+                }
+            }
+        }
+
         $data = $this->read($key);
         $current = $data !== null ? (int) $data['value'] : 0;
-        $new = max(0, $current - $step);
+        $new = $increment ? $current + $step : max(0, $current - $step);
         $ttl = ($data !== null && $data['expire'] > 0) ? max(1, $data['expire'] - time()) : ($data !== null ? 0 : null);
         $this->set($key, $new, $ttl);
         return $new;

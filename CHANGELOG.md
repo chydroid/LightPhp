@@ -2,6 +2,26 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.13.0] - 2026-06-30
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] Connection `transactionLevel` 与 PDO 状态失同步** — PDO 隐式回滚（如死锁导致的 server-side rollback）后 `transactionLevel` 仍 >0，后续 `commit()`/`rollback()` 引用不存在的事务层级。修复：`beginTransaction()`/`commit()`/`rollback()` 中通过 `pdo->inTransaction()` 重新同步 `transactionLevel`
+- **[MEDIUM] Session `headers_sent` 静默失败导致重试循环** — `start()` 在 headers 已发送时无法启动会话但 `$started` 保持 `false`，后续调用重试无效；`flush()` 中 `setcookie()` 未检查 `headers_sent()` 触发警告。修复：headers 已发送时标记 `$started=true` 并初始化 `$_SESSION`，`setcookie()` 前增加 `headers_sent()` 守卫
+- **[MEDIUM] Router 自定义正则路由 ReDoS 风险** — 用户注册的恶意正则路由可导致灾难性回溯（catastrophic backtracking），阻塞 worker。修复：构造函数中限制 `pcre.backtrack_limit=100000`，`matchRoute()` 检查 `preg_match` 返回值与 `preg_last_error()`
+- **[MEDIUM] FileCache `incrementFallback/decrementFallback` 无锁读写** — 锁文件无法创建时回退路径直接 `read()`+`set()`，无锁保护并发递增会丢失更新。修复：新增 `modifyFallback()` 方法，直接对缓存文件 `fopen`+`flock(LOCK_EX)` 实现读-改-写原子操作
+- **[LOW] Validate `:value`/`:params` 占位符未替换** — `addError()` 未接收字段值，自定义错误消息中的 `:value` 和 `:params` 占位符不被替换。修复：`addError` 签名增加 `$value` 参数，新增 `stringifyValue()` 处理不同类型转字符串，`:params` 替换为参数逗号分隔列表
+
+### 文档 (Documentation)
+
+- README badge 版本 `2.12.0` → `2.13.0`，测试数同步至 644
+- docs/quick-start.md 版本号 `v2.12.0` → `v2.13.0`
+- docs/testing-guide.md 测试数同步至 644 项断言
+
+### 测试 (Tests)
+
+- 新增 4 个第七轮修复回归测试：Connection 事务状态同步、Router ReDoS 防护、FileCache incrementFallback 并发、Validate `:value`/`:params` 占位符
+
 ## [2.12.0] - 2026-06-30
 
 ### 缺陷修复 (Bug Fixes)

@@ -35,6 +35,13 @@ class Session
         } elseif (session_status() === PHP_SESSION_ACTIVE) {
             self::$started = true;
             self::ageFlash();
+        } elseif (session_status() === PHP_SESSION_NONE && headers_sent()) {
+            // headers 已发送，无法启动 session — 标记已启动防止重试，初始化 $_SESSION 防止后续操作报错
+            self::$started = true;
+            if (!isset($_SESSION)) {
+                $_SESSION = [];
+            }
+            error_log('LightPHP Session: Cannot start session - headers already sent');
         }
     }
 
@@ -101,7 +108,7 @@ class Session
     {
         self::start();
         $_SESSION = [];
-        if (ini_get('session.use_cookies')) {
+        if (ini_get('session.use_cookies') && !headers_sent()) {
             $params = session_get_cookie_params();
             setcookie(session_name(), '', [
                 'expires'  => time() - 42000,

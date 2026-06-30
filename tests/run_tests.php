@@ -4070,6 +4070,85 @@ $runner->run('Validate - integer/float 拒绝布尔值', function($t) {
     $t->assertTrue($v3->fails(), 'true 不应通过 float 校验');
 });
 
+// === 第七轮回归测试：已知限制修复 ===
+
+$runner->run('Connection - 隐式回滚后 transactionLevel 重同步', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+
+    $pdo = new \PDO('sqlite::memory:');
+    $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+
+    $conn = (new \ReflectionClass(\db\Connection::class))->newInstanceWithoutConstructor();
+    $ref = new \ReflectionClass(\db\Connection::class);
+    $pdoProp = $ref->getProperty('pdo');
+    $pdoProp->setValue($conn, $pdo);
+    $levelProp = $ref->getProperty('transactionLevel');
+
+    $conn->beginTransaction();
+    $t->assertEquals(1, $levelProp->getValue($conn), 'beginTransaction 后 level 应为 1');
+
+    // 模拟隐式回滚：绕过 Connection 直接调用 PDO rollBack
+    $pdo->rollBack();
+    $t->assertFalse($pdo->inTransaction(), '隐式回滚后 PDO 应不在事务中');
+
+    // commit 应检测到事务已结束，重置 level 并返回 false
+    $result = $conn->commit();
+    $t->assertFalse($result, '隐式回滚后 commit 应返回 false');
+    $t->assertEquals(0, $levelProp->getValue($conn), 'transactionLevel 应已重置为 0');
+
+    // rollback 同理
+    $conn->beginTransaction();
+    $pdo->rollBack();
+    $result = $conn->rollback();
+    $t->assertFalse($result, '隐式回滚后 rollback 应返回 false');
+    $t->assertEquals(0, $levelProp->getValue($conn), 'transactionLevel 应已重置为 0');
+});
+
+$runner->run('Router - ReDoS 防护不卡死', function($t) {
+    $router = new \core\Router();
+    $router->get('/test/{id:([a-z]+)+}', fn() => 'ok');
+
+    $ref = new \ReflectionClass($router);
+    $method = $ref->getMethod('matchRoute');
+
+    $start = microtime(true);
+    $result = $method->invoke($router, '/test/{id:([a-z]+)+}', '/test/aaaaaaaaaaaaaaaaaaaaaaaaaaaa!');
+    $elapsed = microtime(true) - $start;
+
+    $t->assertFalse($result, 'ReDoS 输入应返回 false');
+    $t->assertTrue($elapsed < 5.0, 'ReDoS 防护：应在 5 秒内完成，实际 ' . round($elapsed, 3) . 's');
+});
+
+$runner->run('FileCache - incrementFallback 带锁回退', function($t) {
+    $cache = new \cache\FileCache(['path' => STORAGE_PATH . 'cache/']);
+    $key = 'fallback_test_' . uniqid();
+    $cache->set($key, 10);
+
+    $ref = new \ReflectionClass($cache);
+    $method = $ref->getMethod('incrementFallback');
+    $result = $method->invoke($cache, $key, 5);
+
+    $t->assertEquals(15, $result, 'incrementFallback 应返回 10 + 5 = 15');
+    $t->assertEquals(15, $cache->get($key), '缓存值应为 15');
+
+    $cache->delete($key);
+});
+
+$runner->run('Validate - :value 和 :params 占位符替换', function($t) {
+    $v = new \core\Validate();
+    $v->messages(['name.min' => '值 ":value" 需至少 :min 字符，参数: :params']);
+    $v->validate(['name' => 'ab'], ['name' => 'min:5']);
+    $t->assertTrue($v->fails(), 'min:5 对 "ab" 应失败');
+    $error = $v->firstError('name');
+    $t->assertTrue(str_contains($error, '"ab"'), ':value 应被替换为 ab');
+    $t->assertTrue(str_contains($error, '参数: 5'), ':params 应被替换为 "5"');
+    $t->assertFalse(str_contains($error, ':value'), ':value 不应残留');
+    $t->assertFalse(str_contains($error, ':params'), ':params 不应残留');
+});
+
 $runner->summary();
 
 // 测试失败时返回非零退出码，确保 CI 环境能正确检测失败

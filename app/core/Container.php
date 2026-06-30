@@ -127,6 +127,9 @@ class Container implements PsrContainerInterface
     /** @var array<string, bool> 构建路径追踪，防止循环依赖 */
     private array $building = [];
 
+    /** @var array<string, bool> 绑定闭包解析路径追踪，防止循环单例依赖 */
+    private array $resolving = [];
+
     /**
      * 解析服务
      * 
@@ -147,8 +150,17 @@ class Container implements PsrContainerInterface
         }
 
         if (isset($this->bindings[$abstract])) {
-            $concrete = $this->bindings[$abstract];
-            return $concrete($this);
+            if (isset($this->resolving[$abstract])) {
+                $chain = implode(' -> ', array_keys($this->resolving)) . ' -> ' . $abstract;
+                throw new NotFoundException("Circular dependency detected: {$chain}");
+            }
+            $this->resolving[$abstract] = true;
+            try {
+                $concrete = $this->bindings[$abstract];
+                return $concrete($this);
+            } finally {
+                unset($this->resolving[$abstract]);
+            }
         }
 
         if (isset($this->aliases[$abstract])) {
@@ -263,7 +275,15 @@ class Container implements PsrContainerInterface
     public function has(string $abstract): bool
     {
         if (isset($this->aliases[$abstract])) {
-            return $this->has($this->aliases[$abstract]);
+            if (isset($this->aliasResolving[$abstract])) {
+                return false;
+            }
+            $this->aliasResolving[$abstract] = true;
+            try {
+                return $this->has($this->aliases[$abstract]);
+            } finally {
+                unset($this->aliasResolving[$abstract]);
+            }
         }
         if (isset($this->bindings[$abstract])
             || array_key_exists($abstract, $this->instances)) {
@@ -312,5 +332,6 @@ class Container implements PsrContainerInterface
         $this->constructorParamCache = [];
         $this->building = [];
         $this->aliasResolving = [];
+        $this->resolving = [];
     }
 }

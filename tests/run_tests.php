@@ -4008,6 +4008,68 @@ $runner->run('Env - .env 大小写不敏感布尔值', function($t) {
     }
 });
 
+// === 第六轮回归测试 ===
+
+$runner->run('Container - 循环单例依赖抛异常', function($t) {
+    $c = new \core\Container();
+    $c->singleton('A', function($c) {
+        return new class($c->get('B')) {
+            public function __construct(public $b) {}
+        };
+    });
+    $c->singleton('B', function($c) {
+        return new class($c->get('A')) {
+            public function __construct(public $a) {}
+        };
+    });
+    $t->assertThrows(\core\contract\NotFoundException::class, function() use ($c) {
+        $c->get('A');
+    }, '循环单例依赖应抛出 NotFoundException 而非栈溢出');
+});
+
+$runner->run('Container - has 循环别名安全返回', function($t) {
+    $c = new \core\Container();
+    $c->alias('A', 'B');
+    $c->alias('B', 'A');
+    $t->assertFalse($c->has('A'), '循环别名 has() 应返回 false 而非栈溢出');
+});
+
+$runner->run('Validate - max 规则 :max 占位符替换', function($t) {
+    $v = new \core\Validate();
+    $v->messages(['name.max' => '至多 :max 个字符']);
+    $v->validate(['name' => 'abcdefghijk'], ['name' => 'max:10']);
+    $t->assertTrue($v->fails(), '11 字符超过 max:10 应失败');
+    $t->assertEquals('至多 10 个字符', $v->firstError('name'), ':max 占位符应被替换为 10');
+});
+
+$runner->run('Validate - regex 规则含管道符', function($t) {
+    $v1 = new \core\Validate();
+    $v1->validate(['val' => 'a'], ['val' => 'regex:/a|b/']);
+    $t->assertTrue($v1->passes(), '"a" 应匹配 /a|b/');
+
+    $v2 = new \core\Validate();
+    $v2->validate(['val' => 'b'], ['val' => 'regex:/a|b/']);
+    $t->assertTrue($v2->passes(), '"b" 应匹配 /a|b/');
+
+    $v3 = new \core\Validate();
+    $v3->validate(['val' => 'c'], ['val' => 'regex:/a|b/']);
+    $t->assertTrue($v3->fails(), '"c" 不应匹配 /a|b/');
+});
+
+$runner->run('Validate - integer/float 拒绝布尔值', function($t) {
+    $v1 = new \core\Validate();
+    $v1->validate(['flag' => true], ['flag' => 'integer']);
+    $t->assertTrue($v1->fails(), 'true 不应通过 integer 校验');
+
+    $v2 = new \core\Validate();
+    $v2->validate(['flag' => 123], ['flag' => 'integer']);
+    $t->assertTrue($v2->passes(), '123 应通过 integer 校验');
+
+    $v3 = new \core\Validate();
+    $v3->validate(['flag' => true], ['flag' => 'float']);
+    $t->assertTrue($v3->fails(), 'true 不应通过 float 校验');
+});
+
 $runner->summary();
 
 // 测试失败时返回非零退出码，确保 CI 环境能正确检测失败

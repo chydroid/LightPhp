@@ -145,8 +145,10 @@ class Connection implements ConnectionInterface
         if ($this->transactionLevel === 0) {
             $result = $this->pdo->beginTransaction();
         } else {
-            $this->pdo->exec("SAVEPOINT sp_{$this->transactionLevel}");
-            $result = true;
+            $result = $this->pdo->exec("SAVEPOINT sp_{$this->transactionLevel}");
+            if ($result === false) {
+                return false;
+            }
         }
         $this->transactionLevel++;
         return $result;

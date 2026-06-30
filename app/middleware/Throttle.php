@@ -68,25 +68,6 @@ class Throttle
         return $this->storagePath . $key . '.data';
     }
 
-    private function getAttempts(string $key): int
-    {
-        $file = $this->getCacheFile($key);
-        if (!file_exists($file)) {
-            return 0;
-        }
-        $data = @file_get_contents($file);
-        if ($data === false) return 0;
-        $decoded = json_decode($data, true);
-        if (!is_array($decoded) || !isset($decoded['attempts'], $decoded['expire'])) {
-            return 0;
-        }
-        if ($decoded['expire'] > 0 && $decoded['expire'] < time()) {
-            @unlink($file);
-            return 0;
-        }
-        return (int) $decoded['attempts'];
-    }
-
     /**
      * 原子性地检查并递增请求计数（消除 TOCTOU 竞态条件）
      *

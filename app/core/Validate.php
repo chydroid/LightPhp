@@ -81,7 +81,7 @@ class Validate
         }
 
         foreach ($this->rules as $field => $rule) {
-            $ruleList = is_array($rule) ? $rule : explode('|', $rule);
+            $ruleList = is_array($rule) ? $rule : $this->splitRules((string) $rule);
 
             foreach ($ruleList as $r) {
                 $r = trim($r);
@@ -116,8 +116,76 @@ class Validate
     }
 
     /**
+     * 分割规则字符串为规则数组（delimiter-aware，正确处理 regex 规则中的管道符）
+     *
+     * @param string $rule 规则字符串
+     * @return array<string> 规则数组
+     */
+    private function splitRules(string $rule): array
+    {
+        if (!str_contains($rule, 'regex:')) {
+            return explode('|', $rule);
+        }
+
+        $segments = explode('|', $rule);
+        $rules = [];
+        $count = count($segments);
+        $i = 0;
+
+        while ($i < $count) {
+            $segment = $segments[$i];
+
+            if (str_starts_with($segment, 'regex:') && strlen($segment) > 6) {
+                $delimiter = $segment[6];
+                $merged = $segment;
+
+                while ($i + 1 < $count && !$this->isRegexClosed(substr($merged, 6), $delimiter)) {
+                    $i++;
+                    $merged .= '|' . $segments[$i];
+                }
+
+                $rules[] = $merged;
+            } else {
+                $rules[] = $segment;
+            }
+
+            $i++;
+        }
+
+        return $rules;
+    }
+
+    /**
+     * 检查正则表达式模式中的分隔符是否已闭合
+     *
+     * @param string $pattern 正则模式（不含 regex: 前缀）
+     * @param string $delimiter 分隔符
+     * @return bool 分隔符是否成对出现
+     */
+    private function isRegexClosed(string $pattern, string $delimiter): bool
+    {
+        $len = strlen($pattern);
+        if ($len < 2 || $pattern[0] !== $delimiter) {
+            return false;
+        }
+
+        $delimiterCount = 0;
+        for ($i = 0; $i < $len; $i++) {
+            if ($pattern[$i] === '\\' && $i + 1 < $len) {
+                $i++;
+                continue;
+            }
+            if ($pattern[$i] === $delimiter) {
+                $delimiterCount++;
+            }
+        }
+
+        return $delimiterCount >= 2;
+    }
+
+    /**
      * 应用单个验证规则
-     * 
+     *
      * @param string $field 字段名
      * @param string $rule 规则名（支持参数，如 min:10）
      */
@@ -166,7 +234,13 @@ class Validate
         $message = $this->messages[$key] ?? $this->messages[$field] ?? "{$field} is invalid";
         
         if (!empty($params)) {
-            $placeholders = $rule === 'digits' ? [':length', ':min', ':max'] : [':min', ':max', ':length'];
+            if ($rule === 'digits') {
+                $placeholders = [':length', ':min', ':max'];
+            } elseif ($rule === 'max') {
+                $placeholders = [':max', ':min', ':length'];
+            } else {
+                $placeholders = [':min', ':max', ':length'];
+            }
             $search = [];
             $replace = [];
             foreach ($params as $i => $param) {
@@ -256,11 +330,17 @@ class Validate
 
     private function validateInteger(string $field, $value, array $params): bool
     {
+        if (is_bool($value)) {
+            return false;
+        }
         return filter_var($value, FILTER_VALIDATE_INT) !== false;
     }
 
     private function validateFloat(string $field, $value, array $params): bool
     {
+        if (is_bool($value)) {
+            return false;
+        }
         return filter_var($value, FILTER_VALIDATE_FLOAT) !== false;
     }
 

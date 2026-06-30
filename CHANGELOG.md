@@ -2,6 +2,31 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.12.0] - 2026-06-30
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] Container 循环单例依赖栈溢出** — `resolved()` 调用绑定闭包前无循环守卫，`$building` 仅保护 `build()` 反射路径。两个互相依赖的 singleton 绑定会导致无限递归。修复：新增 `$resolving` 守卫，检测重入时抛出 `NotFoundException`
+- **[MEDIUM] Container `has()` 循环别名栈溢出** — `has()` 递归别名时无守卫，`alias('A','B'); alias('B','A'); has('A')` 栈溢出。修复：复用 `$aliasResolving` 守卫，检测到重入返回 `false`
+- **[MEDIUM] Validate `:max` 占位符映射错误** — `addError` 中 `max:10` 的 `params[0]` 映射到 `:min` 而非 `:max`，导致自定义消息中 `:max` 不被替换。修复：增加 `max` 规则的占位符分支
+- **[MEDIUM] Validate regex 规则含 `|` 被错误分割** — `explode('|', $rule)` 会把 `regex:/a|b/` 拆成两段。修复：新增 `splitRules()` delimiter-aware 解析器，识别正则分隔符并跨管道符合并
+- **[MEDIUM] Connection SAVEPOINT 执行结果被丢弃** — `exec()` 失败时仍 `$result = true` 并递增 `transactionLevel`，后续 commit/rollback 引用不存在的 savepoint。修复：检查 `exec` 返回值，失败时不递增层级
+- **[MEDIUM] FileCache `remember/increment/decrement` 锁文件 unlink 竞态** — finally 中 `@unlink($lockFile)` 是 flock+unlink 反模式，可导致多进程并发执行回调。修复：移除 finally 中的 unlink，锁文件持久化（由 `clear()` 清理）
+- **[LOW] Validate `validateInteger/validateFloat` 接受布尔值** — `filter_var(true, FILTER_VALIDATE_INT)` 返回 `1`，导致 `true` 通过整数校验，与 `validateNumeric` 不一致。修复：开头加 `is_bool` 守卫
+- **[LOW] Throttle `getAttempts()` 死代码** — 全代码库无调用方且逻辑与 `attempt()` 不一致。修复：删除该方法
+- **[CRITICAL] bin/console 版本覆盖** — `new Console('LightPHP Console', '1.0.0')` 显式传入 `'1.0.0'` 覆盖了 `Console.php` 默认值，导致 `--version` 输出 `v1.0.0`。修复：同步至 `2.12.0`
+
+### 文档 (Documentation)
+
+- README 示例版本号 `2.10.0` → `2.12.0`，测试数同步至 629
+- docs/quick-start.md 版本号 `v2.9.0` → `v2.12.0`
+- docs/testing-guide.md 测试数同步至 629 项断言
+- AGENTS.md `make:model` 描述修正
+
+### 测试 (Tests)
+
+- 新增 5 个第六轮修复回归测试：Container 循环单例、Container has 循环别名、Validate `:max` 占位符、Validate regex 管道符、Validate 拒绝布尔值
+
 ## [2.11.0] - 2026-06-29
 
 ### 缺陷修复 (Bug Fixes)

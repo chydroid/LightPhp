@@ -21,7 +21,7 @@ php bin/console serve [port]           # Dev server (default 8080)
 php bin/console test                   # Run all tests
 php bin/console migrate                # Run migrations
 php bin/console config:cache           # Cache config for production
-php bin/console make:model <Name>      # Scaffold model/controller/middleware
+php bin/console make:model <Name>      # Scaffold a new model class
 ```
 
 ## Testing

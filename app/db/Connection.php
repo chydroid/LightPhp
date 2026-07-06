@@ -40,37 +40,55 @@ class Connection implements ConnectionInterface
      */
     private function connect(): void
     {
-        $host = $this->config['host'] ?? '127.0.0.1';
-        $port = (int) ($this->config['port'] ?? 3306);
-        $database = $this->config['database'] ?? 'test';
-        $username = $this->config['username'] ?? 'root';
-        $password = $this->config['password'] ?? '';
-        $charset = $this->config['charset'] ?? 'utf8mb4';
-
-        if (!preg_match('/^[a-zA-Z0-9._-]+$/', $host)) {
-            throw new \InvalidArgumentException("Invalid database host: {$host}");
-        }
-        if ($port < 1 || $port > 65535) {
-            throw new \InvalidArgumentException("Invalid database port: {$port}");
-        }
-        if (!preg_match('/^[a-zA-Z0-9_]+$/', $database)) {
-            throw new \InvalidArgumentException("Invalid database name: {$database}");
-        }
-        if (!preg_match('/^[a-zA-Z0-9_-]+$/', $charset)) {
-            throw new \InvalidArgumentException("Invalid charset: {$charset}");
-        }
-
-        $this->database = $database;
-        $dsn = "mysql:host={$host};port={$port};dbname={$database};charset={$charset}";
-
+        $driver = $this->config['driver'] ?? 'mysql';
         $options = [
             \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
             \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
             \PDO::ATTR_EMULATE_PREPARES => false,
         ];
+        // 合并用户自定义 PDO 选项（如 SSL、超时等）
+        if (!empty($this->config['options']) && is_array($this->config['options'])) {
+            $options = $options + $this->config['options'];
+        }
 
         try {
-            $this->pdo = new \PDO($dsn, $username, $password, $options);
+            if ($driver === 'sqlite') {
+                $database = $this->config['database'] ?? ':memory:';
+                if ($database === ':memory:') {
+                    $dsn = 'sqlite::memory:';
+                } else {
+                    if (!preg_match('/^[a-zA-Z0-9_.\/\\\\:-]+$/', $database)) {
+                        throw new \InvalidArgumentException("Invalid database path: {$database}");
+                    }
+                    $dsn = "sqlite:{$database}";
+                }
+                $this->database = $database;
+                $this->pdo = new \PDO($dsn, null, null, $options);
+            } else {
+                $host = $this->config['host'] ?? '127.0.0.1';
+                $port = (int) ($this->config['port'] ?? 3306);
+                $database = $this->config['database'] ?? 'test';
+                $username = $this->config['username'] ?? 'root';
+                $password = $this->config['password'] ?? '';
+                $charset = $this->config['charset'] ?? 'utf8mb4';
+
+                if (!preg_match('/^[a-zA-Z0-9._-]+$/', $host)) {
+                    throw new \InvalidArgumentException("Invalid database host: {$host}");
+                }
+                if ($port < 1 || $port > 65535) {
+                    throw new \InvalidArgumentException("Invalid database port: {$port}");
+                }
+                if (!preg_match('/^[a-zA-Z0-9_]+$/', $database)) {
+                    throw new \InvalidArgumentException("Invalid database name: {$database}");
+                }
+                if (!preg_match('/^[a-zA-Z0-9_-]+$/', $charset)) {
+                    throw new \InvalidArgumentException("Invalid charset: {$charset}");
+                }
+
+                $this->database = $database;
+                $dsn = "mysql:host={$host};port={$port};dbname={$database};charset={$charset}";
+                $this->pdo = new \PDO($dsn, $username, $password, $options);
+            }
         } catch (\PDOException $e) {
             throw new \core\exception\DatabaseException(
                 'Database connection failed. Please check your configuration.',

@@ -2,6 +2,34 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.14.0] - 2026-07-01
+
+### 测试覆盖补全 (Test Coverage)
+
+- **Loader** — 新增 3 个测试：register 幂等性、autoload 安全返回、addNamespace 注册
+- **helpers** — 新增 6 个测试：env 默认值/设置值、collect 实例、value 普通值/闭包、route 异常
+- **Upload** — 新增 8 个测试：构造获取方法、危险扩展名检测、双扩展名绕过、安全扩展名、链式方法、非上传文件 validate、错误码检测、file 静态方法
+- **Logger** — 新增 9 个测试：基本写入、消息插值、级别过滤、setLevel/log 拒绝无效级别、所有 PSR-3 级别、clear 清除/无效日期、换行符替换
+- **Captcha** — 新增 6 个测试：verify 空码/正确/大小写/错误、配置方法、generate 生成（GD 不可用时跳过）
+- **Generator** — 新增 7 个测试：tableToModelName/tableToControllerName 转换、generateModel/generateController 代码生成、generateResourceRoutes、无效表名、多下划线
+- **Controller** — 新增 5 个测试：json 响应、success 统一格式、error 统一格式、redirect 302、notFound 404
+
+### 增强 (Enhancements)
+
+- **Connection 多驱动支持** — 新增 SQLite 驱动支持，`connect()` 根据 `driver` 配置构建 DSN；支持自定义 PDO options 合并（SSL/TLS、超时、持久连接）
+- **database.php 配置增强** — 新增 SQLite 连接配置、MySQL collation/engine/strict 选项、PDO options 数组（含 SSL 占位注释）
+- **app.php 配置增强** — 新增 `url`、`asset_url`、`cipher`、`locale`、`fallback_locale`、`providers` 等生产配置项
+
+### 文档 (Documentation)
+
+- 新增 `docs/deployment.md` — 部署指南（环境要求、Nginx/Apache 配置、权限、PHP 配置、HTTPS、检查清单）
+- 新增 `docs/security.md` — 安全指南（SQL 注入/XSS/CSRF/文件上传/加密/会话/CORS/限流/路径遍历防护）
+- 新增 `docs/middleware-guide.md` — 中间件指南（洋葱模型、创建/注册/分组、内置中间件、自定义示例）
+- 新增 `docs/orm-guide.md` — ORM 与数据库指南（配置、查询构建器、Model、关联、软删除、事件、事务、迁移）
+- README badge 版本 `2.13.0` → `2.14.0`，测试数同步至 729
+- docs/quick-start.md 版本号 `v2.13.0` → `v2.14.0`
+- docs/testing-guide.md 测试数同步至 729 项断言
+
 ## [2.13.0] - 2026-06-30
 
 ### 缺陷修复 (Bug Fixes)

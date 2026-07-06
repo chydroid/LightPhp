@@ -4149,6 +4149,444 @@ $runner->run('Validate - :value 和 :params 占位符替换', function($t) {
     $t->assertFalse(str_contains($error, ':params'), ':params 不应残留');
 });
 
+// ===== Loader 测试 =====
+$runner->run('Loader - register 幂等性', function($t) {
+    \core\Loader::register();
+    \core\Loader::register();
+    $t->assertTrue(true, '多次 register 不应抛出异常');
+});
+
+$runner->run('Loader - autoload 不存在的类不抛异常', function($t) {
+    \core\Loader::autoload('nonexistent\\FakeClass');
+    $t->assertTrue(true, 'autoload 不存在的类应安全返回');
+});
+
+$runner->run('Loader - addNamespace 注册新命名空间', function($t) {
+    \core\Loader::addNamespace('testns', __DIR__ . '/test_dir');
+    $t->assertTrue(true, 'addNamespace 应成功执行');
+});
+
+// ===== helpers 函数测试 =====
+$runner->run('helpers - env 返回默认值', function($t) {
+    $result = env('NONEXISTENT_KEY_' . uniqid(), 'default_val');
+    $t->assertEquals('default_val', $result, '不存在的 key 应返回默认值');
+});
+
+$runner->run('helpers - env 返回设置的值', function($t) {
+    \core\Env::set('TEST_ENV_KEY', 'test_value');
+    $result = env('TEST_ENV_KEY', 'default');
+    $t->assertEquals('test_value', $result, '应返回 Env::set 设置的值');
+});
+
+$runner->run('helpers - collect 返回 Collection 实例', function($t) {
+    $c = collect([1, 2, 3]);
+    $t->assertInstanceOf(\core\Collection::class, $c);
+    $t->assertEquals(3, $c->count());
+});
+
+$runner->run('helpers - value 返回普通值', function($t) {
+    $t->assertEquals(42, value(42));
+    $t->assertEquals('hello', value('hello'));
+});
+
+$runner->run('helpers - value 调用闭包', function($t) {
+    $result = value(fn() => 'from_closure');
+    $t->assertEquals('from_closure', $result, '闭包应被调用');
+});
+
+$runner->run('helpers - route 未初始化时抛异常', function($t) {
+    $t->assertThrows(\RuntimeException::class, function() {
+        route('test.route');
+    }, 'Application 未初始化时应抛 RuntimeException');
+});
+
+// ===== Upload 测试 =====
+$runner->run('Upload - 构造和基本获取方法', function($t) {
+    $upload = new \core\Upload([
+        'name' => 'test.pdf',
+        'type' => 'application/pdf',
+        'tmp_name' => '/tmp/test123',
+        'error' => UPLOAD_ERR_OK,
+        'size' => 1024,
+    ]);
+    $t->assertEquals('test.pdf', $upload->getClientName());
+    $t->assertEquals(1024, $upload->getSize());
+});
+
+$runner->run('Upload - 危险扩展名返回空', function($t) {
+    $upload = new \core\Upload([
+        'name' => 'malicious.php',
+        'type' => 'application/octet-stream',
+        'tmp_name' => '/tmp/test',
+        'error' => UPLOAD_ERR_OK,
+        'size' => 100,
+    ]);
+    $t->assertEquals('', $upload->getExtension(), '.php 扩展名应返回空');
+});
+
+$runner->run('Upload - 双扩展名绕过检测', function($t) {
+    $upload = new \core\Upload([
+        'name' => 'file.pdf.php',
+        'type' => 'application/pdf',
+        'tmp_name' => '/tmp/test',
+        'error' => UPLOAD_ERR_OK,
+        'size' => 100,
+    ]);
+    $t->assertEquals('', $upload->getExtension(), '双扩展名 .pdf.php 应返回空');
+});
+
+$runner->run('Upload - 安全扩展名正常返回', function($t) {
+    $upload = new \core\Upload([
+        'name' => 'document.pdf',
+        'type' => 'application/pdf',
+        'tmp_name' => '/tmp/test',
+        'error' => UPLOAD_ERR_OK,
+        'size' => 100,
+    ]);
+    $t->assertEquals('pdf', $upload->getExtension());
+});
+
+$runner->run('Upload - 链式方法返回 self', function($t) {
+    $upload = new \core\Upload([
+        'name' => 'test.jpg',
+        'type' => 'image/jpeg',
+        'tmp_name' => '/tmp/test',
+        'error' => UPLOAD_ERR_OK,
+        'size' => 100,
+    ]);
+    $result = $upload->allowedTypes(['image/jpeg'])->allowedExtensions(['jpg'])->maxSize(2048)->path('/uploads/');
+    $t->assertInstanceOf(\core\Upload::class, $result, '链式方法应返回 self');
+});
+
+$runner->run('Upload - 非上传文件 validate 返回 false', function($t) {
+    $tmpFile = tempnam(sys_get_temp_dir(), 'upload_test_');
+    file_put_contents($tmpFile, 'fake content');
+    $upload = new \core\Upload([
+        'name' => 'test.txt',
+        'type' => 'text/plain',
+        'tmp_name' => $tmpFile,
+        'error' => UPLOAD_ERR_OK,
+        'size' => 12,
+    ]);
+    $t->assertFalse($upload->validate(), '非 is_uploaded_file 应返回 false');
+    $t->assertEquals('Invalid upload', $upload->getError());
+    @unlink($tmpFile);
+});
+
+$runner->run('Upload - 上传错误码检测', function($t) {
+    $upload = new \core\Upload([
+        'name' => 'test.txt',
+        'type' => 'text/plain',
+        'tmp_name' => '',
+        'error' => UPLOAD_ERR_INI_SIZE,
+        'size' => 0,
+    ]);
+    $t->assertFalse($upload->validate());
+    $t->assertStringContains('upload_max_filesize', $upload->getError());
+});
+
+$runner->run('Upload - file 静态方法无文件返回 null', function($t) {
+    $original = $_FILES ?? [];
+    $_FILES = [];
+    $result = \core\Upload::file('nonexistent_field');
+    $t->assertNull($result, '无文件时应返回 null');
+    $_FILES = $original;
+});
+
+// ===== Logger 测试 =====
+$runner->run('Logger - 构造和基本日志写入', function($t) {
+    $logDir = sys_get_temp_dir() . '/lightphp_test_log_' . uniqid();
+    $logger = new \log\Logger($logDir);
+    $logger->info('Test message');
+    $logFile = $logDir . '/' . date('Y-m-d') . '.log';
+    $t->assertTrue(file_exists($logFile), '日志文件应被创建');
+    $content = file_get_contents($logFile);
+    $t->assertStringContains('Test message', $content);
+    $t->assertStringContains('INFO', $content);
+    // 清理
+    array_map('unlink', glob($logDir . '/*'));
+    rmdir($logDir);
+});
+
+$runner->run('Logger - 消息插值', function($t) {
+    $logDir = sys_get_temp_dir() . '/lightphp_test_log_' . uniqid();
+    $logger = new \log\Logger($logDir);
+    $logger->info('User {user} did {action}', ['user' => 'alice', 'action' => 'login']);
+    $content = file_get_contents($logDir . '/' . date('Y-m-d') . '.log');
+    $t->assertStringContains('User alice did login', $content);
+    array_map('unlink', glob($logDir . '/*'));
+    rmdir($logDir);
+});
+
+$runner->run('Logger - 级别过滤', function($t) {
+    $logDir = sys_get_temp_dir() . '/lightphp_test_log_' . uniqid();
+    $logger = new \log\Logger($logDir);
+    $logger->setLevel('error');
+    $logger->info('This info should not be logged');
+    $logger->error('This error should be logged');
+    $content = file_get_contents($logDir . '/' . date('Y-m-d') . '.log');
+    $t->assertFalse(str_contains($content, 'should not be logged'), 'info 低于 error 级别不应写入');
+    $t->assertStringContains('should be logged', $content);
+    array_map('unlink', glob($logDir . '/*'));
+    rmdir($logDir);
+});
+
+$runner->run('Logger - setLevel 拒绝无效级别', function($t) {
+    $logDir = sys_get_temp_dir() . '/lightphp_test_log_' . uniqid();
+    $logger = new \log\Logger($logDir);
+    $t->assertThrows(\InvalidArgumentException::class, function() use ($logger) {
+        $logger->setLevel('nonexistent_level');
+    });
+    rmdir($logDir);
+});
+
+$runner->run('Logger - log 拒绝无效级别', function($t) {
+    $logDir = sys_get_temp_dir() . '/lightphp_test_log_' . uniqid();
+    $logger = new \log\Logger($logDir);
+    $t->assertThrows(\InvalidArgumentException::class, function() use ($logger) {
+        $logger->log('invalid_level', 'test');
+    });
+    rmdir($logDir);
+});
+
+$runner->run('Logger - 所有 PSR-3 级别方法', function($t) {
+    $logDir = sys_get_temp_dir() . '/lightphp_test_log_' . uniqid();
+    $logger = new \log\Logger($logDir);
+    $logger->setLevel('debug');
+    $logger->debug('debug msg');
+    $logger->notice('notice msg');
+    $logger->warning('warning msg');
+    $logger->critical('critical msg');
+    $logger->alert('alert msg');
+    $logger->emergency('emergency msg');
+    $content = file_get_contents($logDir . '/' . date('Y-m-d') . '.log');
+    $t->assertStringContains('debug msg', $content);
+    $t->assertStringContains('NOTICE', $content);
+    $t->assertStringContains('WARNING', $content);
+    $t->assertStringContains('CRITICAL', $content);
+    $t->assertStringContains('ALERT', $content);
+    $t->assertStringContains('EMERGENCY', $content);
+    array_map('unlink', glob($logDir . '/*'));
+    rmdir($logDir);
+});
+
+$runner->run('Logger - clear 清除日志', function($t) {
+    $logDir = sys_get_temp_dir() . '/lightphp_test_log_' . uniqid();
+    $logger = new \log\Logger($logDir);
+    $logger->info('to be cleared');
+    $logFile = $logDir . '/' . date('Y-m-d') . '.log';
+    $t->assertTrue(file_exists($logFile));
+    $logger->clear();
+    $t->assertFalse(file_exists($logFile), 'clear 后日志文件应被删除');
+    rmdir($logDir);
+});
+
+$runner->run('Logger - clear 拒绝无效日期格式', function($t) {
+    $logDir = sys_get_temp_dir() . '/lightphp_test_log_' . uniqid();
+    $logger = new \log\Logger($logDir);
+    $t->assertThrows(\InvalidArgumentException::class, function() use ($logger) {
+        $logger->clear('invalid-date');
+    });
+    rmdir($logDir);
+});
+
+$runner->run('Logger - 换行符被替换为空格', function($t) {
+    $logDir = sys_get_temp_dir() . '/lightphp_test_log_' . uniqid();
+    $logger = new \log\Logger($logDir);
+    $logger->info("line1\nline2");
+    $content = file_get_contents($logDir . '/' . date('Y-m-d') . '.log');
+    $lines = explode("\n", trim($content));
+    $t->assertEquals(1, count($lines), '日志消息中的换行应被替换，每条日志占一行');
+    array_map('unlink', glob($logDir . '/*'));
+    rmdir($logDir);
+});
+
+// ===== Captcha 测试 =====
+$runner->run('Captcha - verify 空码返回 false', function($t) {
+    $t->assertFalse(\core\Captcha::verify('abcd', ''), '空 session code 应返回 false');
+});
+
+$runner->run('Captcha - verify 正确匹配', function($t) {
+    $result = \core\Captcha::verify('abcd', 'abcd');
+    $t->assertTrue($result, '正确输入应返回 true');
+});
+
+$runner->run('Captcha - verify 大小写不敏感', function($t) {
+    $result = \core\Captcha::verify('ABCD', 'abcd');
+    $t->assertTrue($result, '大小写不敏感匹配');
+});
+
+$runner->run('Captcha - verify 错误码返回 false', function($t) {
+    $result = \core\Captcha::verify('wrong', 'abcd');
+    $t->assertFalse($result, '错误输入应返回 false');
+});
+
+$runner->run('Captcha - 配置方法不抛异常', function($t) {
+    \core\Captcha::width(200);
+    \core\Captcha::height(60);
+    \core\Captcha::length(6);
+    \core\Captcha::chars('ABCDEF');
+    $t->assertTrue(true, '配置方法应安全执行');
+});
+
+$runner->run('Captcha - generate 生成验证码', function($t) {
+    if (!function_exists('imagecreate') || !function_exists('imagepng')) {
+        $t->assertTrue(true, 'GD 库不可用，跳过测试');
+        return;
+    }
+    // generate 依赖 Session，需要先 start
+    if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+        @session_start();
+    }
+    $result = \core\Captcha::generate();
+    $t->assertIsArray($result);
+    $t->assertArrayHasKey('image', $result);
+    $t->assertStringContains('data:image/png;base64,', $result['image']);
+});
+
+// ===== Generator 测试 =====
+$runner->run('Generator - tableToModelName 转换', function($t) {
+    $gen = new \core\Generator();
+    $t->assertEquals('User', $gen->tableToModelName('user'));
+    $t->assertEquals('UserProfile', $gen->tableToModelName('user_profile'));
+    $t->assertEquals('OrderItem', $gen->tableToModelName('order_item'));
+});
+
+$runner->run('Generator - tableToControllerName 转换', function($t) {
+    $gen = new \core\Generator();
+    $t->assertEquals('UserController', $gen->tableToControllerName('user'));
+    $t->assertEquals('OrderItemController', $gen->tableToControllerName('order_item'));
+});
+
+$runner->run('Generator - generateModel 生成模型代码', function($t) {
+    $gen = new class extends \core\Generator {
+        public function getTableColumns(string $table): array {
+            return [
+                ['Field' => 'id', 'Type' => 'int(11)', 'Null' => 'NO', 'Key' => 'PRI', 'Default' => null],
+                ['Field' => 'name', 'Type' => 'varchar(255)', 'Null' => 'NO', 'Key' => '', 'Default' => null],
+                ['Field' => 'price', 'Type' => 'decimal(10,2)', 'Null' => 'YES', 'Key' => '', 'Default' => '0.00'],
+                ['Field' => 'is_active', 'Type' => 'tinyint(1)', 'Null' => 'YES', 'Key' => '', 'Default' => '1'],
+                ['Field' => 'created_at', 'Type' => 'datetime', 'Null' => 'YES', 'Key' => '', 'Default' => null],
+                ['Field' => 'updated_at', 'Type' => 'datetime', 'Null' => 'YES', 'Key' => '', 'Default' => null],
+            ];
+        }
+    };
+    $code = $gen->generateModel('products', 'Product');
+    $t->assertStringContains('class Product extends Model', $code);
+    $t->assertStringContains("protected string \$table = 'products'", $code);
+    $t->assertStringContains("'name'", $code, 'fillable 应包含 name');
+    $t->assertStringContains("'price'", $code, 'fillable 应包含 price');
+    // 检查 fillable 行不含主键 id 和时间戳
+    preg_match('/\$fillable = \[([^\]]+)\]/', $code, $fillableMatch);
+    $t->assertTrue(!empty($fillableMatch), '应找到 fillable 数组');
+    $t->assertFalse(str_contains($fillableMatch[1], "'id'"), 'fillable 不应包含主键 id');
+    $t->assertFalse(str_contains($fillableMatch[1], "'created_at'"), 'fillable 不应包含 created_at');
+    $t->assertStringContains("'price' => 'float'", $code, 'decimal 应映射为 float');
+    $t->assertStringContains("'is_active' => 'bool'", $code, 'tinyint(1) 应映射为 bool');
+});
+
+$runner->run('Generator - generateController 生成控制器代码', function($t) {
+    $gen = new class extends \core\Generator {
+        public function getTableColumns(string $table): array {
+            return [
+                ['Field' => 'id', 'Type' => 'int(11)', 'Null' => 'NO', 'Key' => 'PRI', 'Default' => null],
+                ['Field' => 'title', 'Type' => 'varchar(255)', 'Null' => 'NO', 'Key' => '', 'Default' => null],
+                ['Field' => 'content', 'Type' => 'text', 'Null' => 'YES', 'Key' => '', 'Default' => null],
+            ];
+        }
+    };
+    $code = $gen->generateController('posts', 'PostController');
+    $t->assertStringContains('class PostController extends Controller', $code);
+    $t->assertStringContains('public function index', $code);
+    $t->assertStringContains('public function store', $code);
+    $t->assertStringContains('public function update', $code);
+    $t->assertStringContains('public function destroy', $code);
+    // posts 表生成模型名为 Posts
+    $t->assertStringContains('use model\Posts;', $code);
+});
+
+$runner->run('Generator - generateResourceRoutes 生成路由代码', function($t) {
+    $gen = new \core\Generator();
+    // 不传控制器名时，从表名派生：users → UsersController → 路由前缀 /users
+    $routes = $gen->generateResourceRoutes('users');
+    $t->assertStringContains("get('/users'", $routes);
+    $t->assertStringContains("post('/users'", $routes);
+    $t->assertStringContains("put('/users/{id}'", $routes);
+    $t->assertStringContains("delete('/users/{id}'", $routes);
+});
+
+$runner->run('Generator - 无效表名抛异常', function($t) {
+    $gen = new \core\Generator();
+    $t->assertThrows(\InvalidArgumentException::class, function() use ($gen) {
+        $gen->generateModel('invalid-table!name');
+    });
+});
+
+$runner->run('Generator - tableToModelName 处理多下划线', function($t) {
+    $gen = new \core\Generator();
+    $t->assertEquals('BlogPostComment', $gen->tableToModelName('blog_post_comment'));
+});
+
+// ===== Controller 测试 =====
+$runner->run('Controller - json 返回 JSON 响应', function($t) {
+    $ctrl = new class extends \core\Controller {
+        public function testJson(array $data, int $code = 200): \core\Response {
+            return $this->json($data, $code);
+        }
+    };
+    $response = $ctrl->testJson(['key' => 'value'], 201);
+    $t->assertInstanceOf(\core\Response::class, $response);
+    $t->assertEquals(201, $response->getStatusCode());
+});
+
+$runner->run('Controller - success 返回统一成功格式', function($t) {
+    $ctrl = new class extends \core\Controller {
+        public function testSuccess(array $data, string $msg = 'success'): \core\Response {
+            return $this->success($data, $msg);
+        }
+    };
+    $response = $ctrl->testSuccess(['id' => 1], 'created');
+    $content = $response->getContent();
+    $decoded = json_decode($content, true);
+    $t->assertEquals(0, $decoded['code'], 'success code 应为 0');
+    $t->assertEquals('created', $decoded['message']);
+    $t->assertEquals(1, $decoded['data']['id']);
+});
+
+$runner->run('Controller - error 返回统一错误格式', function($t) {
+    $ctrl = new class extends \core\Controller {
+        public function testError(string $msg, int $code, array $data = []): \core\Response {
+            return $this->error($msg, $code, $data);
+        }
+    };
+    $response = $ctrl->testError('not found', 404, ['id' => 99]);
+    $decoded = json_decode($response->getContent(), true);
+    $t->assertEquals(404, $decoded['code']);
+    $t->assertEquals('not found', $decoded['message']);
+    $t->assertEquals(99, $decoded['data']['id']);
+});
+
+$runner->run('Controller - redirect 返回 302', function($t) {
+    $ctrl = new class extends \core\Controller {
+        public function testRedirect(string $url, int $code = 302): \core\Response {
+            return $this->redirect($url, $code);
+        }
+    };
+    $response = $ctrl->testRedirect('/dashboard');
+    $t->assertEquals(302, $response->getStatusCode());
+});
+
+$runner->run('Controller - notFound 返回 404', function($t) {
+    $ctrl = new class extends \core\Controller {
+        public function testNotFound(string $msg = 'Not Found'): \core\Response {
+            return $this->notFound($msg);
+        }
+    };
+    $response = $ctrl->testNotFound('Page gone');
+    $t->assertEquals(404, $response->getStatusCode());
+    $t->assertStringContains('Page gone', $response->getContent());
+});
+
 $runner->summary();
 
 // 测试失败时返回非零退出码，确保 CI 环境能正确检测失败

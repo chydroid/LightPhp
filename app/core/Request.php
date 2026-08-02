@@ -45,7 +45,9 @@ class Request
         $this->post = $_POST;
         $this->server = $_SERVER;
         $this->headers = $this->parseHeaders();
-        $this->rawContent = file_get_contents('php://input') ?: '';
+        // file_get_contents 返回 string|false；'0' 是合法的请求体，不能用 ?: 否则会丢失
+        $raw = file_get_contents('php://input');
+        $this->rawContent = $raw === false ? '' : $raw;
         $this->files = $_FILES;
         $this->parseJson();
     }
@@ -446,9 +448,12 @@ class Request
      */
     public function url(): string
     {
-        $url = $this->scheme() . '://' . $this->host();
+        $host = $this->host();
+        $url = $this->scheme() . '://' . $host;
         $port = $this->port();
-        if (($this->scheme() === 'http' && $port !== 80) || ($this->scheme() === 'https' && $port !== 443)) {
+        // 若 host 已含端口（如 example.com:8080），不再追加；否则按需追加非默认端口
+        if (!str_contains($host, ':')
+            && (($this->scheme() === 'http' && $port !== 80) || ($this->scheme() === 'https' && $port !== 443))) {
             $url .= ':' . $port;
         }
         return $url . $this->uri();

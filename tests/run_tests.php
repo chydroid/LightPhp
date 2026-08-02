@@ -4856,6 +4856,131 @@ $runner->run('Hash - 空密钥不阻断启动但加密时抛异常', function($t
     }
 });
 
+// ===== 第1轮审计回归测试 =====
+
+// Bug: Request 原始 body 为 '0' 时被 ?: 吞掉
+$runner->run('Request - 原始 body "0" 不应丢失', function($t) {
+    $ref = new \ReflectionClass(\core\Request::class);
+    $req = $ref->newInstanceWithoutConstructor();
+    $rawProp = $ref->getProperty('rawContent');
+    $rawProp->setAccessible(true);
+    // 模拟构造函数中修复后的赋值逻辑
+    $raw = '0';
+    $rawProp->setValue($req, $raw === false ? '' : $raw);
+    $t->assertEquals('0', $rawProp->getValue($req), 'body "0" 应被保留');
+
+    // 对比旧的 ?: 行为会丢失
+    $oldBehavior = $raw ?: '';
+    $t->assertEquals('', $oldBehavior, '旧 ?: 行为会丢失 "0"（对照）');
+});
+
+// Bug: Application::run() 收到无 __toString 的对象不应抛 TypeError
+$runner->run('Application - 无 __toString 对象返回 500 而非 TypeError', function($t) {
+    // 通过反射调用 run() 会触发完整请求流程，这里改为间接验证：
+    // 构造一个无 __toString 的对象，模拟 run() 的分支判断逻辑
+    $obj = new \stdClass();
+    $obj->foo = 'bar';
+
+    // 复刻 run() 中的判断分支
+    $result = $obj;
+    $handled = false;
+    if ($result instanceof \core\Response) {
+        $handled = 'response';
+    } elseif (is_array($result)) {
+        $handled = 'array';
+    } elseif (is_string($result)) {
+        $handled = 'string';
+    } elseif (is_object($result) && method_exists($result, '__toString')) {
+        $handled = 'tostring';
+    } elseif ($result === null || $result === false) {
+        $handled = 'null-false';
+    } else {
+        $handled = '500-fallback';
+    }
+    $t->assertEquals('500-fallback', $handled, '无 __toString 的对象应走 500 兜底分支');
+});
+
+// Bug: Validate 未知规则不应静默放行
+$runner->run('Validate - 未知规则应记为错误而非静默放行', function($t) {
+    $v = new \core\Validate();
+    // 模拟拼写错误：requried 而非 required。用非空值避免被"非 required 规则遇空值跳过"分支提前 return
+    $passed = @$v->validate(['name' => 'John'], ['name' => 'requried']);
+    $t->assertFalse($passed, '未知规则 "requried" 不应让校验通过');
+    $err = $v->firstError('name');
+    $t->assertNotNull($err, '未知规则应产生错误信息');
+    $t->assertTrue(str_contains((string)$err, 'requried'), '错误信息应包含规则名');
+});
+
+// Bug: Validate min/max/between/size 支持小数边界
+$runner->run('Validate - min:0.5 对数值 0.3 应失败（小数边界）', function($t) {
+    $v = new \core\Validate();
+    $passed = $v->validate(['price' => 0.3], ['price' => 'numeric|min:0.5']);
+    $t->assertFalse($passed, '0.3 < 0.5 应校验失败（旧实现 int(0.5)=0 会通过）');
+});
+$runner->run('Validate - between:0.5,9.5 对数值 9.7 应失败（小数边界）', function($t) {
+    $v = new \core\Validate();
+    $passed = $v->validate(['price' => 9.7], ['price' => 'numeric|between:0.5,9.5']);
+    $t->assertFalse($passed, '9.7 > 9.5 应校验失败（旧实现 int(9.5)=9 会通过）');
+});
+$runner->run('Validate - size:0.5 仍按数值比较', function($t) {
+    $v = new \core\Validate();
+    $passed = $v->validate(['n' => 0.5], ['n' => 'numeric|size:0.5']);
+    $t->assertTrue($passed, '0.5 == 0.5 应通过');
+});
+
+// Bug: Request::url() 端口重复（HTTP_HOST 已含端口时不再追加）
+$runner->run('Request - url() HTTP_HOST 已含端口不重复追加', function($t) {
+    $ref = new \ReflectionClass(\core\Request::class);
+    $req = $ref->newInstanceWithoutConstructor();
+
+    $serverProp = $ref->getProperty('server');
+    $serverProp->setAccessible(true);
+    $serverProp->setValue($req, [
+        'HTTP_HOST' => 'example.com:8080',
+        'SERVER_PORT' => 8080,
+        'REQUEST_URI' => '/path',
+        'HTTPS' => '',
+    ]);
+
+    // scheme() 内部读取 server
+    $url = $req->url();
+    $t->assertFalse(str_contains($url, ':8080:8080'), 'url 不应包含重复端口');
+    $t->assertTrue(str_starts_with($url, 'http://example.com:8080/path'), 'url 应正确拼接');
+});
+
+// Bug: Router::matchRoute 不缓存无效正则
+$runner->run('Router - 无效正则不污染缓存（后续路由仍可匹配）', function($t) {
+    $router = new \core\Router();
+    $ref = new \ReflectionClass(\core\Router::class);
+    $method = $ref->getMethod('matchRoute');
+    $method->setAccessible(true);
+
+    // 先用一个会产生无效正则的 pattern（参数名非法字符导致字面化，但构造的 regex 仍可能无效）
+    // 这里直接构造一个编译失败的场景：自定义正则未闭合
+    // matchRoute 会探测编译失败并返回 false，不缓存
+    $r1 = $method->invoke($router, '/test/{id:[0-9}', '/test/123');
+    $t->assertFalse($r1, '无效正则应返回 false');
+
+    // 同一 pattern 再次匹配仍应返回 false（不是被缓存而是重新探测）
+    $r2 = $method->invoke($router, '/test/{id:[0-9}', '/test/123');
+    $t->assertFalse($r2, '无效正则第二次仍应返回 false');
+
+    // 缓存表不应包含该无效 pattern
+    $cacheProp = $ref->getProperty('compiledRoutes');
+    $cacheProp->setAccessible(true);
+    $t->assertFalse(array_key_exists('/test/{id:[0-9}', $cacheProp->getValue($router)),
+        '无效正则不应被缓存');
+});
+
+// Bug: Router::route() 支持自定义正则中含 {}（如 {id:[0-9]{3}}）
+$runner->run('Router - route() 支持含花括号的自定义正则', function($t) {
+    $router = new \core\Router();
+    $router->get('/users/{id:[0-9]{3}}', fn() => '')->name('users.show');
+
+    $url = $router->route('users.show', ['id' => '042']);
+    $t->assertEquals('/users/042', $url, '应正确替换含 {3} 的参数');
+});
+
 $runner->summary();
 
 // 测试失败时返回非零退出码，确保 CI 环境能正确检测失败

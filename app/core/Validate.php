@@ -217,7 +217,11 @@ class Validate
                 $this->addError($field, $rule, $params, $value);
             }
         } else {
+            // 未知规则视为校验失败并记录错误，避免拼写错误（如 requried）导致校验被静默绕过
             trigger_error("Validate: Unknown validation rule '{$rule}' for field '{$field}'", E_USER_WARNING);
+            $this->errors[$field][] = $this->messages["{$field}.{$rule}"]
+                ?? $this->messages[$field]
+                ?? "{$field} has unknown rule '{$rule}'";
         }
     }
 
@@ -330,8 +334,9 @@ class Validate
         if (empty($params)) {
             return false;
         }
+        // 数值边界用 float 保留小数精度；长度/计数用 int
+        if (is_numeric($value)) return (float) $value >= (float) $params[0];
         $min = (int) $params[0];
-        if (is_numeric($value)) return $value >= $min;
         if (is_string($value)) return \strlen($value) >= $min;
         if (is_array($value)) return \count($value) >= $min;
         return false;
@@ -342,8 +347,8 @@ class Validate
         if (empty($params)) {
             return false;
         }
+        if (is_numeric($value)) return (float) $value <= (float) $params[0];
         $max = (int) $params[0];
-        if (is_numeric($value)) return $value <= $max;
         if (is_string($value)) return \strlen($value) <= $max;
         if (is_array($value)) return \count($value) <= $max;
         return false;
@@ -459,10 +464,10 @@ class Validate
         if (empty($params)) {
             return false;
         }
-        $size = (int) $params[0];
         // 类型检查顺序需与 validateMin/validateMax/validateBetween 保持一致：
         // is_numeric 优先，避免数字字符串（如 "10"）被当作字符串按长度校验
-        if (is_numeric($value)) return $value == $size;
+        if (is_numeric($value)) return (float) $value === (float) $params[0];
+        $size = (int) $params[0];
         if (is_string($value)) return \strlen($value) === $size;
         if (is_array($value)) return \count($value) === $size;
         return false;
@@ -473,9 +478,13 @@ class Validate
         if (\count($params) < 2) {
             return false;
         }
+        if (is_numeric($value)) {
+            $min = (float) $params[0];
+            $max = (float) $params[1];
+            return (float) $value >= $min && (float) $value <= $max;
+        }
         $min = (int) $params[0];
         $max = (int) $params[1];
-        if (is_numeric($value)) return $value >= $min && $value <= $max;
         if (is_string($value)) {
             $len = \strlen($value);
             return $len >= $min && $len <= $max;

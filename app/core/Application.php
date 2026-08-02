@@ -191,13 +191,15 @@ class Application
                 $result->send();
             } elseif (is_array($result)) {
                 \core\Response::json($result)->send();
-            } elseif (is_string($result) || (is_object($result) && method_exists($result, '__toString'))) {
+            } elseif (is_string($result)) {
+                echo $result;
+            } elseif (is_object($result) && method_exists($result, '__toString')) {
                 echo (string) $result;
-            } elseif ($result !== null && $result !== false) {
-                // 其他非空值，尝试转换为字符串输出
-                echo (string) $result;
-            } else {
+            } elseif ($result === null || $result === false) {
                 // 处理程序未返回有效响应
+                \core\Response::json(['code' => 500, 'message' => 'Internal Server Error'])->send();
+            } else {
+                // 其他类型（int/float/bool true/无 __toString 的对象）— 强制 500 避免抛 TypeError
                 \core\Response::json(['code' => 500, 'message' => 'Internal Server Error'])->send();
             }
         } catch (\Throwable $e) {
@@ -327,6 +329,7 @@ class Application
             $viewPath = VIEW_PATH . ltrim($errorView, '/') . '.php';
             if (file_exists($viewPath)) {
                 try {
+                    $obLevel = ob_get_level();
                     ob_start();
                     $exception = $e;
                     $debug = $showTrace;
@@ -334,7 +337,10 @@ class Application
                     echo ob_get_clean();
                     return;
                 } catch (\Throwable $viewException) {
-                    ob_end_clean();
+                    // 仅在确实有我们启动的缓冲层时清理，避免 ob_end_clean 警告
+                    while (ob_get_level() > $obLevel) {
+                        ob_end_clean();
+                    }
                 }
             }
         }

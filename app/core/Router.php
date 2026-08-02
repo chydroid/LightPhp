@@ -297,8 +297,9 @@ class Router
 
         $uri = $this->namedRoutes[$name]['uri'];
 
+        // 用与 addRoute 一致的 brace-matching 解析参数占位符，支持自定义正则中含 {}（如 {id:[0-9]{3}}）
         $uri = preg_replace_callback(
-            '/\{([a-zA-Z_][a-zA-Z0-9_]*)(?::[^}]*)?\}/',
+            '/\{([a-zA-Z_][a-zA-Z0-9_]*)(?::((?:[^{}]|\{[^{}]*\})*))?\}/',
             function ($m) use ($parameters) {
                 $key = $m[1];
                 if (!array_key_exists($key, $parameters)) {
@@ -503,6 +504,17 @@ class Router
             }
 
             $regex = '~^' . $compiled . '$~';
+            // 先验证正则可编译，再缓存；避免无效正则被永久缓存导致后续全部失配
+            $probe = @preg_match($regex, '');
+            if ($probe === false) {
+                $err = preg_last_error();
+                error_log(sprintf(
+                    'Router matchRoute: regex compile error [%d] for pattern="%s"',
+                    $err,
+                    $pattern
+                ));
+                return false;
+            }
             $this->compiledRoutes[$pattern] = $regex;
         }
 
@@ -519,7 +531,7 @@ class Router
         }
 
         if ($result === false) {
-            // 正则编译/执行失败（如回溯超限）— 记录错误便于排查
+            // 运行时正则失败（如回溯超限）— 记录错误便于排查
             $err = preg_last_error();
             error_log(sprintf(
                 'Router matchRoute: regex error [%d] for pattern="%s" uri="%s"',

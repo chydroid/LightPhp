@@ -2,6 +2,30 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.15.1] - 2026-08-02
+
+### 第1轮审计缺陷修复 (Round 1 Bug Fixes)
+
+- **[HIGH] Application::run() 对无 __toString 的对象抛 TypeError** — 处理程序返回无 `__toString` 的对象（如 `stdClass`）时，原 `echo (string) $result` 触发 `TypeError`，被 catch 后渲染 500 页面但丢失原始上下文。修复：将对象/数值类型统一走 500 兜底分支，仅对 `is_string` 和有 `__toString` 的对象尝试字符串化
+- **[HIGH] Request 原始 body `'0'` 被吞掉** — 构造函数 `file_get_contents('php://input') ?: ''` 使用 `?:` 短路运算，请求体为 `'0'` 时被替换为空字符串，导致 JSON `'0'` 或文本 `0` 无法被解析。修复：改用 `=== false ? '' : $raw` 显式判 false
+- **[HIGH] Validate 未知规则静默放行** — `applyRule()` 对未知的规则名（如拼写错误 `requried`）仅触发 `E_USER_WARNING` 但不写入 `errors`，导致校验通过，存在安全风险。修复：同时记入 `$this->errors[$field][]`，校验结果为失败
+- **[MEDIUM] Request::url() 端口重复** — 当 `HTTP_HOST` 已含端口（如 `example.com:8080`）时，`url()` 再次追加 `:8080`，生成 `http://example.com:8080:8080/...`。修复：检测 host 已含 `:` 时不再追加端口
+- **[MEDIUM] Router::matchRoute 缓存无效正则** — 编译失败的正则被写入 `$compiledRoutes` 缓存，导致后续对同一 pattern 的所有匹配永久失败。修复：编译后用 `@preg_match($regex, '')` 探测可编译性，失败则不缓存并返回 false
+- **[MEDIUM] Router::route() 不支持自定义正则含花括号** — `preg_replace_callback` 模式 `[^}]*` 在首个 `}` 处停止，导致 `{id:[0-9]{3}}` 无法被识别替换。修复：改用 `(?:[^{}]|\{[^{}]*\})*` 支持 1 层嵌套花括号
+- **[MEDIUM] Validate min/max/between/size 小数边界被截断** — `(int) $params[0]` 把 `min:0.5` 截为 `min:0`，数值 0.3 错误通过校验。修复：数值比较路径使用 `(float)` 转换，长度/计数路径仍用 `int`
+- **[LOW] Application::handleException 视图渲染失败时 ob_end_clean 警告** — `ob_start` 失败时 catch 块仍调用 `ob_end_clean`，产生 Warning。修复：记录 `$obLevel`，仅清理超过该级别的缓冲层
+
+### 测试 (Tests)
+
+- 新增 8 个第1轮审计回归测试：Request body '0' 保留、Application 无 __toString 对象兜底、Validate 未知规则失败、Validate 小数边界（min/between/size）、Request url() 端口去重、Router 无效正则不污染缓存、Router route() 花括号正则
+- 测试总数：766 → **781 项断言全部通过**
+
+### 文档 (Documentation)
+
+- README badge 版本 `2.15.0` → `2.15.1`，测试数同步至 781
+- docs/quick-start.md 版本号 `v2.15.0` → `v2.15.1`
+- docs/testing-guide.md 测试数同步至 781 项断言
+
 ## [2.15.0] - 2026-08-02
 
 ### 缺陷修复 (Bug Fixes)

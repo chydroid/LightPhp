@@ -439,16 +439,6 @@ class Validate
         return $value === ($this->data[$confirmedField] ?? null);
     }
 
-    private function validateUnique(string $field, $value, array $params): bool
-    {
-        throw new \RuntimeException("The 'unique' rule requires a database connection, which is not available in the validator.");
-    }
-
-    private function validateExists(string $field, $value, array $params): bool
-    {
-        throw new \RuntimeException("The 'exists' rule requires a database connection, which is not available in the validator.");
-    }
-
     private function validateArray(string $field, $value, array $params): bool
     {
         return is_array($value);

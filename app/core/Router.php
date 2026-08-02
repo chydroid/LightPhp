@@ -523,8 +523,11 @@ class Router
         if ($result === 1) {
             $params = [];
             foreach ($matches as $key => $value) {
+                // 只收集命名参数（字符串 key），不收集数字 key（整体匹配）
                 if (is_string($key)) {
-                    $params[$key] = $value;
+                    // urldecode 值，避免控制器收到 %20 等编码后的值
+                    // 与 Router::route() 的 urlencode 形成往返一致
+                    $params[$key] = is_string($value) ? urldecode($value) : $value;
                 }
             }
             return $params;

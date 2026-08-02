@@ -413,12 +413,45 @@ class Request
 
     /**
      * 获取请求协议（http/https）
-     * 
+     *
      * @return string 协议名
      */
     public function scheme(): string
     {
-        return (!empty($this->server['HTTPS']) && $this->server['HTTPS'] !== 'off') ? 'https' : 'http';
+        return $this->isSecure() ? 'https' : 'http';
+    }
+
+    /**
+     * 判断请求是否为 HTTPS（含可信代理的 X-Forwarded-Proto）
+     *
+     * @return bool 是否 HTTPS
+     */
+    public function isSecure(): bool
+    {
+        return self::isSecureFromServer($this->server);
+    }
+
+    /**
+     * 静态检查 server 数组中的 HTTPS 标志（含可信代理）
+     * 供 Session 等在 Request 实例化前调用的组件使用
+     *
+     * @param array|null $server server 数组，为 null 时用 $_SERVER
+     * @return bool 是否 HTTPS
+     */
+    public static function isSecureFromServer(?array $server = null): bool
+    {
+        $server = $server ?? $_SERVER;
+        if (!empty($server['HTTPS']) && $server['HTTPS'] !== 'off') {
+            return true;
+        }
+        $remoteAddr = $server['REMOTE_ADDR'] ?? '';
+        if (!empty(self::$trustedProxies) && in_array($remoteAddr, self::$trustedProxies, true)) {
+            $forwardedProto = $server['HTTP_X_FORWARDED_PROTO'] ?? '';
+            // X-Forwarded-Proto 可能是逗号分隔列表，取最左侧（最接近客户端的代理写入的值）
+            $first = trim(explode(',', $forwardedProto)[0]);
+            return strtolower($first) === 'https';
+        }
+        return false;
     }
 
     /**

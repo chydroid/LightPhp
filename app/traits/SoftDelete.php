@@ -118,11 +118,24 @@ trait SoftDelete
     /**
      * 删除模型记录（软删除或强制删除）
      *
-     * @param int|string $id 主键值
+     * - 传入 $id 时按主键删除指定记录
+     * - $id 为 null 时删除当前实例（使用 $this->attributes[$primaryKey]）
+     *
+     * @param int|string|null $id 主键值，为 null 时删除当前实例
      * @return int 受影响行数
+     * @throws \RuntimeException 当 $id 为 null 且当前实例无主键值时
      */
-    public function delete(int|string $id): int
+    public function delete(int|string|null $id = null): int
     {
+        if ($id === null) {
+            $id = $this->attributes[$this->primaryKey] ?? null;
+            if ($id === null) {
+                throw new \RuntimeException(
+                    sprintf('Cannot delete model [%s] without a primary key value.', static::class)
+                );
+            }
+        }
+
         // 若当前实例已表示一条被软删除的记录，则避免重复删除/更新
         if (!$this->forceDeleting && $this->exists && $this->trashed()) {
             return 0;

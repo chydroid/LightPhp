@@ -233,14 +233,34 @@ class Container implements PsrContainerInterface
         $dependencies = [];
         foreach ($params as $parameter) {
             $type = $parameter->getType();
+            $resolved = null;
+            $resolvedOk = false;
 
-            // 如果参数有类型提示且不是内置类型，尝试从容器解析
+            // 命名类型：尝试从容器解析
             if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
                 try {
-                    $dependencies[] = $this->get($type->getName());
-                    continue;
+                    $resolved = $this->get($type->getName());
+                    $resolvedOk = true;
                 } catch (NotFoundException $e) {
                 }
+            } elseif ($type instanceof \ReflectionUnionType) {
+                // union 类型：遍历子类型，首个可解析的即用；内置类型跳过
+                foreach ($type->getTypes() as $subType) {
+                    if ($subType instanceof \ReflectionNamedType && !$subType->isBuiltin()) {
+                        try {
+                            $resolved = $this->get($subType->getName());
+                            $resolvedOk = true;
+                            break;
+                        } catch (NotFoundException $e) {
+                        }
+                    }
+                }
+            }
+            // intersection type (ReflectionIntersectionType) 暂不支持自动解析，走默认值
+
+            if ($resolvedOk) {
+                $dependencies[] = $resolved;
+                continue;
             }
 
             // 使用传入的参数或默认值

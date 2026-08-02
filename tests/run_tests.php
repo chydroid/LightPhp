@@ -438,11 +438,22 @@ $runner->run('Validate - Fails Returns True', function($t) {
     $t->assertTrue($v->fails());
 });
 
-$runner->run('Validate - Unique Rule Throws', function($t) {
-    $t->assertThrows(\RuntimeException::class, function() {
-        $v = new \core\Validate();
-        $v->validate(['name' => 'test'], ['name' => 'unique:users']);
+$runner->run('Validate - Unique Rule Treated As Unknown', function($t) {
+    // unique/exists 规则未内置（需 DB 连接），作为未知规则处理：触发 E_USER_WARNING + 记录错误
+    $warnings = [];
+    set_error_handler(function ($severity, $message) use (&$warnings) {
+        $warnings[] = $message;
+        return true;
     });
+    try {
+        $v = new \core\Validate();
+        $result = $v->validate(['name' => 'test'], ['name' => 'unique:users']);
+        $t->assertFalse($result);
+        $t->assertTrue(!empty($warnings), 'unique 规则应触发 E_USER_WARNING');
+        $t->assertTrue(isset($v->errors()['name']));
+    } finally {
+        restore_error_handler();
+    }
 });
 
 $runner->run('Router - Middleware Method', function($t) {
@@ -5167,6 +5178,201 @@ $runner->run('Captcha - generate 不破坏用户配置的 ttl', function($t) {
     } finally {
         \core\Captcha::ttl(300);
     }
+});
+
+// === v2.15.6 回归：Model::delete() 无参删除当前实例 ===
+$runner->run('Model - delete() 无参删除当前实例', function($t) use ($modelEventSetupConn) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $connection = $modelEventSetupConn();
+    $connection->getPdo()->exec('CREATE TABLE test_del_self (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_at TEXT, updated_at TEXT)');
+    \model\Model::setDb($connection);
+
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'test_del_self';
+        protected array $fillable = ['name'];
+    };
+
+    $instance = new $modelClass();
+    $id = $instance->create(['name' => 'alice']);
+    $t->assertTrue($id > 0, 'create 应返回有效 id');
+
+    // 重新查出实例（带 pk，exists=true），调用无参 delete()
+    $model = $instance->find($id);
+    $t->assertNotNull($model, 'find 应返回模型');
+    $rows = $model->delete(); // 无参，用当前实例的 pk
+    $t->assertEquals(1, $rows, '无参 delete 应删除当前实例对应记录');
+
+    // 删除后查不到
+    $t->assertNull($instance->find($id), '删除后 find 应返回 null');
+
+    // 无 pk 实例调用无参 delete 抛 RuntimeException
+    $empty = new $modelClass();
+    $t->assertThrows(\RuntimeException::class, function() use ($empty) {
+        $empty->delete();
+    }, '无 pk 实例调用无参 delete 应抛异常');
+
+    // 传参调用仍然兼容
+    $id2 = $instance->create(['name' => 'bob']);
+    $t->assertEquals(1, $instance->delete($id2), '传参 delete 应仍正常工作');
+});
+
+// === v2.15.6 回归：Model::firstOrCreate 不污染当前实例 ===
+$runner->run('Model - firstOrCreate 不污染当前实例 attributes', function($t) use ($modelEventSetupConn) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $connection = $modelEventSetupConn();
+    $connection->getPdo()->exec('CREATE TABLE test_foc_pollute (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT, created_at TEXT, updated_at TEXT)');
+    \model\Model::setDb($connection);
+
+    $modelClass = new class extends \model\Model {
+        protected string $table = 'test_foc_pollute';
+        protected array $fillable = ['name', 'email'];
+    };
+
+    $instance = new $modelClass();
+    // 预设 email，确认 firstOrCreate 创建新记录时不被覆盖
+    $instance->setAttribute('email', 'preset@example.com');
+
+    $created = $instance->firstOrCreate(['name' => 'bob'], ['email' => 'bob@example.com']);
+    $t->assertTrue($created->getAttribute('id') > 0, 'firstOrCreate 应返回有效模型');
+
+    // 当前实例的 email 不应被 create() 内部逻辑覆盖
+    $t->assertEquals('preset@example.com', $instance->getAttribute('email'),
+        'firstOrCreate 不应污染当前实例的 attributes');
+    // 当前实例不应被赋予新记录的 pk
+    $t->assertNull($instance->getAttribute('id'),
+        'firstOrCreate 不应给当前实例设置新记录的主键');
+});
+
+// === v2.15.6 回归：Container::build 支持 union type ===
+$runner->run('Container - build 支持 union type 解析', function($t) {
+    // 传入 dummy 参数仅用于获取匿名类名（build 会用容器解析的依赖重新实例化）
+    $unionObj = new class(new \stdClass()) {
+        public \stdClass|\DateTime $dep;
+        public function __construct(\stdClass|\DateTime $dep) {
+            $this->dep = $dep;
+        }
+    };
+    $className = get_class($unionObj);
+
+    $container = new \core\Container();
+    $std = new \stdClass();
+    $std->marker = 'injected';
+    $container->instance(\stdClass::class, $std);
+
+    // 直接通过反射调用 build（匿名类不被 class_exists 识别，故绕过 resolved）
+    $ref = new \ReflectionMethod($container, 'build');
+    $ref->setAccessible(true);
+    $instance = $ref->invoke($container, $className);
+    $t->assertTrue($instance->dep === $std, 'union type 应解析首个可解析的类类型（注入绑定的同一实例）');
+});
+
+$runner->run('Container - build union 全内置类型时用默认值', function($t) {
+    $unionObj = new class {
+        public int|string $dep;
+        public function __construct(int|string $dep = 'default') {
+            $this->dep = $dep;
+        }
+    };
+    $className = get_class($unionObj);
+
+    $container = new \core\Container();
+    $ref = new \ReflectionMethod($container, 'build');
+    $ref->setAccessible(true);
+    $instance = $ref->invoke($container, $className);
+    $t->assertEquals('default', $instance->dep, 'union 全为内置类型时应使用默认值');
+});
+
+// === v2.15.6 回归：Request::isSecureFromServer 尊重可信代理 ===
+$runner->run('Request - isSecureFromServer 尊重可信代理 X-Forwarded-Proto', function($t) {
+    \core\Request::setTrustedProxies(['10.0.0.1']);
+    try {
+        // 可信代理 + X-Forwarded-Proto=https → secure
+        $t->assertTrue(\core\Request::isSecureFromServer([
+            'REMOTE_ADDR' => '10.0.0.1',
+            'HTTP_X_FORWARDED_PROTO' => 'https',
+        ]));
+
+        // 可信代理 + X-Forwarded-Proto=http → 不 secure
+        $t->assertFalse(\core\Request::isSecureFromServer([
+            'REMOTE_ADDR' => '10.0.0.1',
+            'HTTP_X_FORWARDED_PROTO' => 'http',
+        ]));
+
+        // 不可信代理 + X-Forwarded-Proto=https → 不 secure（防伪造）
+        $t->assertFalse(\core\Request::isSecureFromServer([
+            'REMOTE_ADDR' => '203.0.113.1',
+            'HTTP_X_FORWARDED_PROTO' => 'https',
+        ]));
+
+        // 直接 HTTPS on → secure
+        $t->assertTrue(\core\Request::isSecureFromServer(['HTTPS' => 'on']));
+
+        // HTTPS off → 不 secure
+        $t->assertFalse(\core\Request::isSecureFromServer(['HTTPS' => 'off']));
+
+        // 多值 X-Forwarded-Proto（逗号分隔），取最左侧
+        $t->assertTrue(\core\Request::isSecureFromServer([
+            'REMOTE_ADDR' => '10.0.0.1',
+            'HTTP_X_FORWARDED_PROTO' => 'https, http',
+        ]));
+    } finally {
+        \core\Request::setTrustedProxies([]);
+    }
+});
+
+$runner->run('Request - 实例 isSecure()/scheme() 走共享逻辑', function($t) {
+    \core\Request::setTrustedProxies(['10.0.0.2']);
+    try {
+        $ref = new \ReflectionClass(\core\Request::class);
+        $request = $ref->newInstanceWithoutConstructor();
+        $serverProp = $ref->getProperty('server');
+        $serverProp->setAccessible(true);
+        $serverProp->setValue($request, [
+            'REMOTE_ADDR' => '10.0.0.2',
+            'HTTP_X_FORWARDED_PROTO' => 'https',
+        ]);
+
+        $t->assertTrue($request->isSecure());
+        $t->assertEquals('https', $request->scheme());
+    } finally {
+        \core\Request::setTrustedProxies([]);
+    }
+});
+
+// === v2.15.6 回归：Router::matchRoute urldecode 路由参数 ===
+$runner->run('Router - matchRoute urldecode 路由参数', function($t) {
+    $router = new \core\Router();
+    $captured = null;
+    $router->get('/users/{name}', function($name) use (&$captured) {
+        $captured = $name;
+        return 'ok';
+    });
+
+    $router->dispatch(new class extends \core\Request {
+        public function method(): string { return 'GET'; }
+        public function uri(): string { return '/users/john%20doe'; }
+    });
+
+    $t->assertEquals('john doe', $captured, '路由参数应被 urldecode（%20 → 空格）');
+
+    // 含编码斜杠的参数（%2F）在默认 [^/]+ 正则下不会匹配（被 / 分隔），验证普通编码字符正常
+    $router2 = new \core\Router();
+    $captured2 = null;
+    $router2->get('/tag/{slug}', function($slug) use (&$captured2) {
+        $captured2 = $slug;
+        return 'ok';
+    });
+    $router2->dispatch(new class extends \core\Request {
+        public function method(): string { return 'GET'; }
+        public function uri(): string { return '/tag/Caf%C3%A9'; }
+    });
+    $t->assertEquals('Café', $captured2, '路由参数多字节编码应被正确 urldecode');
 });
 
 $runner->summary();

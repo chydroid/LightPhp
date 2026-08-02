@@ -99,7 +99,8 @@ class Model
             return $this->newFromBuilder($row);
         }
         $data = array_merge($attributes, $values);
-        $id = $this->create($data);
+        // 用全新实例执行 create，避免污染当前实例的 attributes（create() 会重写 $this->attributes）
+        $id = (new static())->create($data);
         if (!$id) {
             throw new \RuntimeException('firstOrCreate failed: create() returned empty ID (creating event may have been cancelled)');
         }
@@ -177,13 +178,25 @@ class Model
     }
 
     /**
-     * 根据主键删除模型实例
-     * 
-     * @param int|string $id 主键值
+     * 删除模型实例
+     *
+     * - 传入 $id 时按主键删除指定记录
+     * - $id 为 null 时删除当前实例（使用 $this->attributes[$primaryKey]）
+     *
+     * @param int|string|null $id 主键值，为 null 时删除当前实例
      * @return int 受影响行数
+     * @throws \RuntimeException 当 $id 为 null 且当前实例无主键值时
      */
-    public function delete(int|string $id): int
+    public function delete(int|string|null $id = null): int
     {
+        if ($id === null) {
+            $id = $this->attributes[$this->primaryKey] ?? null;
+            if ($id === null) {
+                throw new \RuntimeException(
+                    sprintf('Cannot delete model [%s] without a primary key value.', static::class)
+                );
+            }
+        }
         if (!$this->fireEvent('deleting')) {
             return 0;
         }

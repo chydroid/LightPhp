@@ -14,8 +14,8 @@ class Session
         }
 
         if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
-            // 设置安全的 session cookie 参数
-            $isSecure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+            // 设置安全的 session cookie 参数（共享 Request 的可信代理判断逻辑）
+            $isSecure = Request::isSecureFromServer();
             @session_set_cookie_params([
                 'lifetime'  => 0,
                 'path'      => '/',

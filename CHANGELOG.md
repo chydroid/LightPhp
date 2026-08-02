@@ -2,6 +2,51 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.15.6] - 2026-08-02
+
+### 逻辑修复 (MEDIUM)
+
+本轮针对 6 项 MEDIUM 级逻辑缺陷进行修复，提升框架在边缘场景下的健壮性与一致性。
+
+- **[MEDIUM] Model::delete() 支持无参删除当前实例**
+  - 现象：`delete(int|string $id)` 强制要求传入主键，无法删除已加载的模型实例（如 `$model->delete()`）
+  - 修复：签名改为 `delete(int|string|null $id = null)`，`$id` 为 null 时使用 `$this->attributes[$primaryKey]`；当前实例无主键时抛 `RuntimeException`
+  - 兼容：`deleteById()` 与 `__callStatic` 静态调用 `Model::delete($id)` 行为不变
+
+- **[MEDIUM] Model::firstOrCreate() 不再污染当前实例**
+  - 现象：`firstOrCreate` 内部调用 `$this->create($data)`，`create()` 会重写 `$this->attributes`，导致调用方实例的状态被污染
+  - 修复：改为 `(new static())->create($data)`，使用全新实例执行创建，当前实例 attributes 保持不变
+
+- **[MEDIUM] Container::build() 支持 PHP 8 union type**
+  - 现象：`build()` 仅处理 `ReflectionNamedType`，遇到 `A|B` 形式的 union 类型参数时无法自动解析
+  - 修复：增加 `ReflectionUnionType` 处理分支，遍历子类型逐个尝试 `get()`，首个可解析的即用；intersection type 暂不支持，走默认值
+
+- **[MEDIUM] Validate 移除 unique/exists 桩方法**
+  - 现象：`validateUnique`/`validateExists` 直接抛 `RuntimeException`，调用方无法通过 `validate()` 返回值判断失败
+  - 修复：移除两个桩方法，让 `unique`/`exists` 走未知规则路径（触发 `E_USER_WARNING` + 记录错误），与拼写错误处理一致；需 DB 的规则由用户自定义
+  - 测试：原 "Validate - Unique Rule Throws" 改为 "Validate - Unique Rule Treated As Unknown"
+
+- **[MEDIUM] Request::isSecure() 尊重可信代理 X-Forwarded-Proto**
+  - 现象：`scheme()` 仅检查 `$_SERVER['HTTPS']`，反向代理（如 Nginx TLS 终止）转发的不带 HTTPS 标志的请求会被误判为 http
+  - 修复：新增 `isSecure()` 实例方法与 `isSecureFromServer()` 静态方法，当 `REMOTE_ADDR` 在 `trustedProxies` 中且 `X-Forwarded-Proto` 为 https 时判定为安全；`scheme()` 改用 `isSecure()`
+  - 联动：`Session::start()` 的 session cookie `secure` 标志改用 `Request::isSecureFromServer()`，与 Request 共享可信代理判断逻辑
+
+- **[MEDIUM] Router::matchRoute urldecode 路由参数**
+  - 现象：URL 中编码的参数（如 `/users/john%20doe`）传递给控制器时仍为 `john%20doe`，控制器收到未解码的值
+  - 修复：`preg_match` 成功后对每个命名参数值执行 `urldecode()`，与 `Router::route()` 的 `urlencode` 形成往返一致
+
+### 测试 (Tests)
+
+- 新增 7 项回归测试，覆盖上述全部 6 项修复
+- 同步 SoftDelete trait 的 `delete()` 签名以兼容新的可选参数
+- 测试总数：821 → 828，全部通过
+
+### 文档 (Documentation)
+
+- README badge 版本 `2.15.5` → `2.15.6`
+- README 示例代码版本号同步至 `2.15.6`
+- docs/quick-start.md 版本号 `v2.15.5` → `v2.15.6`
+
 ## [2.15.5] - 2026-08-02
 
 ### 生产稳定版 (Production Stable Release)

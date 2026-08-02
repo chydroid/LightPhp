@@ -8,8 +8,8 @@
 
 [![PHP Version](https://img.shields.io/badge/PHP-8.0%2B-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.15.3-8b5cf6?style=for-the-badge)](CHANGELOG.md)
-[![Tests](https://img.shields.io/badge/tests-804%2F804%20passing-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
+[![Version](https://img.shields.io/badge/version-2.15.4-8b5cf6?style=for-the-badge)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-805%2F805%20passing-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
 [![Zero Dependencies](https://img.shields.io/badge/zero%20dependencies-no%20composer%20required-f97316?style=for-the-badge)](https://github.com/chydroid/lightphp)
 
 </div>
@@ -99,7 +99,7 @@ class IndexController extends Controller
     {
         return $this->json([
             'framework' => 'LightPHP',
-            'version'   => '2.15.3',
+            'version'   => '2.15.4',
             'php'       => PHP_VERSION,
         ]);
     }

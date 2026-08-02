@@ -2,6 +2,26 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.15.4] - 2026-08-02
+
+### 第4轮审计缺陷修复 (Round 4 Bug Fixes — 中间件/安全层)
+
+- **[MEDIUM] Captcha::generate() 的 finally 块重置 $ttl 破坏用户配置** — `generate()` 不使用 `$ttl`，但 `verify()` 使用。finally 块中 `self::$ttl = 300;` 会把用户之前通过 `Captcha::ttl(600)` 设置的有效期重置回默认 300 秒，导致验证码按默认 300 秒过期而非用户配置。典型流程：`ttl(600)` → `generate()` → finally 重置 `ttl=300` → `verify()` 用 300 而非 600。修复：从 finally 块移除 `self::$ttl = 300;`，仅重置 generate-time 视觉配置（`$width`/`$height`/`$length`/`$chars`），保留 verify-time 的 `$ttl`
+- **[LOW] Captcha::createImage() 调用 imagedestroy() 在 PHP 8.5 已弃用** — PHP 8.0+ GD 图像对象由 PHP 自动管理，`imagedestroy()` 自 PHP 8.0 起为 no-op，自 PHP 8.5 起触发 `PHP Deprecated: Function imagedestroy() is deprecated`。修复：移除 `createImage()` 中两处 `imagedestroy($image)` 调用（ob_start 失败的错误路径与正常输出捕获后）
+
+### 测试 (Tests)
+
+- 新增 1 个第4轮审计回归测试：Captcha `generate()` 不破坏用户配置的 ttl（`ttl(0)` → `generate()` → `verify()` 应仍禁用过期检查）
+- 测试总数：804 → **805 项断言全部通过**
+- 已审查无 bug 的文件：CsrfMiddleware（hash_equals + fail-closed）、Cors（origin sanitize + 通配符/凭证互斥校验 + Vary）、Throttle（flock 原子性 + expire 重置）、Middleware base（通配符匹配）、Upload（危险扩展名黑名单 + realpath 防遍历 + is_uploaded_file）、Hash（AES-256-GCM + random IV）、OutputCache（session-aware key + safe header 白名单）、RequestLogMiddleware
+
+### 文档 (Documentation)
+
+- README badge 版本 `2.15.3` → `2.15.4`，测试数同步至 805
+- README 示例代码版本号同步至 `2.15.4`
+- docs/quick-start.md 版本号 `v2.15.3` → `v2.15.4`
+- docs/testing-guide.md 测试数同步至 805 项断言
+
 ## [2.15.3] - 2026-08-02
 
 ### 第3轮审计缺陷修复 (Round 3 Bug Fixes — 缓存/Session/Cookie 层)

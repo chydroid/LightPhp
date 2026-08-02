@@ -5143,6 +5143,32 @@ $runner->run('FileCache - read 过期文件被删除', function($t) {
     $t->assertFalse(file_exists($file), '过期缓存文件应被删除');
 });
 
+// === R4 回归：Captcha::generate() 的 finally 块不应重置 ttl 配置 ===
+// 旧代码 finally 中 self::$ttl = 300; 会破坏用户通过 ttl() 设置的有效期
+// 场景：用户设 ttl(0) 禁用过期检查 → generate() → verify() 应仍禁用过期检查
+$runner->run('Captcha - generate 不破坏用户配置的 ttl', function($t) {
+    if (!function_exists('imagecreate') || !function_exists('imagepng')) {
+        $t->assertTrue(true, 'GD 库不可用，跳过测试');
+        return;
+    }
+    if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+        @session_start();
+    }
+    \core\Captcha::ttl(0);
+    try {
+        // generate() 的 finally 块若错误重置 ttl=300，会破坏用户配置
+        \core\Captcha::generate();
+        // 用一个明显过期的生成时间 + 匹配的输入验证：
+        // - 若 ttl 仍为 0（禁用检查）：过期检查被跳过，hash_equals 匹配 → 返回 true
+        // - 若 ttl 被 finally 重置为 300：过期检查触发（99999 > 300）→ 返回 false
+        $expiredTime = time() - 99999;
+        $result = \core\Captcha::verify('abcd', 'abcd', $expiredTime);
+        $t->assertTrue($result, 'generate() 后 ttl=0 应仍禁用过期检查；若失败说明 finally 重置了 ttl');
+    } finally {
+        \core\Captcha::ttl(300);
+    }
+});
+
 $runner->summary();
 
 // 测试失败时返回非零退出码，确保 CI 环境能正确检测失败

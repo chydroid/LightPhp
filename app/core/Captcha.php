@@ -29,12 +29,12 @@ class Captcha
         try {
             $image = self::createImage($code);
         } finally {
-            // 重置配置为默认值，防止长运行进程中的状态污染
+            // 仅重置 generate-time 视觉配置为默认值，防止长运行进程中的状态污染
+            // 注意：$ttl 是 verify-time 配置，不应在此重置，否则会破坏用户通过 ttl() 设置的有效期
             self::$width = 120;
-        self::$height = 40;
-        self::$length = 4;
-        self::$chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-        self::$ttl = 300;
+            self::$height = 40;
+            self::$length = 4;
+            self::$chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
         }
 
         return ['image' => $image];
@@ -149,12 +149,10 @@ class Captcha
         }
 
         if (ob_start() === false) {
-            imagedestroy($image);
             throw new \RuntimeException('Captcha: failed to start output buffer for image generation.');
         }
         imagepng($image);
         $data = ob_get_clean();
-        imagedestroy($image);
 
         // ob_get_clean 可能返回 false（例如缓冲被意外清空）
         if ($data === false) {

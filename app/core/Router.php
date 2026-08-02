@@ -374,12 +374,103 @@ class Router
 
     /**
      * 设置依赖注入容器
-     * 
+     *
      * @param Container $container 容器实例
      */
     public function setContainer(Container $container): void
     {
         $this->container = $container;
+    }
+
+    /**
+     * 注册控制器中通过 PHP 8 Attribute 声明的路由
+     *
+     * 扫描类级 #[Route(prefix:, middleware:)] 与方法级 #[Route]/#[Get]/#[Post] 等
+     * 语法糖属性，将其注册为常规路由。与 route 文件定义的路由共存。
+     *
+     * @param string $controllerClass 控制器类名
+     * @return int 注册的路由数量
+     */
+    public function registerController(string $controllerClass): int
+    {
+        if (!class_exists($controllerClass)) {
+            return 0;
+        }
+
+        $reflection = new \ReflectionClass($controllerClass);
+
+        // 类级属性：prefix / middleware
+        $prefix = null;
+        $middleware = [];
+        foreach ($reflection->getAttributes(\core\attributes\Route::class, \ReflectionAttribute::IS_INSTANCEOF) as $attr) {
+            $classRoute = $attr->newInstance();
+            if ($classRoute->prefix !== null) {
+                $prefix = $classRoute->prefix;
+            }
+            if (!empty($classRoute->middleware)) {
+                $middleware = $classRoute->middleware;
+            }
+        }
+
+        $count = 0;
+        $register = function () use ($reflection, $controllerClass, &$count): void {
+            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+                if ($method->isConstructor() || $method->isStatic()) {
+                    continue;
+                }
+                // 仅注册直接声明于本类的方法，避免继承的公共方法被注册
+                if ($method->getDeclaringClass()->getName() !== $reflection->getName()) {
+                    continue;
+                }
+                $attrs = $method->getAttributes(\core\attributes\Route::class, \ReflectionAttribute::IS_INSTANCEOF);
+                foreach ($attrs as $attr) {
+                    $route = $attr->newInstance();
+                    $httpMethod = strtoupper($route->method);
+                    $this->addRoute($httpMethod, $route->path, [$controllerClass, $method->getName()]);
+                    if ($route->name !== null) {
+                        $this->name($route->name);
+                    }
+                    $count++;
+                }
+            }
+        };
+
+        if ($prefix !== null || !empty($middleware)) {
+            $this->group(
+                array_filter(['prefix' => $prefix, 'middleware' => $middleware], fn($v) => $v !== null && $v !== []),
+                $register
+            );
+        } else {
+            $register();
+        }
+
+        return $count;
+    }
+
+    /**
+     * 扫描控制器目录，注册其中所有类的 Attribute 路由
+     *
+     * @param string $directory 控制器目录绝对路径（末尾带分隔符）
+     * @param string $namespace 对应的根命名空间（末尾带 \\）
+     * @return int 注册的路由数量
+     */
+    public function scanControllerDirectory(string $directory, string $namespace = 'controller\\'): int
+    {
+        if (!is_dir($directory)) {
+            return 0;
+        }
+        $files = glob($directory . '*.php');
+        if ($files === false) {
+            return 0;
+        }
+        $count = 0;
+        foreach ($files as $file) {
+            $class = $namespace . basename($file, '.php');
+            if (class_exists($class)) {
+                $count += $this->registerController($class);
+            }
+        }
+        return $count;
     }
 
     /**
@@ -651,6 +742,11 @@ class Router
                         $typeName = $paramType->getName();
                         if ($typeName === 'core\Request' || $typeName === 'Request') {
                             $args[] = $request;
+                        } elseif (class_exists($typeName) && is_subclass_of($typeName, \core\FormRequest::class, true)) {
+                            // FormRequest 子类：实例化并自动触发授权与验证，失败抛 HttpException/ValidationException
+                            $formRequest = new $typeName();
+                            $formRequest->validateResolved();
+                            $args[] = $formRequest;
                         } elseif ($this->container && $this->container->has($typeName)) {
                             $args[] = $this->container->get($typeName);
                         } elseif (class_exists($typeName)) {

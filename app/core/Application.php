@@ -183,6 +183,8 @@ class Application
                         $this->router->load($file);
                     }
                 }
+                // 扫描控制器 PHP 8 Attribute 路由，与 route 文件定义共存
+                $this->router->scanControllerDirectory(APP_PATH . 'controller/', 'controller\\');
             }
 
             $result = $this->router->dispatch();
@@ -300,6 +302,38 @@ class Application
         } catch (\Throwable $logException) {
             error_log('LightPHP: Failed to log exception: ' . $logException->getMessage());
             error_log('LightPHP original error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        }
+
+        if ($e instanceof \core\exception\HttpException) {
+            $statusCode = $e->getHttpStatusCode();
+            if (!headers_sent()) {
+                http_response_code($statusCode);
+                header('Content-Type: application/json; charset=utf-8');
+                header('X-Content-Type-Options: nosniff');
+            }
+            echo json_encode([
+                'error' => [
+                    'code' => $statusCode,
+                    'message' => $e->getMessage(),
+                ],
+            ], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+
+        if ($e instanceof \core\exception\ValidationException) {
+            if (!headers_sent()) {
+                http_response_code(422);
+                header('Content-Type: application/json; charset=utf-8');
+                header('X-Content-Type-Options: nosniff');
+            }
+            echo json_encode([
+                'error' => [
+                    'code' => 422,
+                    'message' => $e->getMessage(),
+                    'errors' => $e->getErrors(),
+                ],
+            ], JSON_UNESCAPED_UNICODE);
+            return;
         }
 
         if (!headers_sent()) {

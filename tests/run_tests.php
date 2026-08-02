@@ -5558,6 +5558,308 @@ $runner->run('Env - load() $_ENV 存类型化值 putenv 存字符串', function(
     }
 });
 
+// === Round 3 回归测试 (v2.15.8) — HIGH 现代化：Attribute 路由 + FormRequest ===
+
+// 测试夹具类（全局命名空间，便于 registerController 按类名反射）
+class AttrBasicController
+{
+    #[\core\attributes\Get('/attr-basic')]
+    public function basic(): \core\Response
+    {
+        return \core\Response::make('basic');
+    }
+
+    #[\core\attributes\Post('/attr-basic')]
+    public function create(): \core\Response
+    {
+        return \core\Response::make('create');
+    }
+
+    #[\core\attributes\Route('/attr-basic/{id}', method: 'GET', name: 'attr-basic.show')]
+    public function show(int $id): \core\Response
+    {
+        return \core\Response::make('show-' . $id);
+    }
+}
+
+#[\core\attributes\Route(prefix: '/api', middleware: ['cors'])]
+class AttrPrefixedController
+{
+    #[\core\attributes\Get('/items')]
+    public function index(): \core\Response
+    {
+        return \core\Response::make('items');
+    }
+}
+
+class StoreUserFormRequest extends \core\FormRequest
+{
+    public function rules(): array
+    {
+        return [
+            'name' => 'required|min:2',
+            'email' => 'required|email',
+        ];
+    }
+}
+
+class ForbiddenFormRequest extends \core\FormRequest
+{
+    public function authorize(): bool
+    {
+        return false;
+    }
+    public function rules(): array
+    {
+        return [];
+    }
+}
+
+class AttrFormRequestController
+{
+    public function store(StoreUserFormRequest $req): \core\Response
+    {
+        return \core\Response::json($req->validated());
+    }
+}
+
+// Attribute 路由 — 基础注册
+$runner->run('Router - registerController 注册 Attribute 路由', function($t) {
+    $router = new \core\Router();
+    $count = $router->registerController(\AttrBasicController::class);
+    $t->assertEquals(3, $count, '应注册 3 个 Attribute 路由');
+    $routes = $router->getRoutes();
+    $t->assertCount(3, $routes);
+    $byKey = [];
+    foreach ($routes as $r) {
+        $byKey[$r['method'] . ' ' . $r['uri']] = $r;
+    }
+    $t->assertTrue(isset($byKey['GET /attr-basic']), 'GET /attr-basic 应注册');
+    $t->assertTrue(isset($byKey['POST /attr-basic']), 'POST /attr-basic 应注册');
+    $t->assertTrue(isset($byKey['GET /attr-basic/{id}']), 'GET /attr-basic/{id} 应注册');
+    $t->assertEquals([\AttrBasicController::class, 'basic'], $byKey['GET /attr-basic']['handler'], 'handler 应指向控制器类与方法');
+    $t->assertEquals('/attr-basic/42', $router->route('attr-basic.show', ['id' => 42]), '命名路由应可生成 URL');
+});
+
+// Attribute 路由 — 类级 prefix + middleware
+$runner->run('Router - registerController 类级 prefix/middleware', function($t) {
+    $router = new \core\Router();
+    $count = $router->registerController(\AttrPrefixedController::class);
+    $t->assertEquals(1, $count, '应注册 1 个路由');
+    $routes = $router->getRoutes();
+    $t->assertCount(1, $routes);
+    $t->assertEquals('/api/items', $routes[0]['uri'], 'URI 应含类级 prefix');
+    $t->assertTrue(in_array('cors', $routes[0]['middleware'], true), 'middleware 应含 cors');
+});
+
+// Attribute 路由 — scanControllerDirectory 扫描目录注册
+$runner->run('Router - scanControllerDirectory 扫描目录注册 Attribute 路由', function($t) {
+    $tmpDir = sys_get_temp_dir() . '/scan_test_' . uniqid();
+    mkdir($tmpDir, 0755, true);
+    $file = $tmpDir . '/ScannedController.php';
+    $content = <<<'PHP'
+<?php
+declare(strict_types=1);
+namespace scanned;
+use core\attributes\Get;
+class ScannedController {
+    #[Get("/scanned")]
+    public function index(): \core\Response {
+        return \core\Response::make("scanned");
+    }
+}
+PHP;
+    file_put_contents($file, $content);
+    try {
+        require $file;
+        $router = new \core\Router();
+        $count = $router->scanControllerDirectory($tmpDir . '/', 'scanned\\');
+        $t->assertEquals(1, $count, '应扫描注册 1 个路由');
+        $routes = $router->getRoutes();
+        $t->assertCount(1, $routes);
+        $t->assertEquals('/scanned', $routes[0]['uri']);
+        $t->assertEquals(['scanned\ScannedController', 'index'], $routes[0]['handler']);
+    } finally {
+        @unlink($file);
+        @rmdir($tmpDir);
+    }
+});
+
+// Attribute 路由 — scanControllerDirectory 不存在的目录返回 0
+$runner->run('Router - scanControllerDirectory 不存在目录返回 0', function($t) {
+    $router = new \core\Router();
+    $count = $router->scanControllerDirectory('/no/such/dir/xyz_' . uniqid() . '/', 'controller\\');
+    $t->assertEquals(0, $count, '不存在目录应返回 0');
+});
+
+// FormRequest — 验证通过返回 validated 数据
+$runner->run('FormRequest - 验证通过返回 validated 数据', function($t) {
+    $oldPost = $_POST;
+    $oldGet = $_GET;
+    $_POST = ['name' => 'John', 'email' => 'john@example.com'];
+    $_GET = [];
+    try {
+        $req = new \StoreUserFormRequest();
+        $t->assertTrue($req->authorize(), '默认 authorize 应放行');
+        $t->assertTrue($req->validate(), '合法数据应通过');
+        $validated = $req->validated();
+        $t->assertEquals('John', $validated['name']);
+        $t->assertEquals('john@example.com', $validated['email']);
+        $t->assertTrue($req->errors() === [], '通过时 errors 应为空数组');
+    } finally {
+        $_POST = $oldPost;
+        $_GET = $oldGet;
+    }
+});
+
+// FormRequest — 验证失败抛 ValidationException
+$runner->run('FormRequest - validateResolved 验证失败抛 ValidationException', function($t) {
+    $oldPost = $_POST;
+    $oldGet = $_GET;
+    $_POST = ['name' => 'J', 'email' => 'not-an-email'];
+    $_GET = [];
+    try {
+        $req = new \StoreUserFormRequest();
+        $t->assertThrows(\core\exception\ValidationException::class, function() use ($req) {
+            $req->validateResolved();
+        });
+        $errors = $req->errors();
+        $t->assertTrue(isset($errors['name']) || isset($errors['email']), '应产生 name 或 email 的错误');
+    } finally {
+        $_POST = $oldPost;
+        $_GET = $oldGet;
+    }
+});
+
+// FormRequest — authorize 失败抛 HttpException 403
+$runner->run('FormRequest - authorize 失败抛 HttpException 403', function($t) {
+    $oldPost = $_POST;
+    $oldGet = $_GET;
+    $_POST = [];
+    $_GET = [];
+    try {
+        $req = new \ForbiddenFormRequest();
+        $t->assertThrows(\core\exception\HttpException::class, function() use ($req) {
+            $req->validateResolved();
+        });
+    } finally {
+        $_POST = $oldPost;
+        $_GET = $oldGet;
+    }
+});
+
+// Router::executeHandler — FormRequest 自动验证通过
+$runner->run('Router - executeHandler FormRequest 自动验证通过', function($t) {
+    $oldPost = $_POST;
+    $oldGet = $_GET;
+    $_POST = ['name' => 'Alice', 'email' => 'alice@example.com'];
+    $_GET = [];
+    try {
+        $router = new \core\Router();
+        $router->post('/users', [\AttrFormRequestController::class, 'store']);
+        $request = new class extends \core\Request {
+            public function method(): string { return 'POST'; }
+            public function uri(): string { return '/users'; }
+        };
+        $result = $router->dispatch($request);
+        $t->assertTrue($result instanceof \core\Response, '应返回 Response');
+        $body = $result->getContent();
+        $t->assertStringContains('Alice', $body, '响应应含 validated name');
+        $t->assertStringContains('alice@example.com', $body, '响应应含 validated email');
+    } finally {
+        $_POST = $oldPost;
+        $_GET = $oldGet;
+    }
+});
+
+// Router::executeHandler — FormRequest 验证失败抛 ValidationException
+$runner->run('Router - executeHandler FormRequest 验证失败抛 ValidationException', function($t) {
+    $oldPost = $_POST;
+    $oldGet = $_GET;
+    $_POST = ['name' => '', 'email' => 'bad'];
+    $_GET = [];
+    try {
+        $router = new \core\Router();
+        $router->post('/users', [\AttrFormRequestController::class, 'store']);
+        $request = new class extends \core\Request {
+            public function method(): string { return 'POST'; }
+            public function uri(): string { return '/users'; }
+        };
+        $threw = null;
+        try {
+            $router->dispatch($request);
+        } catch (\Throwable $e) {
+            $threw = $e;
+        }
+        $t->assertNotNull($threw, '应抛异常');
+        $t->assertTrue($threw instanceof \core\exception\ValidationException, '应抛 ValidationException');
+    } finally {
+        $_POST = $oldPost;
+        $_GET = $oldGet;
+    }
+});
+
+// Application::handleException — ValidationException 渲染 422
+$runner->run('Application - handleException ValidationException 渲染 422', function($t) {
+    $ref = new \ReflectionClass(\core\Application::class);
+    $app = $ref->newInstanceWithoutConstructor();
+    $router = new \core\Router();
+    $router->get('/v', function() {
+        throw new \core\exception\ValidationException(['name' => ['name is required']]);
+    });
+    $ref->getProperty('router')->setValue($app, $router);
+    $ref->getProperty('container')->setValue($app, new \core\Container());
+    $ref->getProperty('events')->setValue($app, new \core\EventDispatcher());
+    $ref->getProperty('providers')->setValue($app, []);
+    $ref->getProperty('booted')->setValue($app, true);
+
+    $oldUri = $_SERVER['REQUEST_URI'] ?? null;
+    $oldMethod = $_SERVER['REQUEST_METHOD'] ?? null;
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+    $_SERVER['REQUEST_URI'] = '/v';
+    try {
+        ob_start();
+        $app->run();
+        $output = ob_get_clean();
+    } finally {
+        if ($oldUri !== null) $_SERVER['REQUEST_URI'] = $oldUri; else unset($_SERVER['REQUEST_URI']);
+        if ($oldMethod !== null) $_SERVER['REQUEST_METHOD'] = $oldMethod; else unset($_SERVER['REQUEST_METHOD']);
+    }
+    $t->assertStringContains('422', $output, '应输出 422 状态码');
+    $t->assertStringContains('name is required', $output, '应包含错误信息');
+    $t->assertStringContains('errors', $output, '应包含 errors 字段');
+});
+
+// Application::handleException — HttpException 渲染对应状态码
+$runner->run('Application - handleException HttpException 渲染对应状态码', function($t) {
+    $ref = new \ReflectionClass(\core\Application::class);
+    $app = $ref->newInstanceWithoutConstructor();
+    $router = new \core\Router();
+    $router->get('/h', function() {
+        throw new \core\exception\HttpException(403, 'forbidden access');
+    });
+    $ref->getProperty('router')->setValue($app, $router);
+    $ref->getProperty('container')->setValue($app, new \core\Container());
+    $ref->getProperty('events')->setValue($app, new \core\EventDispatcher());
+    $ref->getProperty('providers')->setValue($app, []);
+    $ref->getProperty('booted')->setValue($app, true);
+
+    $oldUri = $_SERVER['REQUEST_URI'] ?? null;
+    $oldMethod = $_SERVER['REQUEST_METHOD'] ?? null;
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+    $_SERVER['REQUEST_URI'] = '/h';
+    try {
+        ob_start();
+        $app->run();
+        $output = ob_get_clean();
+    } finally {
+        if ($oldUri !== null) $_SERVER['REQUEST_URI'] = $oldUri; else unset($_SERVER['REQUEST_URI']);
+        if ($oldMethod !== null) $_SERVER['REQUEST_METHOD'] = $oldMethod; else unset($_SERVER['REQUEST_METHOD']);
+    }
+    $t->assertStringContains('403', $output, '应输出 403 状态码');
+    $t->assertStringContains('forbidden access', $output, '应包含异常消息');
+});
+
 $runner->summary();
 
 // 测试失败时返回非零退出码，确保 CI 环境能正确检测失败

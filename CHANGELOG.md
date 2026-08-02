@@ -2,6 +2,23 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.15.8] - 2026-08-02
+
+### 现代化 (HIGH)
+
+本轮引入两项 PHP 8 现代化特性：Attribute 路由与 FormRequest 自动验证，保持零依赖。
+
+- **[HIGH] 新增 PHP 8 Attribute 路由**
+  - 现象：路由只能在 `app/route/*.php` 文件中命令式注册，控制器与路由定义分离，维护时需在两处来回切换；缺乏现代 PHP 8 attribute 声明式路由能力
+  - 新增：`core\attributes\Route` 及 `Get`/`Post`/`Put`/`Patch`/`Delete`/`Options` 语法糖 attribute，可在控制器方法上直接声明路由；支持类级 `#[Route(prefix: '/api', middleware: ['cors'])]` 声明公共前缀与中间件
+  - 新增 `Router::registerController()` 扫描控制器类方法 attribute 并注册路由，`Router::scanControllerDirectory()` 批量扫描目录；`Application::run()` 加载路由文件后自动扫描 `app/controller/`，与 route 文件定义的路由共存
+  - 仅注册直接声明于本类的 public 方法（`getDeclaringClass()` 校验），避免继承的 `Controller` 公共方法被误注册
+
+- **[HIGH] 新增 FormRequest 表单请求自动验证**
+  - 现象：控制器内需手动调用 `Validate` 并处理错误响应，验证逻辑与业务逻辑耦合；框架异常（`HttpException`/`ValidationException`）经 `Application::handleException` 一律渲染为 500，无法正确反映 403/422 等状态码
+  - 新增抽象基类 `core\FormRequest`（继承 `Request`），子类定义 `rules()`/`authorize()`/`messages()`；`Router::executeHandler` 检测到 FormRequest 子类参数时自动实例化并调用 `validateResolved()`：`authorize()` 失败抛 `HttpException(403)`，规则校验失败抛 `ValidationException`
+  - `Application::handleException` 新增 `ValidationException`→422 JSON、`HttpException`→对应状态码 JSON 渲染分支，其他异常仍走 500 兜底
+
 ## [2.15.7] - 2026-08-02
 
 ### 逻辑修复 (LOW)

@@ -126,7 +126,11 @@ class Session
     public static function regenerate(bool $destroyOld = true): void
     {
         self::start();
-        session_regenerate_id($destroyOld);
+        // headers 已发送时 session_regenerate_id 会失败并产生警告，静默处理
+        if (headers_sent()) {
+            return;
+        }
+        @session_regenerate_id($destroyOld);
     }
 
     public static function flash(string $key, mixed $value = null): mixed

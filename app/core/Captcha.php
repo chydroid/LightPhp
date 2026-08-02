@@ -10,6 +10,8 @@ class Captcha
     private static int $length = 4;
     private static string $chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
     private static string $key = '_captcha_code';
+    /** @var int 验证码有效期（秒），默认 300 秒。超过此时间验证码自动失效 */
+    private static int $ttl = 300;
 
     public static function generate(): array
     {
@@ -29,9 +31,10 @@ class Captcha
         } finally {
             // 重置配置为默认值，防止长运行进程中的状态污染
             self::$width = 120;
-            self::$height = 40;
-            self::$length = 4;
-            self::$chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+        self::$height = 40;
+        self::$length = 4;
+        self::$chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+        self::$ttl = 300;
         }
 
         return ['image' => $image];
@@ -42,12 +45,24 @@ class Captcha
         return function_exists('imagecreate') && function_exists('imagepng');
     }
 
-    public static function verify(string $input, ?string $sessionCode = null): bool
+    public static function verify(string $input, ?string $sessionCode = null, ?int $generatedAt = null): bool
     {
         $code = $sessionCode ?? Session::get(self::$key, '');
         if ($code === '') {
             return false;
         }
+
+        // 过期检查：验证码生成时间超过 ttl 秒后自动失效，防止重放攻击
+        // ttl=0 表示禁用过期检查（不推荐，仅在测试或特殊场景使用）
+        $codeTime = $generatedAt ?? Session::get(self::$key . '_time', 0);
+        if (self::$ttl > 0 && $codeTime > 0 && (time() - $codeTime) > self::$ttl) {
+            // 过期后清理，强制重新生成
+            if ($sessionCode === null) {
+                self::clear();
+            }
+            return false;
+        }
+
         $result = hash_equals($code, strtolower($input));
 
         if ($result && $sessionCode === null) {
@@ -75,6 +90,15 @@ class Captcha
     public static function chars(string $chars): void
     {
         self::$chars = $chars;
+    }
+
+    /**
+     * 设置验证码有效期（秒）
+     * 设置为 0 可禁用过期检查（不推荐）
+     */
+    public static function ttl(int $ttl): void
+    {
+        self::$ttl = max(0, $ttl);
     }
 
     private static function createImage(string $code): string
@@ -126,11 +150,16 @@ class Captcha
 
         if (ob_start() === false) {
             imagedestroy($image);
-            return '';
+            throw new \RuntimeException('Captcha: failed to start output buffer for image generation.');
         }
         imagepng($image);
         $data = ob_get_clean();
         imagedestroy($image);
+
+        // ob_get_clean 可能返回 false（例如缓冲被意外清空）
+        if ($data === false) {
+            throw new \RuntimeException('Captcha: failed to capture image output.');
+        }
 
         return 'data:image/png;base64,' . base64_encode($data);
     }

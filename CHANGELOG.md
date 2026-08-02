@@ -2,6 +2,32 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.15.0] - 2026-08-02
+
+### 缺陷修复 (Bug Fixes)
+
+- **[HIGH] Captcha 缺少过期检查导致重放攻击** — `verify()` 仅校验码值不校验生成时间，验证码可无限期重放。修复：新增 `$ttl`（默认 300 秒）属性，`generate()` 记录生成时间到 Session，`verify()` 比对当前时间与生成时间，超时自动清理并返回 `false`；新增 `ttl()` 静态方法支持配置过期秒数，`ttl=0` 可禁用过期检查（不推荐）
+- **[HIGH] QueryBuilder `sanitizeColumn` 接受非法列名生成无效 SQL** — 列名含空段（`table..col`、`.col`、`col.`）或多于两段（`a.b.c`）时原实现静默返回原始字符串，可能生成非法 SQL 并绕过防护。修复：分段空值检查并抛出 `InvalidArgumentException`，多于两段同样拒绝；同时移除"回退返回原值"分支以杜绝 SQL 注入隐患
+- **[MEDIUM] Hash `setApplicationKey` 空密钥回归阻断 Application 启动** — 上一轮加固使空 `APP_KEY` 在 `setApplicationKey` 中抛异常，导致 CLI、测试及不使用加密功能的场景无法启动。修复：允许传入空字符串，将密钥校验延后到实际加解密时由 `getKey()` 抛出
+- **[MEDIUM] Application `handleException` 二次崩溃风险** — 异常处理器中 `$this->container->get('request')->ip()` 在容器/请求状态异常时本身抛异常，导致错误页渲染失败。修复：包裹 try-catch 并回退到 `$_SERVER['REMOTE_ADDR']`
+- **[MEDIUM] FileCache `increment/decrement` 忽略 `flock` 返回值** — `flock($fp, LOCK_EX)` 失败时仍继续读写，并发场景下丢失更新。修复：检查 `flock` 返回值，失败时回退到 `incrementFallback`/`decrementFallback`
+- **[MEDIUM] Session `regenerate` 在 headers 已发送时产生警告** — `session_regenerate_id` 在 headers 已发送时返回 `false` 并触发 Warning。修复：增加 `headers_sent()` 守卫，已发送时直接返回，避免噪音
+- **[LOW] Env `load` 不支持 bash 风格 `export KEY=value`** — `.env` 文件使用 `export` 前缀时键名解析错误。修复：识别并剥离 `export ` 前缀
+- **[LOW] Router `matchRoute` 静默吞掉正则错误** — `preg_last_error()` 非 `PREG_NO_ERROR` 时直接返回 `false` 无日志，难以排查。修复：通过 `error_log` 记录错误码、模式与 URI
+- **[LOW] Container `isInstantiable` 未复用反射缓存** — 每次 `has()` 都重新构建 `ReflectionClass`，性能浪费。修复：复用 `$reflectionCache`
+
+### 测试 (Tests)
+
+- 新增 9 个第九轮修复回归测试：Captcha 过期/ttl=0、Env export 语法、QueryBuilder 双点号列名、Hash 空密钥不阻断启动、FileCache flock 失败回退、Session regenerate 安全、Router 无效正则返回 false、Container 反射缓存复用、Container build 复用反射缓存
+- 测试总数：729 → **766 项断言全部通过**
+
+### 文档 (Documentation)
+
+- README badge 版本 `2.14.0` → `2.15.0`，测试数同步至 766
+- README 示例代码版本号同步至 `2.15.0`
+- docs/quick-start.md 版本号 `v2.14.0` → `v2.15.0`
+- docs/testing-guide.md 测试数同步至 766 项断言
+
 ## [2.14.0] - 2026-07-01
 
 ### 测试覆盖补全 (Test Coverage)

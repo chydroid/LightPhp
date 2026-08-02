@@ -124,11 +124,22 @@ class QueryBuilder
 
         if (preg_match('/^[a-zA-Z0-9_\.]+$/', $column)) {
             if (str_contains($column, '.')) {
-                [$alias, $col] = explode('.', $column, 2);
-                if ($col === '*') {
-                    return "`{$alias}`.*";
+                $segments = explode('.', $column);
+                // 拒绝空段（如 "table..col"、".col"、"col."），避免生成非法 SQL
+                foreach ($segments as $seg) {
+                    if ($seg === '') {
+                        throw new \InvalidArgumentException("Invalid column name (empty segment): {$column}");
+                    }
                 }
-                return "`{$alias}`.`{$col}`";
+                if (count($segments) === 2) {
+                    [$alias, $col] = $segments;
+                    if ($col === '*') {
+                        return "`{$alias}`.*";
+                    }
+                    return "`{$alias}`.`{$col}`";
+                }
+                // 超过两段（如 a.b.c）不合法
+                throw new \InvalidArgumentException("Invalid column name (too many segments): {$column}");
             }
             return "`{$column}`";
         }
@@ -921,9 +932,17 @@ class QueryBuilder
     {
         $this->where[] = $sql;
         foreach ($bindings as $key => $value) {
-            $placeholder = is_int($key) ? ':wr_' . count($this->bindings) : $key;
+            if (is_int($key)) {
+                // 匿名占位符 ? → 自动生成命名占位符
+                $placeholder = ':wr_' . count($this->bindings);
+                $search = '?';
+            } else {
+                // 命名占位符：自动补 ':' 前缀，避免用户传 'name' 时
+                // 误把 SQL 中的列名 'name' 替换为 'name'（no-op）而绑定却用 'name'
+                $placeholder = $key[0] === ':' ? $key : ':' . $key;
+                $search = $placeholder;
+            }
             $this->bindings[$placeholder] = $value;
-            $search = is_int($key) ? '?' : $key;
             $this->where[count($this->where) - 1] = preg_replace(
                 '/' . preg_quote($search, '/') . '/',
                 $placeholder,

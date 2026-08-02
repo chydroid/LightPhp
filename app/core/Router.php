@@ -518,8 +518,15 @@ class Router
             return $params;
         }
 
-        if ($result === false && preg_last_error() !== PREG_NO_ERROR) {
-            return false;
+        if ($result === false) {
+            // 正则编译/执行失败（如回溯超限）— 记录错误便于排查
+            $err = preg_last_error();
+            error_log(sprintf(
+                'Router matchRoute: regex error [%d] for pattern="%s" uri="%s"',
+                $err,
+                $pattern,
+                $uri
+            ));
         }
 
         return false;

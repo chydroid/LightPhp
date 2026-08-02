@@ -66,20 +66,20 @@ class Hash
 
     public static function setApplicationKey(string $key): void
     {
-        if ($key === '') {
-            throw new \RuntimeException('APP_KEY cannot be empty. Set it in app/config/app.php [key] or .env file.');
-        }
-        self::$appKey = $key;
+        // 允许传入空字符串：Application 启动时配置中可能尚未设置 APP_KEY
+        // 真正的密钥校验延后到实际加解密时由 getKey() 抛出
+        // 这样不会破坏 CLI 命令、测试运行和不使用加密功能的场景
+        self::$appKey = $key !== '' ? $key : null;
     }
 
     private static function getKey(): string
     {
-        if (self::$appKey !== null) {
+        if (self::$appKey !== null && self::$appKey !== '') {
             return substr(hash('sha256', self::$appKey, true), 0, 32);
         }
 
         $key = Env::get('APP_KEY', '');
-        if (empty($key)) {
+        if ($key === '') {
             throw new \RuntimeException('APP_KEY is not set. Set it in app/config/app.php [key] or .env file.');
         }
         return substr(hash('sha256', $key, true), 0, 32);

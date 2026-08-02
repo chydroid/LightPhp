@@ -293,7 +293,11 @@ class Container implements PsrContainerInterface
             return false;
         }
         try {
-            return (new \ReflectionClass($abstract))->isInstantiable();
+            // 复用反射缓存，避免重复构建 ReflectionClass
+            if (!isset($this->reflectionCache[$abstract])) {
+                $this->reflectionCache[$abstract] = new \ReflectionClass($abstract);
+            }
+            return $this->reflectionCache[$abstract]->isInstantiable();
         } catch (\ReflectionException $e) {
             return false;
         }

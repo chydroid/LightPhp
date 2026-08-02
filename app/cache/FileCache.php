@@ -392,7 +392,9 @@ class FileCache implements CacheInterface
         }
 
         try {
-            flock($fp, LOCK_EX);
+            if (!flock($fp, LOCK_EX)) {
+                return $this->incrementFallback($key, $step);
+            }
             $data = $this->read($key);
             $current = $data !== null ? (int) $data['value'] : 0;
             $new = $current + $step;
@@ -421,7 +423,9 @@ class FileCache implements CacheInterface
         }
 
         try {
-            flock($fp, LOCK_EX);
+            if (!flock($fp, LOCK_EX)) {
+                return $this->decrementFallback($key, $step);
+            }
             $data = $this->read($key);
             $current = $data !== null ? (int) $data['value'] : 0;
             $new = max(0, $current - $step);

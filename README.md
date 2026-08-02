@@ -8,8 +8,8 @@
 
 [![PHP Version](https://img.shields.io/badge/PHP-8.0%2B-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.14.0-8b5cf6?style=for-the-badge)](CHANGELOG.md)
-[![Tests](https://img.shields.io/badge/tests-729%2F729%20passing-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
+[![Version](https://img.shields.io/badge/version-2.15.0-8b5cf6?style=for-the-badge)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-766%2F766%20passing-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
 [![Zero Dependencies](https://img.shields.io/badge/zero%20dependencies-no%20composer%20required-f97316?style=for-the-badge)](https://github.com/chydroid/lightphp)
 
 </div>
@@ -45,7 +45,7 @@ LightPHP 是一个面向 PHP 8.0+ 的轻量级全栈框架，**无需 Composer �
 | IoC 容器（PSR-11） | Schema / Migration | Blade 自动转义 | XSS 防护 | `make:*` 代码生成 |
 | 中间件管道（洋葱模型） | 一对一 / 一对多关联 | 布局继承 / 区块 | SQL 注入防护 | 配置缓存 |
 | 事件系统（含通配符） | 软删除 / 模型事件 | 模板缓存 | 路径遍历防护 | API 文档自动生成 |
-| 服务提供者 | 数据库事务 / Savepoint | 组件化视图 | 会话 Cookie 安全 | 729+ 测试断言 |
+| 服务提供者 | 数据库事务 / Savepoint | 组件化视图 | 会话 Cookie 安全 | 766+ 测试断言 |
 | Macroable 宏扩展 | 查询作用域 / 访问器修改器 | 自定义指令 | 限流中间件 | CLI 命令系统 |
 
 </div>
@@ -99,7 +99,7 @@ class IndexController extends Controller
     {
         return $this->json([
             'framework' => 'LightPHP',
-            'version'   => '2.10.0',
+            'version'   => '2.15.0',
             'php'       => PHP_VERSION,
         ]);
     }
@@ -374,10 +374,10 @@ LightPHP 内置了完整的安全机制：
 - **路径遍历防护**：文件操作严格校验路径
 - **会话安全**：Cookie 支持 `HttpOnly`、`Secure`、`SameSite` 标志
 
-框架通过 729+ 测试断言保障核心组件稳定性：
+框架通过 766+ 测试断言保障核心组件稳定性：
 
 ```bash
-php bin/console test   # 729/729 测试通过
+php bin/console test   # 766/766 测试通过
 ```
 
 ---

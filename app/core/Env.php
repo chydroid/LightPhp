@@ -32,6 +32,10 @@ class Env
             if (str_contains($line, '=')) {
                 [$key, $value] = explode('=', $line, 2);
                 $key = trim($key);
+                // 支持 `export KEY=value` 语法（bash 风格 .env）
+                if (str_starts_with($key, 'export ')) {
+                    $key = trim(substr($key, 7));
+                }
                 $value = trim($value);
 
                 // 处理引号包裹的值：提取引号内的内容，忽略引号后的注释

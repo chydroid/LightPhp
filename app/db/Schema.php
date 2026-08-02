@@ -176,6 +176,9 @@ class Schema
     private function compileAlter(): string
     {
         $changes = array_merge($this->columns, $this->commands);
+        if (empty($changes)) {
+            throw new \RuntimeException("Schema::table() for `{$this->table}` has no changes; add columns or commands inside the callback.");
+        }
         $lines = [];
         foreach ($changes as $change) {
             $lines[] = "  {$change}";
@@ -395,19 +398,21 @@ class Blueprint
 
     public function unique(): self
     {
-        if ($this->lastColumn !== null) {
-            $col = trim($this->lastColumn, '`');
-            $this->commands[] = "UNIQUE KEY `uk_{$col}` (`{$col}`)";
+        if ($this->lastColumn === null) {
+            throw new \RuntimeException('unique() must be called after a column definition (e.g., $table->string("name")->unique()).');
         }
+        $col = trim($this->lastColumn, '`');
+        $this->commands[] = "UNIQUE KEY `uk_{$col}` (`{$col}`)";
         return $this;
     }
 
     public function index(): self
     {
-        if ($this->lastColumn !== null) {
-            $col = trim($this->lastColumn, '`');
-            $this->commands[] = "KEY `idx_{$col}` (`{$col}`)";
+        if ($this->lastColumn === null) {
+            throw new \RuntimeException('index() must be called after a column definition (e.g., $table->string("name")->index()).');
         }
+        $col = trim($this->lastColumn, '`');
+        $this->commands[] = "KEY `idx_{$col}` (`{$col}`)";
         return $this;
     }
 
@@ -483,12 +488,10 @@ class Blueprint
         if (!in_array($upperAction, $allowed, true)) {
             throw new \InvalidArgumentException("Invalid ON DELETE action: {$action}");
         }
-        if (!empty($this->commands)) {
-            $lastIdx = count($this->commands) - 1;
-            if (str_contains($this->commands[$lastIdx], 'FOREIGN KEY')) {
-                $this->commands[$lastIdx] .= " ON DELETE {$upperAction}";
-            }
+        if (empty($this->commands) || !str_contains($this->commands[count($this->commands) - 1], 'FOREIGN KEY')) {
+            throw new \RuntimeException('onDelete() must be called after foreign()->references()->on() to attach to a FOREIGN KEY constraint.');
         }
+        $this->commands[count($this->commands) - 1] .= " ON DELETE {$upperAction}";
         return $this;
     }
 
@@ -499,12 +502,10 @@ class Blueprint
         if (!in_array($upperAction, $allowed, true)) {
             throw new \InvalidArgumentException("Invalid ON UPDATE action: {$action}");
         }
-        if (!empty($this->commands)) {
-            $lastIdx = count($this->commands) - 1;
-            if (str_contains($this->commands[$lastIdx], 'FOREIGN KEY')) {
-                $this->commands[$lastIdx] .= " ON UPDATE {$upperAction}";
-            }
+        if (empty($this->commands) || !str_contains($this->commands[count($this->commands) - 1], 'FOREIGN KEY')) {
+            throw new \RuntimeException('onUpdate() must be called after foreign()->references()->on() to attach to a FOREIGN KEY constraint.');
         }
+        $this->commands[count($this->commands) - 1] .= " ON UPDATE {$upperAction}";
         return $this;
     }
 

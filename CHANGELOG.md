@@ -2,6 +2,27 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.15.2] - 2026-08-02
+
+### 第2轮审计缺陷修复 (Round 2 Bug Fixes — 数据库层)
+
+- **[HIGH] Connection::beginTransaction() 嵌套事务触发 TypeError** — SAVEPOINT 分支通过 `PDO::exec()` 返回受影响行数 `int 0`，但方法签名声明返回 `bool`，PHP 严格类型检查直接抛 `TypeError: Return value must be of type bool, int returned`，导致**嵌套事务完全不可用**。修复：SAVEPOINT 分支显式 `$result = true`，不再透传 `exec()` 的 int 返回值
+- **[MEDIUM] Blueprint::onDelete()/onUpdate() 在无前置 FOREIGN KEY 命令时静默 no-op** — 用户调用 `onDelete('CASCADE')` 期望附加到外键约束，但若前面没有 `foreign()->references()->on()`，原实现 `str_contains(..., 'FOREIGN KEY')` 检查失败后静默跳过，用户以为已设置但实际未生效，导致外键约束缺失级联行为。修复：检测到无前置 FOREIGN KEY 时抛 `RuntimeException`
+- **[MEDIUM] Blueprint::unique()/index() 在无前置列定义时静默 no-op** — 独立调用 `unique()` / `index()`（未先调用列定义方法）时，`lastColumn === null` 分支静默跳过，用户以为添加了索引但实际未添加。修复：检测到无前置列时抛 `RuntimeException`
+- **[MEDIUM] Schema::table() 空变更生成非法 ALTER SQL** — 回调中未添加任何列或命令时，`compileAlter()` 生成 `ALTER TABLE \`tbl\``（无内容），触发底层 SQL 错误（如 SQLite 的 `incomplete input`），错误信息晦涩。修复：编译期检测空变更并抛 `RuntimeException`，给出明确提示
+
+### 测试 (Tests)
+
+- 新增 5 个第2轮审计回归测试：Connection 嵌套事务返回 bool、Blueprint onDelete/onUpdate 无 FK 抛异常、Blueprint onDelete/onUpdate 正常附加、Blueprint unique/index 无前置列抛异常、Schema::table() 空变更抛异常
+- 测试总数：781 → **798 项断言全部通过**
+
+### 文档 (Documentation)
+
+- README badge 版本 `2.15.1` → `2.15.2`，测试数同步至 798
+- README 示例代码版本号同步至 `2.15.2`
+- docs/quick-start.md 版本号 `v2.15.1` → `v2.15.2`
+- docs/testing-guide.md 测试数同步至 798 项断言
+
 ## [2.15.1] - 2026-08-02
 
 ### 第1轮审计缺陷修复 (Round 1 Bug Fixes)

@@ -4981,6 +4981,108 @@ $runner->run('Router - route() 支持含花括号的自定义正则', function($
     $t->assertEquals('/users/042', $url, '应正确替换含 {3} 的参数');
 });
 
+// Bug: Connection::beginTransaction() 嵌套事务触发 TypeError
+// SAVEPOINT 通过 PDO::exec() 返回 int 0，但 beginTransaction() 声明返回 bool，
+// 直接 return $result 会触发 TypeError，使嵌套事务完全不可用。
+$runner->run('Connection - 嵌套事务 beginTransaction 返回 bool', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+
+    $conn = (new \ReflectionClass(\db\Connection::class))->newInstanceWithoutConstructor();
+    $ref = new \ReflectionClass(\db\Connection::class);
+    $pdoProp = $ref->getProperty('pdo');
+    $pdoProp->setValue($conn, $pdo);
+    $levelProp = $ref->getProperty('transactionLevel');
+    $levelProp->setAccessible(true);
+
+    $r1 = $conn->beginTransaction();
+    $t->assertTrue($r1, '外层 beginTransaction 应返回 true');
+    $t->assertEquals(1, $levelProp->getValue($conn), '外层事务后 level=1');
+
+    // 嵌套事务 — 之前会 TypeError
+    $r2 = $conn->beginTransaction();
+    $t->assertTrue($r2, '嵌套 beginTransaction (SAVEPOINT) 应返回 true，不应 TypeError');
+    $t->assertEquals(2, $levelProp->getValue($conn), '嵌套事务后 level=2');
+
+    // if (!$r) 风格的调用方应正确识别成功
+    if (!$r2) {
+        $t->assert(false, '嵌套事务返回值不应被 falsy 检测误判为失败');
+    }
+
+    // 嵌套提交与回滚
+    $t->assertTrue($conn->rollback(), '嵌套 rollback 应返回 true');
+    $t->assertEquals(1, $levelProp->getValue($conn), '嵌套 rollback 后 level=1');
+    $t->assertTrue($conn->commit(), '外层 commit 应返回 true');
+    $t->assertEquals(0, $levelProp->getValue($conn), '外层 commit 后 level=0');
+});
+
+// Bug: Blueprint::onDelete()/onUpdate() 在没有前置 FOREIGN KEY 命令时静默 no-op
+// 用户调用 onDelete('CASCADE') 期望附加到外键约束，但若前面没有 foreign()->on()，
+// 原实现静默跳过，用户以为已设置但实际未生效，导致外键约束缺失 ON DELETE 行为。
+$runner->run('Blueprint - onDelete 无外键约束时抛出异常', function($t) {
+    $b = new \db\Blueprint('test');
+    $b->string('name');
+    $t->assertThrows(\RuntimeException::class, function() use ($b) {
+        $b->onDelete('CASCADE');
+    }, 'onDelete 无前置 FOREIGN KEY 应抛 RuntimeException');
+
+    $b2 = new \db\Blueprint('test2');
+    $b2->string('name');
+    $t->assertThrows(\RuntimeException::class, function() use ($b2) {
+        $b2->onUpdate('CASCADE');
+    }, 'onUpdate 无前置 FOREIGN KEY 应抛 RuntimeException');
+});
+
+// Bug: Blueprint::onDelete/onUpdate 正常路径仍能附加到外键
+$runner->run('Blueprint - onDelete/onUpdate 正常附加到外键约束', function($t) {
+    $b = new \db\Blueprint('test');
+    $b->foreign('user_id')->references('id')->on('users')->onDelete('CASCADE')->onUpdate('SET NULL');
+    $cmds = $b->getCommands();
+    $t->assertEquals(1, count($cmds), '应仅生成 1 个 FOREIGN KEY 命令');
+    $t->assertTrue(str_contains($cmds[0], 'FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)'), 'FK 主体正确');
+    $t->assertTrue(str_contains($cmds[0], 'ON DELETE CASCADE'), '应附加 ON DELETE CASCADE');
+    $t->assertTrue(str_contains($cmds[0], 'ON UPDATE SET NULL'), '应附加 ON UPDATE SET NULL');
+});
+
+// Bug: Blueprint::unique()/index() 在没有前置列定义时静默 no-op
+// 用户独立调用 unique() 期望添加唯一索引，但原实现静默跳过，导致索引缺失。
+$runner->run('Blueprint - unique/index 无前置列定义时抛出异常', function($t) {
+    $b = new \db\Blueprint('test');
+    $t->assertThrows(\RuntimeException::class, function() use ($b) {
+        $b->unique();
+    }, 'unique() 无前置列应抛 RuntimeException');
+
+    $b2 = new \db\Blueprint('test2');
+    $t->assertThrows(\RuntimeException::class, function() use ($b2) {
+        $b2->index();
+    }, 'index() 无前置列应抛 RuntimeException');
+});
+
+// Bug: Schema::table() 空变更生成非法 ALTER SQL
+// 用户在回调中未添加任何列或命令时，原实现生成 "ALTER TABLE `tbl`"（无内容），
+// 触发底层 SQL 错误。应在编译期抛出明确异常。
+$runner->run('Schema - table() 空变更抛出异常而非生成非法 SQL', function($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $schema = \db\Schema::setConnection($pdo);
+    $schema->create('empty_alter_test', function(\db\Blueprint $tbl) {
+        $tbl->id();
+    });
+
+    $t->assertThrows(\RuntimeException::class, function() use ($schema) {
+        $schema->table('empty_alter_test', function(\db\Blueprint $tbl) {
+            // 故意空回调
+        });
+    }, '空 ALTER 应在 compileAlter 抛出 RuntimeException');
+});
+
 $runner->summary();
 
 // 测试失败时返回非零退出码，确保 CI 环境能正确检测失败

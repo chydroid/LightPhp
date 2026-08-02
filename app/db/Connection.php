@@ -167,10 +167,11 @@ class Connection implements ConnectionInterface
         if ($this->transactionLevel === 0) {
             $result = $this->pdo->beginTransaction();
         } else {
-            $result = $this->pdo->exec("SAVEPOINT sp_{$this->transactionLevel}");
-            if ($result === false) {
-                return false;
-            }
+            // SAVEPOINT 通过 exec() 返回受影响行数（int 0），而非 bool。
+            // ERRMODE_EXCEPTION 模式下失败会抛异常，所以 exec 不抛即视为成功，
+            // 不能直接 return $result（int 0）—— 会触发 bool 返回类型 TypeError。
+            $this->pdo->exec("SAVEPOINT sp_{$this->transactionLevel}");
+            $result = true;
         }
         $this->transactionLevel++;
         return $result;

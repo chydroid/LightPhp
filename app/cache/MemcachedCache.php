@@ -64,7 +64,9 @@ class MemcachedCache implements CacheInterface
     public function get(string $key, mixed $default = null): mixed
     {
         $value = $this->memcached->get($this->key($key));
-        if ($this->memcached->getResultCode() === \Memcached::RES_NOTFOUND) {
+        // 仅当 RES_SUCCESS 时才认为读取成功；其他任何错误码（含 RES_NOTFOUND、
+        // 服务器错误、网络错误等）均返回 $default，避免错误时把 false 当作存储值返回。
+        if ($this->memcached->getResultCode() !== \Memcached::RES_SUCCESS) {
             return $default;
         }
         return is_string($value) ? $this->unserialize($value) : $value;
@@ -73,6 +75,11 @@ class MemcachedCache implements CacheInterface
     public function set(string $key, mixed $value, ?int $ttl = null): bool
     {
         $ttl = $ttl ?? $this->defaultTtl;
+        // 负 TTL 归一化为 0（永久），与 FileCache/RedisCache 行为一致；
+        // 透传负数给 memcached->set() 行为未定义，可能立即过期或报错。
+        if ($ttl < 0) {
+            $ttl = 0;
+        }
         if ($ttl > 2592000) {
             $ttl = time() + $ttl;
         }
@@ -265,8 +272,8 @@ class MemcachedCache implements CacheInterface
     {
         $fullKey = $this->key($key);
         $value = $this->memcached->get($fullKey);
-        $notFound = $this->memcached->getResultCode() === \Memcached::RES_NOTFOUND;
-        if ($notFound) {
+        // 与 get() 一致：仅 RES_SUCCESS 才认为读取成功，其他错误码返回 $default。
+        if ($this->memcached->getResultCode() !== \Memcached::RES_SUCCESS) {
             return $default;
         }
         $this->memcached->delete($fullKey);

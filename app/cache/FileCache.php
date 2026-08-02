@@ -101,11 +101,12 @@ class FileCache implements CacheInterface
             return null;
         }
 
-        $content = @file_get_contents($file);
-        if ($content === false) {
+        $rawContent = @file_get_contents($file);
+        if ($rawContent === false) {
             return null;
         }
 
+        $content = $rawContent;
         // 剥离 die 前缀（向后兼容无前缀的旧缓存文件）
         $diePrefix = '<?php die; ?>' . "\n";
         if (str_starts_with($content, $diePrefix)) {
@@ -118,7 +119,12 @@ class FileCache implements CacheInterface
         }
 
         if ($this->isExpired($data)) {
-            @unlink($file);
+            // TOCTOU 防护：unlink 前重读文件内容验证未被其他进程通过 set() 的 rename 替换。
+            // 若原始内容已变化，说明另一进程已写入新数据，不应删除。
+            $currentContent = @file_get_contents($file);
+            if ($currentContent === $rawContent) {
+                @unlink($file);
+            }
             return null;
         }
 
@@ -465,7 +471,10 @@ class FileCache implements CacheInterface
         }
 
         try {
-            flock($fp, LOCK_EX);
+            if (!flock($fp, LOCK_EX)) {
+                error_log("FileCache: failed to acquire lock on tag file {$tagFile} for tag '{$tag}'");
+                return;
+            }
             $content = stream_get_contents($fp);
             $keys = [];
 
@@ -509,7 +518,10 @@ class FileCache implements CacheInterface
         }
 
         try {
-            flock($fp, LOCK_EX);
+            if (!flock($fp, LOCK_EX)) {
+                error_log("FileCache: failed to acquire lock on tag file {$tagFile} for tag '{$tag}'");
+                return false;
+            }
             $content = stream_get_contents($fp);
             $keys = [];
 

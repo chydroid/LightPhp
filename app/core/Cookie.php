@@ -16,7 +16,13 @@ class Cookie
             $secure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
         }
         if (!is_string($value) && !is_numeric($value)) {
-            $value = json_encode($value, JSON_UNESCAPED_UNICODE);
+            $encoded = json_encode($value, JSON_UNESCAPED_UNICODE);
+            if ($encoded === false) {
+                // json_encode 失败（如 value 含 resource）时返回 false，
+                // 不应静默写入空 cookie，应让调用方感知失败。
+                return false;
+            }
+            $value = $encoded;
         }
         $options = [
             'expires' => $expire > 0 ? time() + $expire : 0,

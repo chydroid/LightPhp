@@ -104,10 +104,10 @@ class TaggedCache
     public function setMany(array $values, ?int $ttl = null): bool
     {
         $result = $this->store->setMany($values, $ttl);
-        if ($result) {
-            foreach ($values as $key => $v) {
-                $this->tagKey((string) $key);
-            }
+        // 始终对所有 key 打标签：store->setMany() 部分失败时，已成功写入的 key
+        // 仍需打标签，否则 flush() 会漏删这些 key 造成缓存泄漏。
+        foreach ($values as $key => $v) {
+            $this->tagKey((string) $key);
         }
         return $result;
     }

@@ -2,6 +2,31 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.15.3] - 2026-08-02
+
+### 第3轮审计缺陷修复 (Round 3 Bug Fixes — 缓存/Session/Cookie 层)
+
+- **[HIGH] FileCache::attachTag()/flushByTag() 不检查 flock 返回值** — `flock($fp, LOCK_EX)` 直接调用未检查返回值，锁失败时仍读写标签文件，并发场景下可导致 tag 文件损坏。修复：检查 `flock()` 返回值，失败时 `error_log` 记录并安全返回（attachTag 返回 void，flushByTag 返回 false），不再继续操作未加锁的文件
+- **[MEDIUM] MemcachedCache::set() 负 TTL 行为不一致** — 与 FileCache/RedisCache 不一致：其他驱动把 TTL<=0 视为永久，MemcachedCache 直接透传负数给 `memcached->set()`，行为未定义（可能立即过期或报错）。修复：负 TTL 归一化为 0（永久），与其他驱动行为对齐
+- **[MEDIUM] MemcachedCache::get()/pull() 非 NOTFOUND 错误误返 false** — 仅检查 `RES_NOTFOUND`，服务器错误/网络错误时 `$value=false` 被当作存储值返回而非 `$default`，调用方无法区分"值就是 false"与"读取出错"。修复：改为检查 `!== RES_SUCCESS` 返回 `$default`，与 `has()` 一致
+- **[MEDIUM] TaggedCache::setMany() 部分失败时漏打标签** — `store->setMany()` 返回 false 时跳过 `tagKey`，但已成功写入的 key 不被标记，`flush()` 时漏删造成缓存泄漏。修复：始终对 `$values` 中所有 key 调用 `tagKey`，与 `set()` 单 key 行为一致
+- **[LOW] Cookie::set() json_encode 失败静默写空 cookie** — `json_encode` 失败返回 false，`(string)false=''` 静默设置空 cookie，用户无感知。修复：`json_encode` 失败时 `return false`，让调用方感知失败
+- **[LOW] FileCache::read() unlink-on-expire 与 set() rename 竞态** — A 读到过期文件→B 通过 `set()` 的 `rename()` 写入新文件→A `unlink` 删除 B 的新文件（TOCTOU）。修复：`unlink` 前重读文件内容与首次读取的原始内容比对，仅当内容未变时才删除，避免误删并发写入的新数据
+
+### 测试 (Tests)
+
+- 新增 3 个第3轮审计回归测试：TaggedCache setMany 部分失败仍打标签、Cookie set json_encode 失败返回 false、FileCache read 过期文件被删除
+- MemcachedCache bug（负 TTL、非 NOTFOUND 错误）因需 memcached 服务，通过代码审查验证
+- FileCache attachTag/flushByTag flock 检查因锁失败难模拟，通过代码审查验证
+- 测试总数：798 → **804 项断言全部通过**
+
+### 文档 (Documentation)
+
+- README badge 版本 `2.15.2` → `2.15.3`，测试数同步至 804
+- README 示例代码版本号同步至 `2.15.3`
+- docs/quick-start.md 版本号 `v2.15.2` → `v2.15.3`
+- docs/testing-guide.md 测试数同步至 804 项断言
+
 ## [2.15.2] - 2026-08-02
 
 ### 第2轮审计缺陷修复 (Round 2 Bug Fixes — 数据库层)

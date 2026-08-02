@@ -5083,6 +5083,66 @@ $runner->run('Schema - table() 空变更抛出异常而非生成非法 SQL', fun
     }, '空 ALTER 应在 compileAlter 抛出 RuntimeException');
 });
 
+// ===== R3 回归测试：缓存/Session/Cookie bug 修复 =====
+
+$runner->run('TaggedCache - setMany 部分失败仍打标签', function($t) {
+    $store = new \cache\FileCache(STORAGE_PATH . 'cache/');
+    $tagged = new \cache\TaggedCache($store, ['partial_fail']);
+    $prefix = 'tc_pf_' . bin2hex(random_bytes(4));
+    $goodKey = "{$prefix}_good";
+    $badKey = "{$prefix}_bad";
+
+    // resource 无法 json_encode，会让 FileCache::write() 返回 false，
+    // 从而 store->setMany() 返回 false（部分失败）。
+    $res = fopen('php://memory', 'r');
+    set_error_handler(function () { return true; });
+    try {
+        $result = $tagged->setMany([$goodKey => 'good_val', $badKey => $res], 60);
+    } finally {
+        restore_error_handler();
+    }
+    fclose($res);
+
+    // store->setMany 应返回 false（部分失败）
+    $t->assertFalse($result, 'store->setMany 应部分失败');
+    // good_key 已成功写入
+    $t->assertEquals('good_val', $store->get($goodKey), 'good key 应已写入');
+
+    // flush 后 good_key 应被清除：即使 setMany 部分失败，good_key 仍被打了标签。
+    // 修复前 bug：setMany 返回 false 时跳过 tagKey，flush() 漏删导致缓存泄漏。
+    $tagged->flush();
+    $t->assertFalse($store->has($goodKey), 'flush 后 good_key 应被清除（已打标签）');
+
+    $store->delete($goodKey);
+    $store->delete($badKey);
+});
+
+$runner->run('Cookie - set json_encode 失败返回 false', function($t) {
+    // resource 无法 json_encode，Cookie::set 应返回 false 而非静默写空 cookie。
+    $res = fopen('php://memory', 'r');
+    $key = 'test_encode_fail_' . bin2hex(random_bytes(4));
+    set_error_handler(function () { return true; });
+    try {
+        $result = \core\Cookie::set($key, $res, 60);
+    } finally {
+        restore_error_handler();
+    }
+    fclose($res);
+    $t->assertFalse($result, 'json_encode 失败时 Cookie::set 应返回 false');
+});
+
+$runner->run('FileCache - read 过期文件被删除', function($t) {
+    $cache = new \cache\FileCache(STORAGE_PATH . 'cache/');
+    $key = 'expire_test_' . bin2hex(random_bytes(8));
+    $cache->set($key, 'expiring', 1);
+    sleep(2);
+    // 过期后 read 应返回 null（默认值）
+    $t->assertNull($cache->get($key), '过期缓存应返回 null');
+    // 且文件应被删除（read 内部 unlink，且 TOCTOU 重读验证内容未变后删除）
+    $file = STORAGE_PATH . 'cache/' . hash('sha256', $key) . '.cache';
+    $t->assertFalse(file_exists($file), '过期缓存文件应被删除');
+});
+
 $runner->summary();
 
 // 测试失败时返回非零退出码，确保 CI 环境能正确检测失败

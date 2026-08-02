@@ -83,7 +83,8 @@ class Env
                 // 仅当系统环境变量不存在时，才使用 .env 文件值
                 if (!isset($_ENV[$key]) && getenv($key) === false) {
                     self::$vars[$key] = $value;
-                    $_ENV[$key] = $originalValue;
+                    // $_ENV 存类型化值（与 self::$vars 一致），putenv 仍用字符串（putenv 仅接受 string）
+                    $_ENV[$key] = $value;
                     putenv("{$key}={$originalValue}");
                 }
             }

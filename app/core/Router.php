@@ -643,8 +643,8 @@ class Router
                     $paramName = $param->getName();
                     $paramType = $param->getType();
 
-                    // 优先使用路由参数
-                    if (isset($params[$paramName])) {
+                    // 优先使用路由参数（用 array_key_exists 允许 false/null 值的参数）
+                    if (array_key_exists($paramName, $params)) {
                         $args[] = $params[$paramName];
                     } elseif ($paramType instanceof \ReflectionNamedType && !$paramType->isBuiltin()) {
                         // 类型提示注入

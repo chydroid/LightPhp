@@ -2257,7 +2257,12 @@ $runner->run('Response - download 创建下载响应', function($t) {
     file_put_contents($tmpFile, 'hello world');
     $response = \core\Response::download($tmpFile, 'test.txt');
     $t->assertEquals(200, $response->getStatusCode());
-    $t->assertEquals('hello world', $response->getContent());
+    // 流式下载：getContent() 不再缓存文件内容（避免大文件占内存），Content-Length 由头携带
+    $headers = (new \ReflectionClass($response))->getProperty('headers')->getValue($response);
+    $t->assertEquals('11', $headers['Content-Length'], 'Content-Length 应为文件字节数');
+    $t->assertEquals('', $response->getContent(), '流式下载 getContent() 应为空字符串');
+    $filePathProp = (new \ReflectionClass($response))->getProperty('filePath');
+    $t->assertEquals($tmpFile, $filePathProp->getValue($response), 'filePath 应指向待下载文件');
     unlink($tmpFile);
 });
 
@@ -3777,7 +3782,7 @@ $runner->run('Request - case insensitive Content-Type', function($t) {
     $rawContentProp->setValue($request, '{"key":"value"}');
 
     $headersProp = $reflection->getProperty('headers');
-    $headersProp->setValue($request, ['CONTENT_TYPE' => 'Application/JSON']);
+    $headersProp->setValue($request, ['Content-Type' => 'Application/JSON']);
 
     $jsonProp = $reflection->getProperty('json');
     $jsonProp->setValue($request, null);
@@ -5373,6 +5378,184 @@ $runner->run('Router - matchRoute urldecode 路由参数', function($t) {
         public function uri(): string { return '/tag/Caf%C3%A9'; }
     });
     $t->assertEquals('Café', $captured2, '路由参数多字节编码应被正确 urldecode');
+});
+
+// === Round 2 回归测试 (v2.15.7) — LOW 逻辑修复 ===
+
+// Fix 7: Request::parseHeaders 生成标准格式头名（下划线转连字符 + Title-Case）
+$runner->run('Request - parseHeaders 标准格式头名', function($t) {
+    $ref = new \ReflectionClass(\core\Request::class);
+    $request = $ref->newInstanceWithoutConstructor();
+
+    $serverProp = $ref->getProperty('server');
+    $serverProp->setValue($request, [
+        'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest',
+        'HTTP_USER_AGENT' => 'TestAgent/1.0',
+        'CONTENT_TYPE' => 'text/html',
+        'CONTENT_LENGTH' => '42',
+    ]);
+
+    $parseHeaders = $ref->getMethod('parseHeaders');
+    $headers = $parseHeaders->invoke($request);
+
+    // 标准格式：下划线转连字符 + Title-Case
+    $t->assertTrue(array_key_exists('X-Requested-With', $headers), '应生成 X-Requested-With');
+    $t->assertTrue(array_key_exists('User-Agent', $headers), '应生成 User-Agent');
+    $t->assertTrue(array_key_exists('Content-Type', $headers), '应生成 Content-Type');
+    $t->assertTrue(array_key_exists('Content-Length', $headers), '应生成 Content-Length');
+    $t->assertFalse(array_key_exists('X_REQUESTED_WITH', $headers), '不应保留下划线格式');
+    $t->assertEquals('XMLHttpRequest', $headers['X-Requested-With']);
+
+    // header() 查找应大小写/分隔符无关
+    $headersProp = $ref->getProperty('headers');
+    $headersProp->setValue($request, $headers);
+    $t->assertEquals('XMLHttpRequest', $request->header('X-Requested-With'));
+    $t->assertEquals('XMLHttpRequest', $request->header('x-requested-with'));
+    $t->assertEquals('XMLHttpRequest', $request->header('X_REQUESTED_WITH'), '应接受下划线输入');
+    $t->assertEquals('text/html', $request->header('content_type'), '应接受下划线输入');
+});
+
+// Fix 8: Router::executeHandler 用 array_key_exists 允许 null/false 路由参数
+$runner->run('Router - executeHandler 允许 null/false 路由参数', function($t) {
+    $ctrl = new class {
+        public $received = 'not-called';
+        public function show($id) {
+            $this->received = $id;
+            return 'ok';
+        }
+    };
+    $ctrl2 = new class {
+        public $received = 'not-called';
+        public function flag($active) {
+            $this->received = $active;
+            return 'ok';
+        }
+    };
+    $router = new \core\Router();
+    $ref = new \ReflectionClass($router);
+    $method = $ref->getMethod('executeHandler');
+    $request = new \core\Request();
+
+    // null 值：旧 isset() 会跳过并抛异常，array_key_exists 正确传递
+    $method->invoke($router, [$ctrl, 'show'], ['id' => null], $request);
+    $t->assertNull($ctrl->received, 'null 路由参数应被原样传递');
+
+    // false 值：同上
+    $method->invoke($router, [$ctrl2, 'flag'], ['active' => false], $request);
+    $t->assertFalse($ctrl2->received, 'false 路由参数应被原样传递');
+});
+
+// Fix 9: Response::download send() 通过 readfile 流式输出
+$runner->run('Response - download send() 流式输出文件内容', function($t) {
+    $tmpFile = tempnam(sys_get_temp_dir(), 'test_');
+    file_put_contents($tmpFile, 'stream-content-here');
+    $response = \core\Response::download($tmpFile, 'file.bin');
+    ob_start();
+    $response->send();
+    $output = ob_get_clean();
+    $t->assertEquals('stream-content-here', $output, 'send() 应通过 readfile 流式输出文件内容');
+    unlink($tmpFile);
+});
+
+// Fix 10: Model castAttribute 'array' cast null 保留 null
+$runner->run('Model - array cast null 保留 null', function($t) {
+    $model = new class extends \model\Model {
+        protected string $table = 'test_cast';
+        protected array $fillable = ['*'];
+        protected array $casts = ['tags' => 'array'];
+    };
+    $model->setAttribute('tags', null);
+    $t->assertNull($model->getAttribute('tags'), 'array cast 的 null 应保留为 null（不转为 []）');
+    // 对照：JSON 字符串仍正常解码
+    $model->setAttribute('tags', '["a","b"]');
+    $t->assertEquals(['a', 'b'], $model->getAttribute('tags'), 'array cast 的 JSON 字符串应解码为数组');
+});
+
+// Fix 11: EventDispatcher::dispatch 监听器抛异常不塞入 results 且不中断
+$runner->run('EventDispatcher - dispatch 监听器抛异常不塞入 results', function($t) {
+    $events = new \core\EventDispatcher();
+    $secondCalled = false;
+    $events->listen('err.test', function() { throw new \RuntimeException('boom'); });
+    $events->listen('err.test', function() use (&$secondCalled) { $secondCalled = true; return 'ok'; });
+
+    $origLog = ini_get('error_log');
+    $logFile = tempnam(sys_get_temp_dir(), 'errlog_');
+    ini_set('error_log', $logFile);
+    try {
+        $results = $events->dispatch('err.test');
+    } finally {
+        ini_set('error_log', $origLog === false ? '' : $origLog);
+        @unlink($logFile);
+    }
+
+    $t->assertTrue($secondCalled, '异常监听器不应中断后续监听器');
+    foreach ($results as $r) {
+        $t->assertFalse($r instanceof \Throwable, 'results 不应包含异常对象');
+    }
+    $t->assertEquals(['ok'], $results, 'results 应只含正常监听器返回值');
+});
+
+// Fix 12: Application::run() null/false 返回空 200 而非 500
+$runner->run('Application - run() null/false 返回空 200', function($t) {
+    $ref = new \ReflectionClass(\core\Application::class);
+
+    $runWithResult = function($resultValue) use ($ref, $t) {
+        $app = $ref->newInstanceWithoutConstructor();
+        $router = new \core\Router();
+        $router->get('/r', fn() => $resultValue);
+        $ref->getProperty('router')->setValue($app, $router);
+        $ref->getProperty('container')->setValue($app, new \core\Container());
+        $ref->getProperty('events')->setValue($app, new \core\EventDispatcher());
+        $ref->getProperty('providers')->setValue($app, []);
+        $ref->getProperty('booted')->setValue($app, true);
+
+        $oldUri = $_SERVER['REQUEST_URI'] ?? null;
+        $oldMethod = $_SERVER['REQUEST_METHOD'] ?? null;
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['REQUEST_URI'] = '/r';
+        try {
+            ob_start();
+            $app->run();
+            $output = ob_get_clean();
+        } finally {
+            if ($oldUri !== null) $_SERVER['REQUEST_URI'] = $oldUri; else unset($_SERVER['REQUEST_URI']);
+            if ($oldMethod !== null) $_SERVER['REQUEST_METHOD'] = $oldMethod; else unset($_SERVER['REQUEST_METHOD']);
+        }
+        $t->assertEquals('', $output, var_export($resultValue, true) . ' 应输出空内容（200 分支）');
+        // 500 分支会输出 JSON，空输出证明走的是空 200 分支而非 500 兜底
+        $t->assertStringNotContains('500', $output, var_export($resultValue, true) . ' 不应走 500 分支');
+    };
+
+    $runWithResult(null);
+    $runWithResult(false);
+});
+
+// Fix 13: Env::load() $_ENV 存类型化值，putenv 存字符串
+$runner->run('Env - load() $_ENV 存类型化值 putenv 存字符串', function($t) {
+    $ref = new \ReflectionClass(\core\Env::class);
+    $loadedProp = $ref->getProperty('loaded');
+    $varsProp = $ref->getProperty('vars');
+    $oldLoaded = $loadedProp->getValue(null);
+    $oldVars = $varsProp->getValue(null);
+
+    $key = 'ENV_TYPED_TEST_' . uniqid();
+    $tempFile = tempnam(sys_get_temp_dir(), 'env_');
+    file_put_contents($tempFile, "{$key}=true\n");
+
+    try {
+        $loadedProp->setValue(null, false);
+        \core\Env::load($tempFile);
+
+        $t->assertTrue(\core\Env::get($key) === true, 'Env::get 应返回 bool true');
+        $t->assertTrue(($_ENV[$key] ?? null) === true, '$_ENV 应存类型化值 bool true');
+        $t->assertEquals('true', getenv($key), 'putenv 应存字符串 "true"');
+    } finally {
+        $loadedProp->setValue(null, $oldLoaded);
+        $varsProp->setValue(null, $oldVars);
+        unset($_ENV[$key]);
+        putenv("{$key}=");
+        @unlink($tempFile);
+    }
 });
 
 $runner->summary();

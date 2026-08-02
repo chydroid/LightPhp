@@ -2,6 +2,51 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.15.7] - 2026-08-02
+
+### 逻辑修复 (LOW)
+
+本轮针对 7 项 LOW 级逻辑缺陷进行修复，提升框架在边缘场景下的一致性与内存效率。
+
+- **[LOW] Request::parseHeaders 头名格式不规范**
+  - 现象：`parseHeaders()` 把 `HTTP_X_REQUESTED_WITH` 存为 `X_REQUESTED_WITH`（全大写下划线），与 HTTP 标准 `X-Requested-With` 不一致，`headers()` 返回的格式不适合直接透传给下游
+  - 修复：新增 `normalizeHeaderKey()`，存储与查找统一转为标准格式（下划线转连字符 + Title-Case，如 `X-Requested-With`、`Content-Type`）；`header()` 查找大小写/分隔符无关
+
+- **[LOW] Router::executeHandler 用 isset 导致 false/null 路由参数被跳过**
+  - 现象：`isset($params[$paramName])` 在参数值为 `null` 时返回 false，导致控制器方法收不到显式传入的 null/false 值，转而走类型注入或默认值分支，甚至抛 "Unable to resolve parameter"
+  - 修复：改为 `array_key_exists($paramName, $params)`，仅判断键是否存在，允许 false/null 值被原样传递
+
+- **[LOW] Response::download 全文件读入内存**
+  - 现象：`download()` 用 `file_get_contents()` 一次性读取整个文件到 `$content`，大文件下载会撑爆内存
+  - 修复：新增 `$filePath` 属性，`download()` 不再读内容、改用 `filesize()` 设置 `Content-Length`；`send()` 检测 `$filePath` 非空时调用 `readfile()` 流式输出
+
+- **[LOW] Model::castAttribute 'array' cast 把 null 转为 []**
+  - 现象：`'array'` cast 对 `null` 值返回 `[]`，与 `'json'` cast（保留 null）不一致，且丢失"该字段为空"与"该字段未设置"的语义区分
+  - 修复：`null` 保留为 `null`，与 `'json'` 行为对齐；非 null 值仍走 JSON 解码
+
+- **[LOW] EventDispatcher::dispatch 把异常塞进 results 数组**
+  - 现象：监听器抛异常时，`dispatch()` 把异常对象存入 `$results[]`，调用方需额外过滤 `Throwable`，且与 `until()` 的 `catch + continue` 行为不一致
+  - 修复：异常改为 `error_log` 记录后 `continue`，不写入 results，与 `until()` 对齐
+
+- **[LOW] Application::run() 对 null/false 返回 500**
+  - 现象：处理程序返回 `null`/`false` 时被当作错误输出 `500 Internal Server Error`，但控制器可能有意返回 null 表示无响应体
+  - 修复：`null`/`false` 改为输出空 `200` 响应；其他非法类型（int/float/true/无 `__toString` 的对象）仍走 500 兜底
+
+- **[LOW] Env::load() $_ENV 存字符串与 $vars 类型化值不一致**
+  - 现象：`$_ENV[$key]` 存原始字符串 `$originalValue`，而 `self::$vars[$key]` 存类型化值（bool/null），直接读 `$_ENV` 的下游代码拿到的是 `"true"` 而非 `true`
+  - 修复：`$_ENV[$key] = $value`（类型化，与 `$vars` 一致），`putenv()` 仍用 `$originalValue`（putenv 仅接受 string）
+
+### 测试 (Tests)
+
+- 新增 7 项回归测试，覆盖上述全部 7 项修复
+- 测试总数：828 → 855，全部通过
+
+### 文档 (Documentation)
+
+- README badge 版本 `2.15.6` → `2.15.7`，测试数 `828/828` → `855/855`
+- docs/quick-start.md 版本号 `v2.15.6` → `v2.15.7`
+- docs/testing-guide.md 测试断言数 `828` → `855`
+
 ## [2.15.6] - 2026-08-02
 
 ### 逻辑修复 (MEDIUM)

@@ -89,7 +89,9 @@ class EventDispatcher
                         break;
                     }
                 } catch (\Throwable $e) {
-                    $results[] = $e;
+                    // 与 until() 一致：异常不塞进 results，记录日志后继续下一个监听器
+                    error_log("EventDispatcher: listener for [{$event}] threw " . $e->getMessage());
+                    continue;
                 }
             }
         } finally {

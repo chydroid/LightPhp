@@ -601,7 +601,7 @@ class Model
             'int', 'integer' => (int) $value,
             'float', 'double' => (float) $value,
             'bool', 'boolean' => (bool) $value,
-            'array' => $value === null ? [] : (is_array($value) ? $value : (json_decode($value, true) ?? [])),
+            'array' => $value === null ? null : (is_array($value) ? $value : (json_decode($value, true) ?? [])),
             'json' => $value === null ? null : (is_string($value) ? json_decode($value, true) : $value),
             'date' => ($ts = strtotime((string) $value)) !== false ? date('Y-m-d', $ts) : null,
             'datetime' => ($ts = strtotime((string) $value)) !== false ? date($this->dateFormat, $ts) : null,

@@ -29,6 +29,9 @@ class Response
     /** @var bool 是否启用安全头 */
     private bool $securityHeadersEnabled = true;
 
+    /** @var string|null 待流式下载的文件路径（非 null 时 send() 用 readfile 输出，避免全量读入内存） */
+    private ?string $filePath = null;
+
     /**
      * 构造函数
      * 
@@ -116,15 +119,17 @@ class Response
         $name = $name !== null && $name !== '' ? basename($name) : basename($filePath);
         $name = str_replace(["\r", "\n", "\0", '"', '\\'], '', $name);
 
-        $content = @file_get_contents($filePath);
-        if ($content === false) {
-            throw new \RuntimeException("Failed to read file: {$filePath}");
+        // 流式输出：不再 file_get_contents 全量读入内存，改由 send() 调用 readfile()
+        $fileSize = filesize($filePath);
+        if ($fileSize === false) {
+            throw new \RuntimeException("Failed to get file size: {$filePath}");
         }
 
-        $response = new self($content, 200);
+        $response = new self('', 200);
+        $response->filePath = $filePath;
         $response->header('Content-Type', 'application/octet-stream');
         $response->header('Content-Disposition', "attachment; filename=\"{$name}\"");
-        $response->header('Content-Length', (string) \strlen($content));
+        $response->header('Content-Length', (string) $fileSize);
         $response->header('Cache-Control', 'no-cache');
         return $response;
     }
@@ -205,7 +210,12 @@ class Response
             }
         }
 
-        echo $this->content;
+        if ($this->filePath !== null) {
+            // 流式输出文件，避免大文件全量读入内存
+            readfile($this->filePath);
+        } else {
+            echo $this->content;
+        }
     }
 
     /**

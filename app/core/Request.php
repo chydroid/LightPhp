@@ -64,21 +64,34 @@ class Request
         $headers = [];
         foreach ($this->server as $key => $value) {
             if (str_starts_with($key, 'HTTP_')) {
-                $header = strtoupper(substr($key, 5));
+                // 转为标准头名（下划线转连字符 + Title-Case，如 X-Requested-With）
+                $header = $this->normalizeHeaderKey(substr($key, 5));
                 $headers[$header] = $value;
             }
         }
 
         // 添加 Content-Type 和 Content-Length
         if (isset($this->server['CONTENT_TYPE'])) {
-            $headers['CONTENT_TYPE'] = $this->server['CONTENT_TYPE'];
+            $headers['Content-Type'] = $this->server['CONTENT_TYPE'];
         }
 
         if (isset($this->server['CONTENT_LENGTH'])) {
-            $headers['CONTENT_LENGTH'] = $this->server['CONTENT_LENGTH'];
+            $headers['Content-Length'] = $this->server['CONTENT_LENGTH'];
         }
 
         return $headers;
+    }
+
+    /**
+     * 将头名归一化为标准格式（下划线转连字符 + Title-Case）
+     * 查找与存储共用此方法，实现大小写/分隔符无关的访问
+     *
+     * @param string $key 头名（接受 - 或 _ 分隔，任意大小写）
+     * @return string 标准格式（如 X-Requested-With）
+     */
+    private function normalizeHeaderKey(string $key): string
+    {
+        return ucwords(strtolower(str_replace('_', '-', $key)), '-');
     }
 
     /**
@@ -199,7 +212,7 @@ class Request
      */
     public function header(string $key, $default = null): ?string
     {
-        $key = strtoupper(str_replace('-', '_', $key));
+        $key = $this->normalizeHeaderKey($key);
         return $this->headers[$key] ?? $default;
     }
 

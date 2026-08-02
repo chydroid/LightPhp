@@ -196,8 +196,9 @@ class Application
             } elseif (is_object($result) && method_exists($result, '__toString')) {
                 echo (string) $result;
             } elseif ($result === null || $result === false) {
-                // 处理程序未返回有效响应
-                \core\Response::json(['code' => 500, 'message' => 'Internal Server Error'])->send();
+                // 处理程序返回 null/false：视为无内容响应，输出空 200
+                // （控制器可能有意返回 null 表示无返回体，不应被误判为 500 错误）
+                \core\Response::make('', 200)->send();
             } else {
                 // 其他类型（int/float/bool true/无 __toString 的对象）— 强制 500 避免抛 TypeError
                 \core\Response::json(['code' => 500, 'message' => 'Internal Server Error'])->send();

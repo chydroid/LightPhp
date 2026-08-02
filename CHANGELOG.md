@@ -2,6 +2,35 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.15.5] - 2026-08-02
+
+### 生产稳定版 (Production Stable Release)
+
+经过 6 轮系统性安全与缺陷审计，LightPHP 正式标记为**生产稳定版**。所有核心模块均通过代码审查与回归测试，805 项测试全部通过。
+
+#### 审计总结 (Audit Summary)
+
+| 轮次 | 审计范围 | 修复 bug 数 | 状态 |
+|------|---------|-----------|------|
+| R1 | 核心（Container/Router/Request/Response/Application 等） | 多个 | ✅ 完成 |
+| R2 | 数据库层（Connection/QueryBuilder/Schema/Blueprint/Migration） | 多个 | ✅ 完成 |
+| R3 | 缓存/Session/Cookie（FileCache/Memcached/Redis/TaggedCache/Cookie） | 多个 | ✅ 完成 |
+| R4 | 中间件/安全层（CSRF/CORS/Throttle/Upload/Hash/Captcha） | 2 | ✅ 完成 |
+| R5 | 视图/事件/管线（Blade/Smarty/View/EventDispatcher/Pipeline/Collection） | 0 | ✅ 完成（无 bug） |
+| R6 | 控制台/工具/Trait（Console/Command/Generator/Logger/Macroable/SoftDelete/HasModelEvents） | 0 | ✅ 完成（无 bug） |
+
+### 文档 (Documentation)
+
+- README 新增 `stability-stable` 徽章，标记项目为生产稳定版
+- README 标语由「可商用」更新为「生产就绪」，并新增 6 轮审计说明
+- README badge 版本 `2.15.4` → `2.15.5`
+- README 示例代码版本号同步至 `2.15.5`
+- docs/quick-start.md 版本号 `v2.15.4` → `v2.15.5`
+
+### 测试 (Tests)
+
+- 测试总数：**805 项断言全部通过**（与 2.15.4 一致，无新增代码改动）
+
 ## [2.15.4] - 2026-08-02
 
 ### 第4轮审计缺陷修复 (Round 4 Bug Fixes — 中间件/安全层)

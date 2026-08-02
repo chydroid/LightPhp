@@ -4,13 +4,16 @@
 
 # LightPHP
 
-**零依赖 · 高性能 · 可商用的现代化 PHP 框架**
+**零依赖 · 高性能 · 生产就绪的现代化 PHP 框架**
 
 [![PHP Version](https://img.shields.io/badge/PHP-8.0%2B-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.15.4-8b5cf6?style=for-the-badge)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.15.5-8b5cf6?style=for-the-badge)](CHANGELOG.md)
+[![Stability](https://img.shields.io/badge/stability-stable-brightgreen?style=for-the-badge)](CHANGELOG.md)
 [![Tests](https://img.shields.io/badge/tests-805%2F805%20passing-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
 [![Zero Dependencies](https://img.shields.io/badge/zero%20dependencies-no%20composer%20required-f97316?style=for-the-badge)](https://github.com/chydroid/lightphp)
+
+> **✅ 生产稳定版** — 经过 6 轮系统性安全与缺陷审计（核心 / 数据库 / 缓存 / 中间件 / 视图 / 控制台），805 项测试全部通过，可投入生产使用。
 
 </div>
 
@@ -99,7 +102,7 @@ class IndexController extends Controller
     {
         return $this->json([
             'framework' => 'LightPHP',
-            'version'   => '2.15.4',
+            'version'   => '2.15.5',
             'php'       => PHP_VERSION,
         ]);
     }

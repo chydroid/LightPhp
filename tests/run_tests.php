@@ -5860,6 +5860,404 @@ $runner->run('Application - handleException HttpException 渲染对应状态码'
     $t->assertStringContains('forbidden access', $output, '应包含异常消息');
 });
 
+// ═══════════════════════════════════════════════════════════════
+// Round 4 (v2.15.9) - 现代化模块测试
+// ═══════════════════════════════════════════════════════════════
+
+// ---------- JsonResource ----------
+
+$runner->run('JsonResource - 单资源默认 data 包装', function($t) {
+    $resource = new \core\JsonResource(['id' => 1, 'name' => 'Tom']);
+    $resolved = $resource->resolve();
+    $t->assertArrayHasKey('data', $resolved);
+    $t->assertEquals(1, $resolved['data']['id']);
+    $t->assertEquals('Tom', $resolved['data']['name']);
+});
+
+$runner->run('JsonResource - 子类重写 toArray 自定义字段', function($t) {
+    $userResource = new class(['id' => 5, 'name' => 'Alice', 'password' => 'secret']) extends \core\JsonResource {
+        public function toArray($request = null): array {
+            return [
+                'id' => $this->resource['id'],
+                'name' => $this->resource['name'],
+            ];
+        }
+    };
+    $resolved = $userResource->resolve();
+    $t->assertArrayHasKey('data', $resolved);
+    $t->assertEquals(5, $resolved['data']['id']);
+    $t->assertEquals('Alice', $resolved['data']['name']);
+    $t->assertFalse(array_key_exists('password', $resolved['data']), '重写 toArray 不应包含 password');
+});
+
+$runner->run('JsonResource - additional 与 with 合并元数据', function($t) {
+    $r = new class(['id' => 1]) extends \core\JsonResource {
+        public function with($request = null): array {
+            return ['meta' => ['version' => '1.0']];
+        }
+    };
+    $r->additional(['links' => ['self' => '/users/1']]);
+    $resolved = $r->resolve();
+    $t->assertArrayHasKey('meta', $resolved);
+    $t->assertEquals('1.0', $resolved['meta']['version']);
+    $t->assertArrayHasKey('links', $resolved);
+    $t->assertEquals('/users/1', $resolved['links']['self']);
+});
+
+$runner->run('JsonResource - collection 返回 data 列表', function($t) {
+    $users = [
+        ['id' => 1, 'name' => 'a'],
+        ['id' => 2, 'name' => 'b'],
+        ['id' => 3, 'name' => 'c'],
+    ];
+    $userResource = new class extends \core\JsonResource {
+        public function toArray($request = null): array {
+            return ['id' => $this->resource['id'], 'name' => $this->resource['name']];
+        }
+    };
+    $collection = $userResource::collection($users);
+    $resolved = $collection->resolve();
+    $t->assertArrayHasKey('data', $resolved);
+    $t->assertCount(3, $resolved['data']);
+    $t->assertEquals(2, $resolved['data'][1]['id']);
+    $t->assertEquals('c', $resolved['data'][2]['name']);
+});
+
+$runner->run('JsonResource - $wrap=null 不包装', function($t) {
+    $wrapBackup = \core\JsonResource::$wrap;
+    \core\JsonResource::$wrap = null;
+    try {
+        $r = new \core\JsonResource(['id' => 7]);
+        $resolved = $r->resolve();
+        $t->assertArrayHasKey('id', $resolved);
+        $t->assertFalse(array_key_exists('data', $resolved), '不应有 data 包装键');
+    } finally {
+        \core\JsonResource::$wrap = $wrapBackup;
+    }
+});
+
+$runner->run('JsonResource - 包装实现 toArray 的对象（如 Model）', function($t) {
+    $model = new class {
+        public function toArray(): array {
+            return ['id' => 9, 'name' => 'from-model'];
+        }
+    };
+    $r = new \core\JsonResource($model);
+    $resolved = $r->resolve();
+    $t->assertEquals(9, $resolved['data']['id']);
+    $t->assertEquals('from-model', $resolved['data']['name']);
+});
+
+$runner->run('JsonResource - response() 返回 JSON Response', function($t) {
+    $r = new \core\JsonResource(['id' => 1]);
+    $response = $r->response();
+    $t->assertInstanceOf(\core\Response::class, $response);
+    $t->assertEquals(200, $response->getStatusCode());
+    $decoded = json_decode($response->getContent(), true);
+    $t->assertEquals(1, $decoded['data']['id']);
+});
+
+// ---------- EventDispatcher::subscribeClass ----------
+
+$runner->run('EventDispatcher - subscribeClass getSubscribedEvents 单方法映射', function($t) {
+    $events = new \core\EventDispatcher();
+    $captured = null;
+    $subscriberClass = (new class {
+        public static $capturedRef;
+        public static function getSubscribedEvents(): array {
+            return ['user.created' => 'handleCreated'];
+        }
+        public function handleCreated(string $event, ...$payload) {
+            self::$capturedRef = ['event' => $event, 'payload' => $payload];
+            return 'handled';
+        }
+    })::class;
+    $subscriberClass::$capturedRef = null;
+    $events->subscribeClass($subscriberClass);
+    $t->assertTrue($events->hasListeners('user.created'));
+    $results = $events->dispatch('user.created', ['id' => 42]);
+    $t->assertCount(1, $results);
+    $t->assertEquals('handled', $results[0]);
+    $t->assertEquals('user.created', $subscriberClass::$capturedRef['event']);
+    $t->assertEquals(42, $subscriberClass::$capturedRef['payload'][0]['id']);
+});
+
+$runner->run('EventDispatcher - subscribeClass getSubscribedEvents 带优先级', function($t) {
+    $events = new \core\EventDispatcher();
+    // 同一事件注册两个方法，高优先级先执行
+    $subscriberClass = (new class {
+        public static $orderRef;
+        public static function getSubscribedEvents(): array {
+            return [
+                'order.placed' => [
+                    ['onLow', 0],
+                    ['onHigh', 100],
+                ],
+            ];
+        }
+        public function onHigh(string $e, ...$p) {
+            self::$orderRef[] = 'high';
+            return null;
+        }
+        public function onLow(string $e, ...$p) {
+            self::$orderRef[] = 'low';
+            return null;
+        }
+    })::class;
+    $subscriberClass::$orderRef = [];
+    $events->subscribeClass($subscriberClass);
+    $events->dispatch('order.placed');
+    $t->assertEquals(['high', 'low'], $subscriberClass::$orderRef);
+});
+
+$runner->run('EventDispatcher - subscribeClass 反射自动发现 onXxx → xxx.xxx', function($t) {
+    $events = new \core\EventDispatcher();
+    $subscriberClass = (new class {
+        public static $log = [];
+        public function onUserCreated(string $e, ...$p) {
+            self::$log[] = "user.created:{$e}";
+            return null;
+        }
+        public function onOrderPaid(string $e, ...$p) {
+            self::$log[] = "order.paid:{$e}";
+            return null;
+        }
+        // 非 on 开头方法应被忽略
+        public function helper() {}
+        // 下划线开头应被忽略
+        public function _onHidden() {}
+    })::class;
+    $subscriberClass::$log = [];
+    $events->subscribeClass($subscriberClass);
+    $t->assertTrue($events->hasListeners('user.created'));
+    $t->assertTrue($events->hasListeners('order.paid'));
+    $events->dispatch('user.created', ['id' => 1]);
+    $events->dispatch('order.paid', ['id' => 2]);
+    $t->assertContains('user.created:user.created', $subscriberClass::$log);
+    $t->assertContains('order.paid:order.paid', $subscriberClass::$log);
+});
+
+$runner->run('EventDispatcher - subscribeClass 类不存在抛异常', function($t) {
+    $events = new \core\EventDispatcher();
+    $t->assertThrows(\InvalidArgumentException::class, function() use ($events) {
+        $events->subscribeClass('NonExistentSubscriberClass');
+    });
+});
+
+// ---------- HttpClient / HttpResponse ----------
+
+$runner->run('HttpResponse - 基础访问方法', function($t) {
+    $resp = new \core\HttpResponse(200, ['Content-Type' => 'application/json'], '{"ok":true,"n":5}');
+    $t->assertEquals(200, $resp->status());
+    $t->assertTrue($resp->ok());
+    $t->assertFalse($resp->failed());
+    $t->assertEquals('application/json', $resp->header('Content-Type'));
+    $t->assertEquals('application/json', $resp->header('content-type'));
+    $t->assertNull($resp->header('X-Missing'));
+    $t->assertEquals('{"ok":true,"n":5}', $resp->body());
+    $json = $resp->json();
+    $t->assertTrue($json['ok']);
+    $t->assertEquals(5, $json['n']);
+});
+
+$runner->run('HttpResponse - 状态码 ok/failed 判定', function($t) {
+    $r2xx = new \core\HttpResponse(204, [], '');
+    $t->assertTrue($r2xx->ok());
+    $t->assertFalse($r2xx->failed());
+    $r4xx = new \core\HttpResponse(404, [], 'not found');
+    $t->assertFalse($r4xx->ok());
+    $t->assertTrue($r4xx->failed());
+    $r5xx = new \core\HttpResponse(500, [], 'err');
+    $t->assertFalse($r5xx->ok());
+    $t->assertTrue($r5xx->failed());
+});
+
+$runner->run('HttpResponse - json() 无效 JSON 抛异常', function($t) {
+    $resp = new \core\HttpResponse(200, [], 'not-json{');
+    $t->assertThrows(\RuntimeException::class, function() use ($resp) {
+        $resp->json();
+    });
+});
+
+$runner->run('HttpResponse - 多值响应头返回数组', function($t) {
+    $resp = new \core\HttpResponse(200, ['Set-Cookie' => ['a=1', 'b=2']], '');
+    $headers = $resp->headers();
+    $t->assertIsArray($headers['Set-Cookie']);
+    $t->assertCount(2, $headers['Set-Cookie']);
+    // header() 返回第一个
+    $t->assertEquals('a=1', $resp->header('Set-Cookie'));
+});
+
+$runner->run('HttpClientException - 携带 HttpResponse', function($t) {
+    $resp = new \core\HttpResponse(500, [], 'oops');
+    $ex = new \core\HttpClientException('failed', 0, null, $resp);
+    $t->assertInstanceOf(\core\HttpClientException::class, $ex);
+    $t->assertInstanceOf(\core\HttpResponse::class, $ex->getResponse());
+    $t->assertEquals(500, $ex->getResponse()->status());
+});
+
+$runner->run('HttpClient - curl 不可用时抛 HttpClientException', function($t) {
+    if (function_exists('curl_init')) {
+        $t->assertTrue(true, 'curl 可用，跳过此测试');
+        return;
+    }
+    $client = new \core\HttpClient();
+    $t->assertThrows(\core\HttpClientException::class, function() use ($client) {
+        $client->get('http://127.0.0.1:1/');
+    });
+});
+
+// ---------- Storage / LocalDisk ----------
+
+$runner->run('Storage - 自定义配置返回 Disk 实例', function($t) {
+    $tmpRoot = sys_get_temp_dir() . '/lightphp_storage_test_' . uniqid();
+    @mkdir($tmpRoot, 0755, true);
+    try {
+        $storage = new \core\Storage([
+            'default' => 'test',
+            'disks' => [
+                'test' => ['driver' => 'local', 'root' => $tmpRoot, 'url' => '/test'],
+            ],
+        ]);
+        $disk = $storage->disk();
+        $t->assertInstanceOf(\core\Disk::class, $disk);
+        $t->assertInstanceOf(\core\LocalDisk::class, $disk);
+        $t->assertEquals($tmpRoot, $disk->getRoot());
+    } finally {
+        @rmdir($tmpRoot);
+    }
+});
+
+$runner->run('Storage - disk() 默认与命名调用一致', function($t) {
+    $tmpRoot = sys_get_temp_dir() . '/lightphp_storage_test_' . uniqid();
+    @mkdir($tmpRoot, 0755, true);
+    try {
+        $storage = new \core\Storage([
+            'default' => 'primary',
+            'disks' => [
+                'primary' => ['driver' => 'local', 'root' => $tmpRoot, 'url' => null],
+                'alt'     => ['driver' => 'local', 'root' => $tmpRoot . '_alt', 'url' => null],
+            ],
+        ]);
+        $t->assertInstanceOf(\core\LocalDisk::class, $storage->disk());
+        $t->assertInstanceOf(\core\LocalDisk::class, $storage->disk('primary'));
+        $t->assertInstanceOf(\core\LocalDisk::class, $storage->disk('alt'));
+    } finally {
+        @rmdir($tmpRoot);
+        @rmdir($tmpRoot . '_alt');
+    }
+});
+
+$runner->run('Storage - put/get/exists/delete 完整流程', function($t) {
+    $tmpRoot = sys_get_temp_dir() . '/lightphp_storage_test_' . uniqid();
+    @mkdir($tmpRoot, 0755, true);
+    try {
+        $storage = new \core\Storage([
+            'default' => 'local',
+            'disks' => ['local' => ['driver' => 'local', 'root' => $tmpRoot, 'url' => null]],
+        ]);
+        $t->assertFalse($storage->exists('foo/bar.txt'));
+        $t->assertTrue($storage->put('foo/bar.txt', 'hello world'));
+        $t->assertTrue($storage->exists('foo/bar.txt'));
+        $t->assertEquals('hello world', $storage->get('foo/bar.txt'));
+        $t->assertTrue($storage->delete('foo/bar.txt'));
+        $t->assertFalse($storage->exists('foo/bar.txt'));
+        $t->assertThrows(\RuntimeException::class, function() use ($storage) {
+            $storage->get('foo/bar.txt');
+        });
+    } finally {
+        @unlink($tmpRoot . '/foo/bar.txt');
+        @rmdir($tmpRoot . '/foo');
+        @rmdir($tmpRoot);
+    }
+});
+
+$runner->run('Storage - 路径遍历拒绝', function($t) {
+    $tmpRoot = sys_get_temp_dir() . '/lightphp_storage_test_' . uniqid();
+    @mkdir($tmpRoot, 0755, true);
+    try {
+        $storage = new \core\Storage([
+            'default' => 'local',
+            'disks' => ['local' => ['driver' => 'local', 'root' => $tmpRoot, 'url' => null]],
+        ]);
+        $t->assertThrows(\InvalidArgumentException::class, function() use ($storage) {
+            $storage->get('../escape.txt');
+        });
+        $t->assertThrows(\InvalidArgumentException::class, function() use ($storage) {
+            $storage->put('foo/../../escape.txt', 'x');
+        });
+    } finally {
+        @rmdir($tmpRoot);
+    }
+});
+
+$runner->run('Storage - files() 与 directories() 列举', function($t) {
+    $tmpRoot = sys_get_temp_dir() . '/lightphp_storage_test_' . uniqid();
+    @mkdir($tmpRoot . '/sub1', 0755, true);
+    @mkdir($tmpRoot . '/sub2', 0755, true);
+    file_put_contents($tmpRoot . '/a.txt', 'a');
+    file_put_contents($tmpRoot . '/b.txt', 'b');
+    file_put_contents($tmpRoot . '/sub1/c.txt', 'c');
+    try {
+        $storage = new \core\Storage([
+            'default' => 'local',
+            'disks' => ['local' => ['driver' => 'local', 'root' => $tmpRoot, 'url' => null]],
+        ]);
+        $files = $storage->files();
+        sort($files);
+        $t->assertEquals(['a.txt', 'b.txt'], $files);
+        $dirs = $storage->directories();
+        sort($dirs);
+        $t->assertEquals(['sub1', 'sub2'], $dirs);
+        $subFiles = $storage->files('sub1');
+        $t->assertEquals(['sub1/c.txt'], $subFiles);
+    } finally {
+        @unlink($tmpRoot . '/a.txt');
+        @unlink($tmpRoot . '/b.txt');
+        @unlink($tmpRoot . '/sub1/c.txt');
+        @rmdir($tmpRoot . '/sub1');
+        @rmdir($tmpRoot . '/sub2');
+        @rmdir($tmpRoot);
+    }
+});
+
+$runner->run('Storage - url() 与无 URL 配置抛异常', function($t) {
+    $tmpRoot = sys_get_temp_dir() . '/lightphp_storage_test_' . uniqid();
+    @mkdir($tmpRoot, 0755, true);
+    try {
+        $storage = new \core\Storage([
+            'default' => 'public',
+            'disks' => [
+                'public' => ['driver' => 'local', 'root' => $tmpRoot, 'url' => '/uploads'],
+                'private' => ['driver' => 'local', 'root' => $tmpRoot, 'url' => null],
+            ],
+        ]);
+        $t->assertEquals('/uploads/img/foo.png', $storage->disk('public')->url('img/foo.png'));
+        $t->assertEquals('/uploads/img/foo.png', $storage->disk('public')->url('/img/foo.png'));
+        $t->assertThrows(\RuntimeException::class, function() use ($storage) {
+            $storage->disk('private')->url('img/foo.png');
+        });
+    } finally {
+        @rmdir($tmpRoot);
+    }
+});
+
+$runner->run('Storage - 不支持的 driver 与未配置 disk 抛异常', function($t) {
+    $storage = new \core\Storage([
+        'default' => 'local',
+        'disks' => [
+            'local' => ['driver' => 'local', 'root' => sys_get_temp_dir(), 'url' => null],
+            's3'    => ['driver' => 's3', 'bucket' => 'x'],
+        ],
+    ]);
+    $t->assertThrows(\InvalidArgumentException::class, function() use ($storage) {
+        $storage->disk('s3');
+    });
+    $t->assertThrows(\InvalidArgumentException::class, function() use ($storage) {
+        $storage->disk('not-configured');
+    });
+});
+
 $runner->summary();
 
 // 测试失败时返回非零退出码，确保 CI 环境能正确检测失败

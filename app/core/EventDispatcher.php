@@ -193,6 +193,135 @@ class EventDispatcher
         }
     }
 
+    /**
+     * 类名订阅者注册 - 通过反射自动绑定监听器
+     *
+     * 解析顺序：
+     *   1. 若类有静态 getSubscribedEvents() 方法，使用其返回值映射：
+     *      - [event => method]
+     *      - [event => [method, priority]]
+     *      - [event => [[method, priority], [method2, priority2]]]
+     *   2. 否则扫描 public 方法（跳过构造函数与下划线开头方法）：
+     *      - 方法名以 'on' 开头时，去掉前缀后转 snake.case 作为事件名
+     *        例：onUserCreated → user.created，onOrderPaid → order.paid
+     *
+     * 监听器签名为 function(string $event, mixed ...$payload): mixed
+     *
+     * @param class-string $subscriberClass 订阅者类名
+     * @throws \InvalidArgumentException 当类不存在时
+     */
+    public function subscribeClass(string $subscriberClass): void
+    {
+        if (!class_exists($subscriberClass)) {
+            throw new \InvalidArgumentException("Subscriber class not found: {$subscriberClass}");
+        }
+
+        // 优先使用显式声明
+        if (method_exists($subscriberClass, 'getSubscribedEvents')) {
+            $events = $subscriberClass::getSubscribedEvents();
+            if (!is_array($events)) {
+                return;
+            }
+            foreach ($events as $event => $methods) {
+                $this->registerSubscriberBinding($subscriberClass, $event, $methods);
+            }
+            return;
+        }
+
+        // 反射自动发现：on{EventName} → event.name
+        $reflection = new \ReflectionClass($subscriberClass);
+        foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+            $name = $method->getName();
+            // 跳过构造函数、下划线开头、静态方法、内部继承方法
+            if ($name === '__construct' || str_starts_with($name, '_')) {
+                continue;
+            }
+            if ($method->getDeclaringClass()->getName() !== $subscriberClass) {
+                continue;
+            }
+            if (!str_starts_with($name, 'on') || strlen($name) <= 2) {
+                continue;
+            }
+
+            $event = $this->methodNameToEvent(substr($name, 2));
+            if ($event === '') {
+                continue;
+            }
+
+            $this->listen($event, function (string $e, mixed ...$payload) use ($subscriberClass, $name) {
+                $instance = new $subscriberClass();
+                return $instance->$name($e, ...$payload);
+            });
+        }
+    }
+
+    /**
+     * 将 getSubscribedEvents() 的方法条目注册为监听器
+     *
+     * @param class-string $class
+     * @param string $event
+     * @param string|array<int, mixed> $methods
+     */
+    private function registerSubscriberBinding(string $class, string $event, mixed $methods): void
+    {
+        // 单方法：'event' => 'method'
+        if (is_string($methods)) {
+            $this->listen($event, $this->buildSubscriberCallable($class, $methods));
+            return;
+        }
+
+        if (!is_array($methods)) {
+            return;
+        }
+
+        // 多条目：'event' => [['m1', p1], ['m2', p2]]
+        if (isset($methods[0]) && is_array($methods[0])) {
+            foreach ($methods as $entry) {
+                if (!is_array($entry) || empty($entry)) {
+                    continue;
+                }
+                $method = (string) $entry[0];
+                $priority = (int) ($entry[1] ?? 0);
+                $this->listen($event, $this->buildSubscriberCallable($class, $method), $priority);
+            }
+            return;
+        }
+
+        // 单条目带优先级：'event' => ['method', priority]
+        if (isset($methods[0]) && is_string($methods[0])) {
+            $method = (string) $methods[0];
+            $priority = (int) ($methods[1] ?? 0);
+            $this->listen($event, $this->buildSubscriberCallable($class, $method), $priority);
+            return;
+        }
+    }
+
+    /**
+     * 构造订阅者方法对应的可调用闭包
+     *
+     * @param class-string $class
+     * @param string $method
+     */
+    private function buildSubscriberCallable(string $class, string $method): callable
+    {
+        return function (string $event, mixed ...$payload) use ($class, $method) {
+            $instance = new $class();
+            return $instance->$method($event, ...$payload);
+        };
+    }
+
+    /**
+     * 将 CamelCase 方法名后缀转换为 dot.snake 事件名
+     * 例：UserCreated → user.created；OrderPaid → order.paid；Login → login
+     */
+    private function methodNameToEvent(string $name): string
+    {
+        // 在大写字母前插入点，转小写
+        $dotted = preg_replace('/([a-z0-9])([A-Z])/', '$1.$2', $name) ?? $name;
+        $dotted = preg_replace('/([A-Z]+)([A-Z][a-z])/', '$1.$2', $dotted) ?? $dotted;
+        return strtolower($dotted);
+    }
+
     public function flush(): void
     {
         $this->listeners = [];

@@ -2,6 +2,45 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [2.15.9] - 2026-08-02
+
+### 现代化 (MEDIUM)
+
+本轮新增 4 个现代化模块：API Resource、事件订阅者类、HTTP 客户端、多盘文件存储，保持零依赖。
+
+- **[MEDIUM] 新增 API Resource（JsonResource）**
+  - 现象：控制器返回 JSON 时直接 echo 模型字段，数据层与表现层耦合；同一模型在不同接口需要不同字段输出时需重复编写转换逻辑
+  - 新增：抽象基类 `core\JsonResource`，子类重写 `toArray($request)` 定义输出字段；`resolve()` 输出 `['data' => [...], ...meta]`；支持 `with($request)` 默认附加元数据、`additional()` 链式追加、`$wrap = null` 关闭包装、`static::collection($items)` 集合模式
+  - 集成：`response($request, $status)` 直接返回 `\core\Response::json`，可与现有控制器链路无缝衔接；自动适配实现 `toArray()` 的对象（如 Model）
+
+- **[MEDIUM] 新增事件订阅者类（EventDispatcher::subscribeClass）**
+  - 现象：`subscribe(object)` 仅支持显式实现 `subscribe(EventDispatcher)` 方法的对象，类名注册与自动发现缺失，订阅者需手写每条 `listen()` 调用
+  - 新增：`EventDispatcher::subscribeClass(string $class)`，优先识别静态 `getSubscribedEvents()` 返回的事件映射（支持 `'event' => 'method'`、`'event' => ['method', priority]`、`'event' => [['m1', p1], ['m2', p2]]` 三种形式）；无显式声明时反射 public 方法，`on{EventName}` 自动转 `event.name`（如 `onUserCreated` → `user.created`）
+  - 跳过构造函数、下划线开头方法、父类继承方法；监听器签名为 `function(string $event, mixed ...$payload): mixed`
+
+- **[MEDIUM] 新增 HTTP 客户端（HttpClient / HttpResponse）**
+  - 现象：框架无内置 HTTP 客户端，调用外部 API 需手写 cURL 或引入 Guzzle 等第三方库，违反零依赖原则
+  - 新增：`core\HttpClient` 基于 ext-curl 封装，支持 `get/post/put/patch/delete`、JSON 请求体（array 自动编码 + Content-Type）、自定义头、超时、`throw` 选项（HTTP ≥ 400 抛 `HttpClientException`）、`query` URL 查询参数；curl 不可用时抛 `HttpClientException`
+  - 新增：`core\HttpResponse` 提供 `status()/ok()/failed()/headers()/header()/body()/json()`；多值响应头（如 `Set-Cookie`）以数组形式存储，`header()` 返回首个值；`json()` 解析失败抛 `RuntimeException`
+  - 新增：`core\HttpClientException` 携带可选 `HttpResponse`，便于错误处理时获取响应体
+
+- **[MEDIUM] 新增多盘文件存储（Storage / LocalDisk）**
+  - 现象：框架无统一文件存储抽象，上传与文件操作散落各处，多盘（local/public/s3）切换与路径遍历防护需在每个调用点重复实现
+  - 新增：`core\Storage` 多盘管理，配置文件 `app/config/storage.php`（默认盘 + disks 列表，含 local/public/s3 stub）；`disk($name)` 按名称取盘，不传参使用默认盘；盘实例级缓存（同 Storage 实例同盘名复用）
+  - 新增：`core\Disk` 接口与 `core\LocalDisk` 实现，支持 `put/get/exists/delete/url/files/directories`；`put` 接受字符串或流资源；`put` 自动创建父目录；`url()` 在无 URL 配置时抛异常
+  - 安全：词法分析剥离 `.`/`..` 段，路径遍历直接抛 `InvalidArgumentException`；不依赖 `realpath`，对尚未创建的文件/目录也能正常工作
+
+### 测试 (Tests)
+
+- 新增 25 项回归测试，覆盖 4 个新模块
+- 测试总数：889 → 968，全部通过
+
+### 文档 (Documentation)
+
+- README badge 版本 `2.15.8` → `2.15.9`，测试数 `889/889` → `968/968`
+- docs/quick-start.md 版本号 `v2.15.8` → `v2.15.9`
+- docs/testing-guide.md 测试断言数 `889` → `968`
+
 ## [2.15.8] - 2026-08-02
 
 ### 现代化 (HIGH)

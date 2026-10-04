@@ -30,7 +30,9 @@ class Console
         $commandName = $argv[1] ?? 'list';
         $args = array_slice($argv, 2);
 
-        if ($commandName === 'list') {
+        // 用户显式注册的同名命令优先；否则回退到内置 list。
+        // 此前无条件拦截 'list'，即使用户注册了自己的 list 命令也永远不会被执行。
+        if ($commandName === 'list' && !isset($this->commands[$commandName])) {
             return $this->listCommands();
         }
 
@@ -45,7 +47,25 @@ class Console
         if (isset($this->commands[$commandName])) {
             $command = $this->commands[$commandName];
             $command->parseInput($args);
-            return $command->handle();
+
+            // 缺必填参数时给出可读提示。
+            // 此前直接把 null 传给命令体内的 preg_match()/Config::get() 等，
+            // 抛出 TypeError 并打印完整堆栈（实测 make:controller 退出码 255）。
+            $missing = $command->missingRequiredArguments();
+            if ($missing !== []) {
+                echo "\033[31mMissing required argument(s): " . implode(', ', $missing) . "\033[0m\n";
+                echo 'Usage: php console ' . $command->getSignature() . "\n";
+                return 1;
+            }
+
+            try {
+                return $command->handle();
+            } catch (\TypeError $e) {
+                // 兜底：命令体对参数类型处理不当时给出可读信息，而非 PHP 堆栈
+                echo "\033[31mInvalid arguments for '{$commandName}': " . $e->getMessage() . "\033[0m\n";
+                echo 'Usage: php console ' . $command->getSignature() . "\n";
+                return 1;
+            }
         }
 
         echo "\033[31mCommand '{$commandName}' not found.\033[0m\n";

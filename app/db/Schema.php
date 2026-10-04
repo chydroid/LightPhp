@@ -486,8 +486,10 @@ class Blueprint
         $col = trim($this->lastColumn, '`');
         // SQLite 的 CREATE TABLE 子句不接受 `KEY idx_x (x)`（语法错误）。
         // 改为登记到独立索引列表，由 Schema::create() 在建表后单独发 CREATE INDEX。
+        // 索引名必须带表名前缀：SQLite 的索引名是数据库全局唯一的，
+        // 否则 users.email 与 orders.email 会争抢同一个 idx_email（实测报冲突）。
         if ($this->driver === 'sqlite') {
-            $this->indexes[] = "idx_{$col}";
+            $this->indexes[] = "idx_{$this->table}_{$col}";
             $this->indexColumns[] = $col;
         } else {
             $this->commands[] = "KEY `idx_{$col}` (`{$col}`)";

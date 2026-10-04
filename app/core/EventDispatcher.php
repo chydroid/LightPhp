@@ -143,15 +143,26 @@ class EventDispatcher
             return $this->wildcardCache[$event];
         }
 
-        $listeners = [];
-
+        // 收集 (listener, priority, seq) 三元组。
+        // 此前直接 append $entry['listener']，把 priority 丢掉了：
+        // 各 pattern 内部虽按优先级排过序，但跨 pattern 拼接时退化为
+        // 「先注册者先执行」，导致通配符与精确监听的优先级互相失效。
+        $collected = [];
+        $seq = 0;
         foreach ($this->listeners as $pattern => $registered) {
             if ($this->matchWildcard($pattern, $event)) {
                 foreach ($registered as $entry) {
-                    $listeners[] = $entry['listener'];
+                    $collected[] = [$entry['listener'], $entry['priority'] ?? 0, $seq++];
                 }
             }
         }
+
+        // 全局按优先级降序；优先级相同时保持注册顺序（稳定）
+        usort($collected, static function (array $a, array $b): int {
+            return $b[1] <=> $a[1] ?: ($a[2] <=> $b[2]);
+        });
+
+        $listeners = array_map(static fn(array $item) => $item[0], $collected);
 
         // 防止长驻进程派发大量唯一事件名导致内存泄漏
         if (count($this->wildcardCache) >= 1024) {

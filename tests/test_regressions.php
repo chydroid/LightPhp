@@ -880,3 +880,204 @@ $runner->run('Regression - Memcached clear() 在共享实例上拒绝 flush', fu
     $exclusive = new \cache\MemcachedCache(['shared' => false]);
     $t->assertTrue($prop->getValue($exclusive), 'shared=false 时允许 flush()');
 });
+// ═══════════════════════════════════════════════════════════════
+// v2.16.1 第三批：回归修复 + console/config 层缺陷
+// ═══════════════════════════════════════════════════════════════
+
+$runner->run('Regression - SoftDelete withTrashed 静态入口不丢状态', function ($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $dbFile = sys_get_temp_dir() . '/lp_sd3_' . getmypid() . '_' . uniqid() . '.sqlite';
+    @unlink($dbFile);
+    $conn = new \db\Connection(['driver' => 'sqlite', 'database' => $dbFile]);
+    $conn->getPdo()->exec('CREATE TABLE sd3 (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, deleted_at TEXT, created_at TEXT, updated_at TEXT)');
+    $conn->getPdo()->exec("INSERT INTO sd3 (name, deleted_at) VALUES ('alive', NULL), ('gone', '2020-01-01 00:00:00')");
+
+    $SD = new class extends \model\Model {
+        protected string $table = 'sd3';
+        protected array $fillable = ['name', 'deleted_at'];
+        use \traits\SoftDelete;
+    };
+    \model\Model::setDb($conn);
+    try {
+        $t->assertCount(1, $SD::all(), '默认应排除已软删除记录');
+
+        // 回归点：Model static 化后 all()/find()/where() 内部 new static()
+        // 会丢弃 trashedQuery，导致 withTrashed 静默失效
+        $names = array_map(fn($m) => $m->getAttribute('name'), $SD::withTrashed()->all());
+        sort($names);
+        $t->assertEquals(['alive', 'gone'], $names, 'withTrashed()->all() 应包含已软删除记录');
+
+        $t->assertCount(1, $SD::onlyTrashed()->all(), 'onlyTrashed() 应只返回已软删除记录');
+        $t->assertCount(1, $SD::all(), '作用域用完后不应影响后续静态调用');
+    } finally {
+        @unlink($dbFile);
+    }
+});
+
+$runner->run('Regression - EventDispatcher 优先级跨通配符生效', function ($t) {
+    $ed = new \core\EventDispatcher();
+    $order = [];
+    $ed->listen('user.created', function () use (&$order) { $order[] = 'exact-0'; }, 0);
+    $ed->listen('user.*', function () use (&$order) { $order[] = 'wild-10'; }, 10);
+    $ed->listen('user.created', function () use (&$order) { $order[] = 'exact-100'; }, 100);
+
+    $ed->dispatch('user.created');
+    $t->assertEquals(
+        ['exact-100', 'wild-10', 'exact-0'],
+        $order,
+        '跨 pattern 应按优先级降序（修复前退化为注册顺序）'
+    );
+});
+
+$runner->run('Regression - SQLite 索引名带表前缀不冲突', function ($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $schema = new \db\Schema(new \PDO('sqlite::memory:'));
+
+    $t->assertTrue($schema->create('ix_a', function (\db\Blueprint $t2) {
+        $t2->id();
+        $t2->string('email')->index();
+    }), '首表建索引应成功');
+
+    // 回归点：索引名 idx_email 无表前缀，SQLite 全局唯一 → 第二表必冲突
+    $t->assertTrue($schema->create('ix_b', function (\db\Blueprint $t2) {
+        $t2->id();
+        $t2->string('email')->index();
+    }), '不同表的同名列索引不应冲突');
+});
+
+$runner->run('Regression - Blade @include 父变量为 null 时不污染作用域', function ($t) {
+    $src = sys_get_temp_dir() . '/lp_b3src_' . getmypid() . '_' . uniqid();
+    $cache = sys_get_temp_dir() . '/lp_b3cache_' . getmypid() . '_' . uniqid();
+    @mkdir($src, 0777, true);
+    @mkdir($cache, 0777, true);
+    try {
+        file_put_contents($src . '/row.blade.php', '[{{ $v }}]');
+        file_put_contents(
+            $src . '/main.blade.php',
+            "<?php \$v = null; ?>{@include('row',['v'=>'NEW'])}|AFTER=<?= var_export(\$v, true) ?>"
+        );
+        $out = (new \view\Blade($src, $cache))->render('main');
+        // 回归点：用 isset() 保存父变量，null 值被判为「未定义」→ 恢复失败
+        $t->assertTrue(str_contains($out, 'AFTER=NULL'), '父作用域的 null 变量应被恢复，实际: ' . $out);
+    } finally {
+        array_map('unlink', glob($src . '/*') ?: []);
+        array_map('unlink', glob($cache . '/*') ?: []);
+        @rmdir($src);
+        @rmdir($cache);
+    }
+});
+
+$runner->run('Regression - Blade @include 新变量不泄漏到父作用域', function ($t) {
+    $src = sys_get_temp_dir() . '/lp_b4src_' . getmypid() . '_' . uniqid();
+    $cache = sys_get_temp_dir() . '/lp_b4cache_' . getmypid() . '_' . uniqid();
+    @mkdir($src, 0777, true);
+    @mkdir($cache, 0777, true);
+    try {
+        file_put_contents($src . '/row.blade.php', '<?= $brandNew ?? "" ?>');
+        file_put_contents(
+            $src . '/main.blade.php',
+            "@include('row',['brandNew'=>'X'])|AFTER=<?= var_export(isset(\$brandNew), true) ?>"
+        );
+        $out = (new \view\Blade($src, $cache))->render('main');
+        $t->assertTrue(str_contains($out, 'AFTER=false'), 'include 引入的新变量应被 unset，实际: ' . $out);
+    } finally {
+        array_map('unlink', glob($src . '/*') ?: []);
+        array_map('unlink', glob($cache . '/*') ?: []);
+        @rmdir($src);
+        @rmdir($cache);
+    }
+});
+
+$runner->run('Regression - Command 布尔选项不吞掉位置参数', function ($t) {
+    $cmd = new class extends \core\console\Command {
+        protected string $signature = 'make:model {name} {--force}';
+        public function handle(): int { return 0; }
+    };
+    // 回归点：--force User 把 User 当成 force 的值 → name 变 null
+    $cmd->parseInput(['--force', 'User']);
+    $t->assertEquals('User', $cmd->argument('name'), '布尔选项不应吞掉位置参数');
+    $t->assertTrue($cmd->option('force'), '--force 应为布尔真');
+
+    $cmd2 = new class extends \core\console\Command {
+        protected string $signature = 'make:model {name}';
+        public function handle(): int { return 0; }
+    };
+    $cmd2->parseInput(['Post']);
+    $t->assertEquals('Post', $cmd2->argument('name'), '普通位置参数应正常解析');
+});
+
+$runner->run('Regression - Command 取值选项支持负数', function ($t) {
+    $cmd = new class extends \core\console\Command {
+        protected string $signature = 'migrate:rollback {--steps=1}';
+        public function handle(): int { return 0; }
+    };
+    // 回归点：str_starts_with('-') 把 -1 当成选项名 "1"
+    $cmd->parseInput(['--steps', '-1']);
+    $t->assertEquals('-1', $cmd->option('steps'), '选项值可为负数');
+
+    $cmd->parseInput(['--steps', '3']);
+    $t->assertEquals('3', $cmd->option('steps'), '选项值可为正数');
+});
+
+$runner->run('Regression - Command 报告缺失必填参数', function ($t) {
+    $cmd = new class extends \core\console\Command {
+        protected string $signature = 'make:controller {name}';
+        public function handle(): int { return 0; }
+    };
+    $cmd->parseInput([]);
+    $t->assertTrue(in_array('name', $cmd->missingRequiredArguments(), true), '应报告缺失的必填参数');
+
+    $cmd2 = new class extends \core\console\Command {
+        protected string $signature = 'make:controller {name}';
+        public function handle(): int { return 0; }
+    };
+    $cmd2->parseInput(['PostController']);
+    $t->assertEquals([], $cmd2->missingRequiredArguments(), '已提供时不应报缺失');
+});
+
+$runner->run('Regression - Console 用户注册的 list 命令可执行', function ($t) {
+    $console = new \core\console\Console();
+    $console->register(new class extends \core\console\Command {
+        protected string $signature = 'list';
+        public function handle(): int { return 42; }
+    });
+    $t->assertEquals(42, $console->run(['console', 'list']), '用户注册的 list 应优先于内置 list');
+
+    $console2 = new \core\console\Console();
+    ob_start();
+    $rc = $console2->run(['console', 'list']);
+    ob_end_clean();
+    $t->assertEquals(0, $rc, '未注册 list 时回退到内置实现');
+});
+
+$runner->run('Regression - Config::load 无尾斜杠仍能加载且可重复调用', function ($t) {
+    $dir = sys_get_temp_dir() . '/lp_cfg3_' . getmypid() . '_' . uniqid();
+    @mkdir($dir, 0777, true);
+    $name = 'lp_cfg_probe_' . getmypid();
+    try {
+        // 回归点：glob($path . '*.php') 缺尾斜杠时匹配不到 → 静默加载 0 个
+        file_put_contents($dir . '/' . $name . '.php', "<?php return ['k' => 'v'];");
+        \config\Config::load($dir);
+        $t->assertTrue(\config\Config::has($name . '.k'), '无尾斜杠也应加载配置');
+        \config\Config::load($dir);
+        $t->assertTrue(true, '二次 load 不应重复 require 同一文件');
+    } finally {
+        @unlink($dir . '/' . $name . '.php');
+        @rmdir($dir);
+    }
+});
+
+$runner->run('Regression - Config 点号路径穿过标量不抛 TypeError', function ($t) {
+    \config\Config::set('lp_scalar', 'plain-string');
+    $t->assertEquals('plain-string', \config\Config::get('lp_scalar'));
+    // 回归点：array_key_exists(第2段, 'plain-string') → Argument #2 must be of type array
+    $t->assertNull(\config\Config::get('lp_scalar.deeper'), '穿过标量应返回默认值');
+    $t->assertFalse(\config\Config::has('lp_scalar.deeper'), '穿过标量应视为不存在');
+    $t->assertTrue(\config\Config::has('lp_scalar'), '标量本身存在');
+});

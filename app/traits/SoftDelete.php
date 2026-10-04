@@ -21,6 +21,39 @@ trait SoftDelete
     private string $trashedQuery = 'exclude';
 
     /**
+     * 当本实例是通过 withTrashed()/onlyTrashed() 构造时，
+     * 后续的静态查询入口（all/find/where/count...）应复用本实例，
+     * 否则它们内部的 `new static()` 会把 trashedQuery 重置回 'exclude'，
+     * 导致 SoftDelete::withTrashed()->all() 静默丢失已软删除记录
+     * （实测返回 ["alive"] 而非 ["alive","gone"]）。
+     *
+     * PHP 允许以 $obj->staticMethod() 形式调用静态方法，但该调用
+     * 不会携带 $this，因此需要借助静态属性记录「当前作用域实例」。
+     *
+     * @var static|null
+     */
+    private static ?object $queryScopeInstance = null;
+
+    /**
+     * 解析本次静态调用应使用的实例
+     *
+     * 作用域实例由 withTrashed()/onlyTrashed() 设置，
+     * 在下一次静态入口取用后立即清空（作用域只生效一次），
+     * 避免污染后续独立的静态调用。
+     *
+     * @return static
+     */
+    private static function resolveScopeInstance(): static
+    {
+        $scoped = self::$queryScopeInstance;
+        if ($scoped instanceof static) {
+            self::$queryScopeInstance = null;
+            return $scoped;
+        }
+        return new static();
+    }
+
+    /**
      * 启用强制删除模式（返回新实例，不影响其他实例）
      *
      * 用法: $model->force()->delete($id);
@@ -86,6 +119,7 @@ trait SoftDelete
     {
         $instance = new static();
         $instance->trashedQuery = 'with';
+        self::$queryScopeInstance = $instance;
         return $instance;
     }
 
@@ -96,7 +130,24 @@ trait SoftDelete
     {
         $instance = new static();
         $instance->trashedQuery = 'only';
+        self::$queryScopeInstance = $instance;
         return $instance;
+    }
+
+    /**
+     * 静态查询入口使用的实例
+     *
+     * 若 withTrashed()/onlyTrashed() 刚被调用，复用其携带的
+     * trashedQuery 状态的实例，否则新建。
+     * 这是让 withTrashed()->all()/find()/where() 等正确工作的关键：
+     * 它们内部若直接 new static()，trashedQuery 会退回 'exclude'，
+     * 静默过滤掉已软删除记录。
+     *
+     * @return static
+     */
+    protected static function makeQueryInstance(): static
+    {
+        return self::resolveScopeInstance();
     }
 
     /**

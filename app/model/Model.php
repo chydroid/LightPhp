@@ -49,6 +49,20 @@ class Model
     }
 
     /**
+     * 创建用于执行静态查询入口的实例
+     *
+     * 子类/trait 可覆盖以注入查询作用域状态。
+     * 例如 SoftDelete 通过它让 withTrashed()->all() 复用携带
+     * trashedQuery 的实例，而不是丢状态后静默返回错误数据集。
+     *
+     * @return static
+     */
+    protected static function makeQueryInstance(): static
+    {
+        return new static();
+    }
+
+    /**
      * 按主键查找记录
      *
      * 静态方法：`User::find(1)`。PHP 允许以 `$user->find(1)` 形式调用静态方法，
@@ -56,7 +70,7 @@ class Model
      */
     public static function find(int|string $id): ?static
     {
-        $instance = new static();
+        $instance = static::makeQueryInstance();
         $row = $instance->newQuery()->where($instance->primaryKey, '=', $id)->fetch();
         return $row ? $instance->newFromBuilder($row) : null;
     }
@@ -76,14 +90,14 @@ class Model
             throw new \InvalidArgumentException("Invalid column name: {$column}");
         }
 
-        $instance = new static();
+        $instance = static::makeQueryInstance();
         $row = $instance->newQuery()->where($column, '=', $value)->fetch();
         return $row ? $instance->newFromBuilder($row) : null;
     }
 
     public static function first(): ?static
     {
-        $instance = new static();
+        $instance = static::makeQueryInstance();
         $row = $instance->newQuery()->limit(1)->fetch();
         return $row ? $instance->newFromBuilder($row) : null;
     }
@@ -99,7 +113,7 @@ class Model
 
     public static function firstOrCreate(array $attributes, array $values = []): static
     {
-        $instance = new static();
+        $instance = static::makeQueryInstance();
         $query = $instance->newQuery();
         foreach ($attributes as $key => $value) {
             $query->where($key, '=', $value);
@@ -118,7 +132,7 @@ class Model
 
     public static function firstOrNew(array $attributes, array $values = []): static
     {
-        $instance = new static();
+        $instance = static::makeQueryInstance();
         $query = $instance->newQuery();
         foreach ($attributes as $key => $value) {
             $query->where($key, '=', $value);
@@ -135,19 +149,19 @@ class Model
 
     public static function all(): array
     {
-        $instance = new static();
+        $instance = static::makeQueryInstance();
         $rows = $instance->newQuery()->fetchAll();
         return array_map(fn($row) => $instance->newFromBuilder($row), $rows);
     }
 
     public static function select(array $columns = ['*']): QueryBuilder
     {
-        return (new static())->newQuery()->select($columns);
+        return static::makeQueryInstance()->newQuery()->select($columns);
     }
 
     public static function where(string $column, mixed $operator = null, mixed $value = null): QueryBuilder
     {
-        $query = (new static())->newQuery();
+        $query = static::makeQueryInstance()->newQuery();
         // 保持参数数量语义，让 QueryBuilder 正确区分两参数简写和三参数形式
         if (func_num_args() >= 3) {
             return $query->where($column, $operator, $value);
@@ -157,13 +171,13 @@ class Model
 
     public static function create(array $data): int|string
     {
-        $instance = new static();
+        $instance = static::makeQueryInstance();
         return $instance->persistCreate($data);
     }
 
     public static function update(int|string $id, array $data): int
     {
-        return (new static())->persistUpdate($id, $data);
+        return static::makeQueryInstance()->persistUpdate($id, $data);
     }
 
     /**
@@ -260,7 +274,7 @@ class Model
 
     public static function paginate(int $perPage = 15, int $page = 1): array
     {
-        $instance = new static();
+        $instance = static::makeQueryInstance();
         $result = $instance->newQuery()->paginate($perPage, $page);
         $result['items'] = array_map(fn($row) => $instance->newFromBuilder($row), $result['items']);
         return $result;
@@ -734,7 +748,7 @@ class Model
             'join', 'count', 'sum', 'avg', 'max', 'min', 'chunk', 'value'];
 
         if (in_array($method, $queryMethods, true)) {
-            return call_user_func_array([(new static())->newQuery(), $method], $args);
+            return call_user_func_array([static::makeQueryInstance()->newQuery(), $method], $args);
         }
 
         if ($method === 'eagerLoad') {

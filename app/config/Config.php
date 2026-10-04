@@ -13,7 +13,9 @@ class Config
         $value = self::$items;
 
         foreach ($keys as $k) {
-            if (!array_key_exists($k, $value)) {
+            // 路径中段可能是标量（如 config('a.b') 中 a.b 是字符串），
+            // 此时继续下钻会触发 array_key_exists(): Argument #2 must be of type array。
+            if (!is_array($value) || !array_key_exists($k, $value)) {
                 return $default;
             }
             $value = $value[$k];
@@ -46,7 +48,8 @@ class Config
         $value = self::$items;
 
         foreach ($keys as $k) {
-            if (!array_key_exists($k, $value)) {
+            // 与 get() 一致：路径中段为标量时应视为「不存在」而非抛 TypeError
+            if (!is_array($value) || !array_key_exists($k, $value)) {
                 return false;
             }
             $value = $value[$k];
@@ -66,6 +69,11 @@ class Config
             return;
         }
 
+        // 规范化目录分隔符：调用方传 'app/config' 与 'app/config/' 都应可用。
+        // 直接 glob($path . '*.php') 时前者会拼成 'app/config*.php' 而匹配不到，
+        // 导致静默加载 0 个文件。
+        $path = rtrim($path, '/\\') . DIRECTORY_SEPARATOR;
+
         $files = glob($path . '*.php');
         if ($files === false) {
             return;
@@ -73,6 +81,11 @@ class Config
 
         foreach ($files as $file) {
             $name = basename($file, '.php');
+            // 二次加载同一目录会重复 require 同一文件，导致其中的
+            // 函数/类重复声明 fatal；已加载过的配置直接跳过。
+            if (array_key_exists($name, self::$items)) {
+                continue;
+            }
             $result = require $file;
             if (is_array($result)) {
                 self::$items[$name] = $result;

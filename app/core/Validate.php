@@ -387,11 +387,18 @@ class Validate
 
     private function validateAlpha(string $field, $value, array $params): bool
     {
+        // 必须是标量字符串。数组/对象强转字符串会得到 "Array" 并意外通过字母校验。
+        if (!is_scalar($value) || is_bool($value)) {
+            return false;
+        }
         return preg_match('/^[a-zA-Z]+$/', (string) $value) === 1;
     }
 
     private function validateAlphaNum(string $field, $value, array $params): bool
     {
+        if (!is_scalar($value) || is_bool($value)) {
+            return false;
+        }
         return preg_match('/^[a-zA-Z0-9]+$/', (string) $value) === 1;
     }
 

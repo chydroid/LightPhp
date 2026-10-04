@@ -26,6 +26,9 @@ class MemcachedCache implements CacheInterface
         $this->memcached = new \Memcached($persistentId);
         $this->prefix = $config['prefix'] ?? 'lightphp:cache:';
         $this->defaultTtl = (int) ($config['expire'] ?? 3600);
+        // 保守默认为共享实例：clear() 的 flush() 会清空整台服务器，
+        // 仅在配置显式声明独占时才允许执行（见 clear()）。
+        $this->ownsInstance = isset($config['shared']) && !$config['shared'];
 
         $servers = $config['servers'] ?? [
             ['host' => '127.0.0.1', 'port' => 11211, 'weight' => 100],
@@ -120,10 +123,27 @@ class MemcachedCache implements CacheInterface
         return true;
     }
 
+    /**
+     * 是否独占整台 Memcached 服务器
+     *
+     * 独占时才允许 clear() 执行 flush()（会清空服务器上所有数据，
+     * 包括其他应用的数据）。共享实例下必须返回 false 并拒绝执行。
+     *
+     * @var bool
+     */
+    private bool $ownsInstance;
+
     public function clear(): bool
     {
-        // 注意：flush() 会清空 Memcached 服务器上的所有数据（包括其他应用的数据）
-        // 如果与其他应用共享 Memcached 实例，应改用逐键删除的方式
+        // flush() 会清空整台 Memcached 服务器上的所有数据（含其他应用的数据）。
+        // 共享实例下这是破坏性操作，直接拒绝并返回 false。
+        if (!$this->ownsInstance) {
+            error_log(
+                'MemcachedCache: clear() refused on a shared Memcached instance '
+                . '(flush() would delete data belonging to other applications).'
+            );
+            return false;
+        }
         return $this->memcached->flush();
     }
 

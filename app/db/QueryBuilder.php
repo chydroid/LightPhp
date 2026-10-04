@@ -122,24 +122,13 @@ class QueryBuilder
             return $column;
         }
 
-        if (preg_match('/^[a-zA-Z0-9_\.]+$/', $column)) {
+        if (preg_match('/^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+|\.\*)?$/', $column)) {
             if (str_contains($column, '.')) {
-                $segments = explode('.', $column);
-                // 拒绝空段（如 "table..col"、".col"、"col."），避免生成非法 SQL
-                foreach ($segments as $seg) {
-                    if ($seg === '') {
-                        throw new \InvalidArgumentException("Invalid column name (empty segment): {$column}");
-                    }
+                [$alias, $col] = explode('.', $column, 2);
+                if ($col === '*') {
+                    return "`{$alias}`.*";
                 }
-                if (count($segments) === 2) {
-                    [$alias, $col] = $segments;
-                    if ($col === '*') {
-                        return "`{$alias}`.*";
-                    }
-                    return "`{$alias}`.`{$col}`";
-                }
-                // 超过两段（如 a.b.c）不合法
-                throw new \InvalidArgumentException("Invalid column name (too many segments): {$column}");
+                return "`{$alias}`.`{$col}`";
             }
             return "`{$column}`";
         }
@@ -156,7 +145,12 @@ class QueryBuilder
      */
     private function validateColumnName(string $column): void
     {
-        if (!preg_match('/^[a-zA-Z0-9_\.\*]+$/', $column)) {
+        if ($column === '*') {
+            return;
+        }
+        // 与 sanitizeColumn() 保持一致：col / alias.col / alias.*
+        // 此前此处允许 'a.b.*' 与 'id*' 之类无意义输入，且与 sanitizeColumn() 规则不一致
+        if (!preg_match('/^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+|\.\*)?$/', $column)) {
             throw new \InvalidArgumentException("Invalid column name: {$column}");
         }
     }
@@ -459,10 +453,25 @@ class QueryBuilder
 
     public function cache(string $key, int $ttl = 3600): self
     {
+        // 缓存键必须同时包含「业务 key」与「本次查询的绑定参数」。
+        // 绑定值不进键时，同一 key 下不同 where 条件的查询 SQL 模板完全相同，
+        // 会互相命中并返回上一次的结果集（实测 status=1 与 status=2 返回同一行，
+        // 在按用户过滤场景下即为水平越权读取）。
         $this->cacheKey = 'query_' . hash('sha256', $key);
         $this->cacheTtl = $ttl;
         $this->cacheEnabled = true;
         return $this;
+    }
+
+    /**
+     * 计算缓存指纹：SQL 模板 + 绑定参数
+     *
+     * @param string $sql SQL 模板（含 :w_0 等占位符）
+     * @return string sha256 指纹
+     */
+    private function cacheFingerprint(string $sql): string
+    {
+        return hash('sha256', $sql . "\0" . serialize($this->bindings));
     }
 
     private function getCacheFor(string $sql): ?array
@@ -471,7 +480,9 @@ class QueryBuilder
             return null;
         }
 
-        $cacheFile = STORAGE_PATH . 'cache/' . $this->cacheKey . '.php';
+        // 绑定参数参与缓存文件路径：不同绑定值落到不同文件，互不干扰
+        $cacheFile = STORAGE_PATH . 'cache/' . $this->cacheKey
+            . '_' . substr($this->cacheFingerprint($sql), 0, 32) . '.php';
         if (!file_exists($cacheFile)) {
             return null;
         }
@@ -503,7 +514,8 @@ class QueryBuilder
             return null;
         }
 
-        if ($data['sql'] !== hash('sha256', $sql)) {
+        // 与 getCacheFor() 使用完全相同的指纹算法（SQL + 绑定），否则读不到自己写的缓存
+        if ($data['sql'] !== $this->cacheFingerprint($sql)) {
             return null;
         }
 
@@ -521,9 +533,11 @@ class QueryBuilder
             return;
         }
 
-        $cacheFile = STORAGE_PATH . 'cache/' . $this->cacheKey . '.php';
+        // 路径与 getCacheFor() 保持一致（SQL + 绑定 指纹）
+        $cacheFile = STORAGE_PATH . 'cache/' . $this->cacheKey
+            . '_' . substr($this->cacheFingerprint($sql), 0, 32) . '.php';
         $data = [
-            'sql'    => hash('sha256', $sql),
+            'sql'    => $this->cacheFingerprint($sql),
             'expire' => ($this->cacheTtl ?? 3600) > 0 ? time() + ($this->cacheTtl ?? 3600) : 0,
             'value'  => $result,
         ];
@@ -778,88 +792,94 @@ class QueryBuilder
         }
     }
 
-    public function sum(string $column): float
+    public function sum(string $column): float|array
     {
-        $this->assertNotRaw('sum');
-        $this->validateAggregateColumn($column);
-        $clone = clone $this;
-        $clone->select = "SUM(`{$column}`) as __sum";
-        $clone->forUpdate = false;
-        $clone->lock = null;
-        $clone->limit = 0;
-        $clone->offset = 0;
-        $clone->orderBy = '';
-        $clone->groupBy = '';
-        $clone->having = [];
-        $clone->clearHavingBindings();
-        $sql = $clone->buildSelect();
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($clone->bindings);
-        $result = $stmt->fetch();
-        return (float) (is_array($result) ? ($result['__sum'] ?? 0) : 0);
+        return $this->aggregate('SUM', $column, '__sum');
     }
 
-    public function avg(string $column): float
+    public function avg(string $column): float|array
     {
-        $this->assertNotRaw('avg');
+        return $this->aggregate('AVG', $column, '__avg');
+    }
+
+    /**
+     * 执行聚合查询
+     *
+     * 有 GROUP BY 时按分组返回结果（数组），无 GROUP BY 时返回全局单值。
+     * 此前 sum/avg/max/min 无条件清空 groupBy，导致
+     * `->groupBy('g')->sum('v')` 静默返回全表聚合值（实测 35 而非按组求和）。
+     *
+     * @param string $func 聚合函数名
+     * @param string $column 列名
+     * @param string $alias 结果别名
+     * @return float|array<int, array<string, mixed>>
+     */
+    private function aggregate(string $func, string $column, string $alias): float|array
+    {
+        $this->assertNotRaw($func);
         $this->validateAggregateColumn($column);
+
         $clone = clone $this;
-        $clone->select = "AVG(`{$column}`) as __avg";
+        $hasGroup = $clone->groupBy !== '';
+        // $this->groupBy 存的是完整子句（如 "GROUP BY `g`"），
+        // 不能直接拼进 SELECT；这里解析出列名部分。
+        $groupCols = '';
+        if ($hasGroup && preg_match('/GROUP\s+BY\s+(.+)$/is', $this->groupBy, $m)) {
+            $groupCols = $m[1] . ', ';
+        }
+        $clone->select = $groupCols . "{$func}(`{$column}`) as `{$alias}`";
         $clone->forUpdate = false;
         $clone->lock = null;
         $clone->limit = 0;
         $clone->offset = 0;
         $clone->orderBy = '';
-        $clone->groupBy = '';
-        $clone->having = [];
-        $clone->clearHavingBindings();
+        // 注意：不再清空 groupBy
+        if (!$hasGroup) {
+            $clone->having = [];
+            $clone->clearHavingBindings();
+        }
+
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($clone->bindings);
-        $result = $stmt->fetch();
-        return (float) (is_array($result) ? ($result['__avg'] ?? 0) : 0);
+        $rows = $stmt->fetchAll();
+
+        if ($hasGroup) {
+            $result = [];
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $item = [$alias => $row[$alias] ?? null];
+                // 附带分组键（若被 select 出来）
+                if ($hasGroup && preg_match('/GROUP\s+BY\s+(.+)$/is', $this->groupBy, $gm)) {
+                    foreach (array_map('trim', explode(',', $gm[1])) as $gcol) {
+                        $bare = str_contains($gcol, '.') ? substr(strrchr($gcol, '.'), 1) : $gcol;
+                        $bare = trim($bare, '` ');
+                        if ($bare !== '' && array_key_exists($bare, $row)) {
+                            $item[$bare] = $row[$bare];
+                        }
+                    }
+                }
+                $result[] = $item;
+            }
+            return $result;
+        }
+
+        $row = $rows[0] ?? null;
+        return is_array($row) ? ($row[$alias] ?? 0) : 0;
     }
 
     public function max(string $column): mixed
     {
-        $this->assertNotRaw('max');
-        $this->validateAggregateColumn($column);
-        $clone = clone $this;
-        $clone->select = "MAX(`{$column}`) as __max";
-        $clone->forUpdate = false;
-        $clone->lock = null;
-        $clone->limit = 0;
-        $clone->offset = 0;
-        $clone->orderBy = '';
-        $clone->groupBy = '';
-        $clone->having = [];
-        $clone->clearHavingBindings();
-        $sql = $clone->buildSelect();
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($clone->bindings);
-        $result = $stmt->fetch();
-        return is_array($result) ? ($result['__max'] ?? null) : null;
+        $result = $this->aggregate('MAX', $column, '__max');
+        return is_array($result) ? ($result[0]['__max'] ?? null) : ($result ?: null);
     }
 
     public function min(string $column): mixed
     {
-        $this->assertNotRaw('min');
-        $this->validateAggregateColumn($column);
-        $clone = clone $this;
-        $clone->select = "MIN(`{$column}`) as __min";
-        $clone->forUpdate = false;
-        $clone->lock = null;
-        $clone->limit = 0;
-        $clone->offset = 0;
-        $clone->orderBy = '';
-        $clone->groupBy = '';
-        $clone->having = [];
-        $clone->clearHavingBindings();
-        $sql = $clone->buildSelect();
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($clone->bindings);
-        $result = $stmt->fetch();
-        return is_array($result) ? ($result['__min'] ?? null) : null;
+        $result = $this->aggregate('MIN', $column, '__min');
+        return is_array($result) ? ($result[0]['__min'] ?? null) : ($result ?: null);
     }
 
     public function insert(array $data): int|string

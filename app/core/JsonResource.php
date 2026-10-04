@@ -82,9 +82,46 @@ class JsonResource
      * @param Request|null $request
      * @return array<string, mixed>
      */
+    /**
+     * 解析最终输出时使用的包装键
+     *
+     * 不能直接读 static::$wrap：静态属性在继承链中被共享，
+     * 任一子类设置 $wrap = 'items' 会同时污染其父类与所有兄弟类
+     * （实测 A 设 items 后，B/C 也变成 items）。
+     * 这里按「子类是否显式声明了自己的 $wrap」逐层回溯取值。
+     *
+     * @return string|null 包装键；null 表示不包装
+     */
+    protected static function resolveWrap(): ?string
+    {
+        $class = static::class;
+        while ($class !== false) {
+            $ref = new \ReflectionClass($class);
+            if ($ref->hasProperty('wrap')) {
+                $prop = $ref->getProperty('wrap');
+                // 只认「本类自己声明的」$wrap，父类声明的继续向上回溯
+                if ($prop->getDeclaringClass()->getName() === $class) {
+                    $value = $prop->isStatic() ? $prop->getValue() : null;
+                    return is_string($value) ? $value : null;
+                }
+            }
+            $parent = $ref->getParentClass();
+            $class = $parent ? $parent->getName() : false;
+        }
+
+        return 'data';
+    }
+
+    /**
+     * 解析为最终输出数组（含包装键与附加元数据）
+     *
+     * @param Request|null $request
+     * @return array<string, mixed>
+     */
     public function resolve(?Request $request = null): array
     {
         $meta = array_merge($this->with($request), $this->additional);
+        $wrap = static::resolveWrap();
 
         // 集合模式：对每个 item 实例化本类，调用其 toArray
         if ($this->collectionItems !== null) {
@@ -93,15 +130,21 @@ class JsonResource
                 $child = new static($item);
                 $items[] = $child->toArray($request);
             }
-            return array_merge(['data' => $items], $meta);
+            // 此前硬编码 'data'，使子类设置 public static ?string $wrap = 'items'
+            // 在集合模式下完全失效（单资源用 items、集合仍用 data）。
+            // $wrap 为 null 时不包装，与单资源模式语义保持一致。
+            if ($wrap === null) {
+                return array_merge($items, $meta);
+            }
+            return array_merge([$wrap => $items], $meta);
         }
 
         // 单资源模式
         $data = $this->toArray($request);
-        if (static::$wrap === null) {
+        if ($wrap === null) {
             return array_merge($data, $meta);
         }
-        return array_merge([static::$wrap => $data], $meta);
+        return array_merge([$wrap => $data], $meta);
     }
 
     /**

@@ -253,7 +253,11 @@ class View
 
     /**
      * 包含子视图
-     * 
+     *
+     * 传入的数据必须视为「原始数据」交给 render() 处理：
+     * 此处直接调用 escapeArray() 会与 render() 内部的转义叠加，
+     * 导致 <b>x</b> 变成 &amp;lt;b&amp;gt;（双重编码）。
+     *
      * @param string $view 子视图路径
      * @param array $data 视图数据
      */
@@ -266,6 +270,9 @@ class View
         $prevExtendDepth = $this->extendDepth;
         $prevAutoEscape = $this->autoEscape;
         try {
+            // 关键：临时关闭自动转义，让 render() 统一转义一次，
+            // 避免父视图已转义的数据被子视图二次转义
+            $this->autoEscape = false;
             echo $this->render($view, $data);
         } finally {
             $this->sharedData = $prevSharedData;

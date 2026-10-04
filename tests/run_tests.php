@@ -6258,6 +6258,9 @@ $runner->run('Storage - 不支持的 driver 与未配置 disk 抛异常', functi
     });
 });
 
+// v2.16.0 全面审计回归测试（共享 $runner 实例）
+require __DIR__ . '/test_regressions.php';
+
 $runner->summary();
 
 // 测试失败时返回非零退出码，确保 CI 环境能正确检测失败

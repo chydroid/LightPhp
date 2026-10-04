@@ -123,6 +123,36 @@ class HttpClient
             curl_setopt($ch, CURLOPT_USERAGENT, (string) ($opts['user_agent'] ?? 'LightPHP/HttpClient'));
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 
+            // SSRF 防护：仅允许 http/https。
+            // 不限制时 file:// / gopher:// / dict:// 等协议可读取本地文件、
+            // 探测内网服务；同时设置 NO_PROXY 禁止走环境代理绕过限制。
+            $allowedProtocols = CURLPROTO_HTTP | CURLPROTO_HTTPS;
+            if (defined('CURLOPT_PROTOCOLS')) {
+                curl_setopt($ch, CURLOPT_PROTOCOLS, $allowedProtocols);
+            }
+            if (defined('CURLOPT_PROTOCOLS_STR')) {
+                curl_setopt($ch, CURLOPT_PROTOCOLS_STR, 'http,https');
+            }
+            curl_setopt($ch, CURLOPT_PROXY, '');
+            curl_setopt($ch, CURLOPT_NOPROXY, '*');
+
+            // TLS 校验必须显式开启（避免被外部配置意外关闭）
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+
+            // 响应体积上限：防止恶意/异常服务端返回超大响应打满内存
+            $maxBytes = (int) ($opts['max_bytes'] ?? (5 * 1024 * 1024));
+            if ($maxBytes > 0) {
+                // CURLOPT_NOPROGRESS + progressfunction 组合可中止超限传输
+                $downloaded = 0;
+                curl_setopt($ch, CURLOPT_NOPROGRESS, false);
+                curl_setopt($ch, CURLOPT_PROGRESSFUNCTION, function ($curl, $dltotal, $dlnow) use (&$downloaded, $maxBytes) {
+                    $downloaded = (int) $dlnow;
+                    // 返回非 0 中止传输
+                    return $downloaded > $maxBytes ? 1 : 0;
+                });
+            }
+
             if ($bodyStr !== '') {
                 curl_setopt($ch, CURLOPT_POSTFIELDS, $bodyStr);
             }

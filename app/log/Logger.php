@@ -64,8 +64,22 @@ class Logger implements LoggerInterface
         $interpolated = $this->interpolate($message, $context);
         $interpolated = str_replace(["\r\n", "\r", "\n"], ' ', $interpolated);
         $remaining = $this->remainingContext($message, $context);
-        $remainingJson = !empty($remaining) ? json_encode($remaining, JSON_UNESCAPED_UNICODE) : '';
-        $remainingJson = str_replace(["\r\n", "\r", "\n"], ' ', $remainingJson);
+        // json_encode 在遇到非法 UTF-8 / 递归结构 / NAN、INF 时返回 false，
+        // 直接把 false 传给 str_replace() 会抛 TypeError，
+        // 使「记录一条日志」这种容错操作反而中断整个请求。
+        $remainingJson = '';
+        if ($remaining !== []) {
+            $encoded = json_encode($remaining, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+            if (!is_string($encoded)) {
+                $encoded = json_encode(
+                    ['__log_context_unencodable' => array_keys($remaining)],
+                    JSON_UNESCAPED_UNICODE
+                );
+            }
+            $remainingJson = is_string($encoded)
+                ? str_replace(["\r\n", "\r", "\n"], ' ', $encoded)
+                : '';
+        }
         $logLine = sprintf(
             "[%s] %s: %s%s\n",
             date('Y-m-d H:i:s'),

@@ -48,74 +48,84 @@ class Model
         return $this->db();
     }
 
-    public function find(int|string $id): ?static
+    /**
+     * 按主键查找记录
+     *
+     * 静态方法：`User::find(1)`。PHP 允许以 `$user->find(1)` 形式调用静态方法，
+     * 因此实例调用方式同样兼容（docs/api.md 承诺两种写法等价）。
+     */
+    public static function find(int|string $id): ?static
     {
-        $row = $this->newQuery()->where($this->primaryKey, '=', $id)->fetch();
-        return $row ? $this->newFromBuilder($row) : null;
+        $instance = new static();
+        $row = $instance->newQuery()->where($instance->primaryKey, '=', $id)->fetch();
+        return $row ? $instance->newFromBuilder($row) : null;
     }
 
-    public function findOrFail(int|string $id): static
+    public static function findOrFail(int|string $id): static
     {
-        $model = $this->find($id);
+        $model = static::find($id);
         if ($model === null) {
-            throw new \RuntimeException("Model " . static::class . " not found with {$this->primaryKey}={$id}");
+            throw new \RuntimeException("Model " . static::class . " not found with " . (new static())->primaryKey . "={$id}");
         }
         return $model;
     }
 
-    public function findBy(string $column, mixed $value): ?static
+    public static function findBy(string $column, mixed $value): ?static
     {
         if (!preg_match('/^[a-zA-Z0-9_]+$/', $column)) {
             throw new \InvalidArgumentException("Invalid column name: {$column}");
         }
 
-        $row = $this->newQuery()->where($column, '=', $value)->fetch();
-        return $row ? $this->newFromBuilder($row) : null;
+        $instance = new static();
+        $row = $instance->newQuery()->where($column, '=', $value)->fetch();
+        return $row ? $instance->newFromBuilder($row) : null;
     }
 
-    public function first(): ?static
+    public static function first(): ?static
     {
-        $row = $this->newQuery()->limit(1)->fetch();
-        return $row ? $this->newFromBuilder($row) : null;
+        $instance = new static();
+        $row = $instance->newQuery()->limit(1)->fetch();
+        return $row ? $instance->newFromBuilder($row) : null;
     }
 
-    public function firstOrFail(): static
+    public static function firstOrFail(): static
     {
-        $model = $this->first();
+        $model = static::first();
         if ($model === null) {
             throw new \RuntimeException("No " . static::class . " record found");
         }
         return $model;
     }
 
-    public function firstOrCreate(array $attributes, array $values = []): static
+    public static function firstOrCreate(array $attributes, array $values = []): static
     {
-        $query = $this->newQuery();
+        $instance = new static();
+        $query = $instance->newQuery();
         foreach ($attributes as $key => $value) {
             $query->where($key, '=', $value);
         }
         $row = $query->fetch();
         if ($row) {
-            return $this->newFromBuilder($row);
+            return $instance->newFromBuilder($row);
         }
         $data = array_merge($attributes, $values);
-        // 用全新实例执行 create，避免污染当前实例的 attributes（create() 会重写 $this->attributes）
-        $id = (new static())->create($data);
+        $id = static::create($data);
         if (!$id) {
             throw new \RuntimeException('firstOrCreate failed: create() returned empty ID (creating event may have been cancelled)');
         }
-        return $this->find($id) ?? $this->newFromBuilder(array_merge([$this->primaryKey => $id], $data));
+        return static::find($id) ?? $instance->newFromBuilder(array_merge([$instance->primaryKey => $id], $data));
     }
 
-    public function firstOrNew(array $attributes, array $values = []): static
+    public static function firstOrNew(array $attributes, array $values = []): static
     {
-        $query = $this->newQuery();
+        $instance = new static();
+        $query = $instance->newQuery();
         foreach ($attributes as $key => $value) {
             $query->where($key, '=', $value);
         }
         $row = $query->fetch();
         if ($row) {
-            return $this->newFromBuilder($row);
+            return $instance->newFromBuilder($row);
         }
         $data = array_merge($attributes, $values);
         $model = new static($data);
@@ -123,20 +133,21 @@ class Model
         return $model;
     }
 
-    public function all(): array
+    public static function all(): array
     {
-        $rows = $this->newQuery()->fetchAll();
-        return array_map(fn($row) => $this->newFromBuilder($row), $rows);
+        $instance = new static();
+        $rows = $instance->newQuery()->fetchAll();
+        return array_map(fn($row) => $instance->newFromBuilder($row), $rows);
     }
 
-    public function select(array $columns = ['*']): QueryBuilder
+    public static function select(array $columns = ['*']): QueryBuilder
     {
-        return $this->newQuery()->select($columns);
+        return (new static())->newQuery()->select($columns);
     }
 
-    public function where(string $column, mixed $operator = null, mixed $value = null): QueryBuilder
+    public static function where(string $column, mixed $operator = null, mixed $value = null): QueryBuilder
     {
-        $query = $this->newQuery();
+        $query = (new static())->newQuery();
         // 保持参数数量语义，让 QueryBuilder 正确区分两参数简写和三参数形式
         if (func_num_args() >= 3) {
             return $query->where($column, $operator, $value);
@@ -144,9 +155,28 @@ class Model
         return $query->where($column, $operator);
     }
 
-    public function create(array $data): int|string
+    public static function create(array $data): int|string
     {
-        $this->attributes = $this->filterFillable($data);
+        $instance = new static();
+        return $instance->persistCreate($data);
+    }
+
+    public static function update(int|string $id, array $data): int
+    {
+        return (new static())->persistUpdate($id, $data);
+    }
+
+    /**
+     * 写入一条新记录（create 的实例实现）
+     *
+     * 必须经 setAttribute() 逐字段赋值，修改器（setXxxAttribute）才会生效。
+     * 此前直接 $this->attributes = filterFillable($data)，绕过了 mutator，
+     * 导致 User::create(['password'=>...]) 把明文密码写进数据库。
+     */
+    private function persistCreate(array $data): int|string
+    {
+        $this->attributes = [];
+        $this->applyFillable($data);
         if (!$this->fireEvent('creating')) {
             return 0;
         }
@@ -162,9 +192,16 @@ class Model
         return $id;
     }
 
-    public function update(int|string $id, array $data): int
+    /**
+     * 按主键更新记录（update 的实例实现）
+     *
+     * @param int|string $id 目标主键
+     * @param array $data 待更新字段
+     */
+    private function persistUpdate(int|string $id, array $data): int
     {
-        $this->attributes = $this->filterFillable($data);
+        $this->attributes = [];
+        $this->applyFillable($data);
         if (!$this->fireEvent('updating')) {
             return 0;
         }
@@ -175,6 +212,20 @@ class Model
             $this->fireEvent('updated');
         }
         return $result;
+    }
+
+    /**
+     * 将输入数据按 $fillable 过滤后，逐字段经 setAttribute() 写入
+     *
+     * 保证所有写入路径（构造、create、update、属性赋值）都触发 mutator。
+     *
+     * @param array $data 原始输入数据
+     */
+    protected function applyFillable(array $data): void
+    {
+        foreach ($this->filterFillable($data) as $key => $value) {
+            $this->setAttribute((string) $key, $value);
+        }
     }
 
     /**
@@ -207,10 +258,11 @@ class Model
         return $result;
     }
 
-    public function paginate(int $perPage = 15, int $page = 1): array
+    public static function paginate(int $perPage = 15, int $page = 1): array
     {
-        $result = $this->newQuery()->paginate($perPage, $page);
-        $result['items'] = array_map(fn($row) => $this->newFromBuilder($row), $result['items']);
+        $instance = new static();
+        $result = $instance->newQuery()->paginate($perPage, $page);
+        $result['items'] = array_map(fn($row) => $instance->newFromBuilder($row), $result['items']);
         return $result;
     }
 
@@ -674,29 +726,15 @@ class Model
 
     public static function __callStatic(string $method, array $args)
     {
-        $allowedMethods = ['where', 'whereIn', 'whereOr', 'whereNull', 'whereNotNull', 'whereBetween',
+        // 仅 QueryBuilder 的查询方法可通过静态转发（Model::count() 等）。
+        // find/first/create/update/paginate/select/where/all 等已是真正的静态方法，
+        // 不再经过 __callStatic（PHP 不会再把它们的静态调用分派到这里）。
+        $queryMethods = ['whereIn', 'whereOr', 'whereNull', 'whereNotNull', 'whereBetween',
             'orderBy', 'groupBy', 'having', 'limit', 'leftJoin', 'rightJoin',
-            'join', 'count', 'sum', 'avg', 'max', 'min', 'chunk', 'first',
-            'fetch', 'fetchAll', 'value', 'all', 'find', 'findBy', 'create',
-            'update', 'delete', 'paginate', 'select', 'eagerLoad'];
+            'join', 'count', 'sum', 'avg', 'max', 'min', 'chunk', 'value'];
 
-        if (!in_array($method, $allowedMethods, true)) {
-            $instance = new static();
-            $scopeMethod = 'scope' . ucfirst($method);
-            if (method_exists($instance, $scopeMethod)) {
-                array_unshift($args, $instance->newQuery());
-                return call_user_func_array([$instance, $scopeMethod], $args);
-            }
-
-            // 允许通过静态方式调用模型实例方法（如 SoftDelete 的 withTrashed/onlyTrashed/restore）
-            if (method_exists($instance, $method)) {
-                $reflection = new \ReflectionMethod($instance, $method);
-                if ($reflection->isPublic()) {
-                    return call_user_func_array([$instance, $method], $args);
-                }
-            }
-
-            throw new \BadMethodCallException(sprintf('Method %s::%s does not exist', static::class, $method));
+        if (in_array($method, $queryMethods, true)) {
+            return call_user_func_array([(new static())->newQuery(), $method], $args);
         }
 
         if ($method === 'eagerLoad') {
@@ -704,6 +742,24 @@ class Model
         }
 
         $instance = new static();
-        return call_user_func_array([$instance, $method], $args);
+
+        // 本地作用域：User::active() → scopeActive(QueryBuilder $query, ...$args)
+        $scopeMethod = 'scope' . ucfirst($method);
+        if (method_exists($instance, $scopeMethod)) {
+            array_unshift($args, $instance->newQuery());
+            return call_user_func_array([$instance, $scopeMethod], $args);
+        }
+
+        // 兜底：允许静态调用实例方法（如 SoftDelete 的 restore/trashed/with）。
+        // 注意对仍为实例方法的 delete()/with()，静态调用等价于 (new static())->delete(...)，
+        // 不带主键时 delete() 会抛 RuntimeException（语义正确，不做静默兜底）。
+        if (method_exists($instance, $method)) {
+            $reflection = new \ReflectionMethod($instance, $method);
+            if ($reflection->isPublic() && !$reflection->isStatic()) {
+                return call_user_func_array([$instance, $method], $args);
+            }
+        }
+
+        throw new \BadMethodCallException(sprintf('Method %s::%s does not exist', static::class, $method));
     }
 }

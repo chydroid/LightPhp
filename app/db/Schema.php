@@ -49,22 +49,44 @@ class Schema
         $this->table = $table;
         $this->columns = [];
         $this->commands = [];
+        $this->comment = '';
 
         $blueprint = new Blueprint($table, $this->driver);
         $callback($blueprint);
 
         $this->columns = $blueprint->getColumns();
         $this->commands = $blueprint->getCommands();
+        $indexes = $blueprint->getIndexes();
 
         $sql = $this->compileCreate();
-        return $this->execute($sql);
+        if (!$this->execute($sql)) {
+            return false;
+        }
+
+        // SQLite 不支持表内索引子句，需在建表后单独创建
+        foreach ($indexes as $index) {
+            if ($index['columns'] === '') {
+                continue;
+            }
+            if (!$this->execute(
+                "CREATE INDEX `{$index['name']}` ON `{$this->table}` (`{$index['columns']}`)"
+            )) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function table(string $table, callable $callback): bool
     {
         $table = $this->sanitizeName($table);
         $this->table = $table;
+        // 必须与 create() 对称地重置 commands / comment：
+        // 否则回调内抛异常时残留上一次的 UNIQUE/KEY 会在本次 ALTER 中重现
         $this->columns = [];
+        $this->commands = [];
+        $this->comment = '';
 
         $blueprint = new Blueprint($table, $this->driver);
         $callback($blueprint);
@@ -72,8 +94,40 @@ class Schema
         $this->columns = $blueprint->getColumns();
         $this->commands = $blueprint->getCommands();
 
-        $sql = $this->compileAlter();
-        return $this->execute($sql);
+        // 空变更必须抛异常：无论何种驱动，都不能生成非法的空 ALTER 语句
+        if (array_merge($this->columns, $this->commands) === []) {
+            throw new \RuntimeException(
+                "Schema::table() for `{$this->table}` has no changes; add columns or commands inside the callback."
+            );
+        }
+
+        // SQLite 的 ALTER TABLE 每次只支持一个子句（ADD COLUMN），需逐条执行
+        if ($this->driver === 'sqlite') {
+            foreach (array_merge($this->columns, $this->commands) as $change) {
+                $change = trim($change);
+                if ($change === '') {
+                    continue;
+                }
+                if (!$this->execute("ALTER TABLE `{$this->table}`\n  ADD COLUMN {$change}")) {
+                    return false;
+                }
+            }
+        } elseif (!$this->execute($this->compileAlter())) {
+            return false;
+        }
+
+        foreach ($blueprint->getIndexes() as $index) {
+            if ($index['columns'] === '') {
+                continue;
+            }
+            if (!$this->execute(
+                "CREATE INDEX `{$index['name']}` ON `{$this->table}` (`{$index['columns']}`)"
+            )) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function drop(string $table): bool
@@ -179,10 +233,20 @@ class Schema
         if (empty($changes)) {
             throw new \RuntimeException("Schema::table() for `{$this->table}` has no changes; add columns or commands inside the callback.");
         }
+
+        // columns 中的每一项都是「列定义」（如 `d` VARCHAR(255)），
+        // 必须补 ADD COLUMN 前缀才是合法 ALTER 语句。
+        // 此前直接拼接裸列定义，任何驱动下新增列都会报语法错误。
         $lines = [];
         foreach ($changes as $change) {
-            $lines[] = "  {$change}";
+            $lines[] = '  ' . (stripos($change, 'ADD ') === 0 ? $change : 'ADD COLUMN ' . $change);
         }
+
+        // SQLite 的 ALTER TABLE 每次只接受一个子句，多行逗号分隔会语法错误
+        if ($this->driver === 'sqlite') {
+            return "ALTER TABLE `{$this->table}`\n" . $lines[0];
+        }
+
         return "ALTER TABLE `{$this->table}`\n" . implode(",\n", $lines);
     }
 
@@ -235,6 +299,8 @@ class Blueprint
     private string $table;
     private array $columns = [];
     private array $commands = [];
+    private array $indexes = [];
+    private array $indexColumns = [];
     private ?string $lastColumn = null;
     private string $driver = 'mysql';
 
@@ -402,7 +468,13 @@ class Blueprint
             throw new \RuntimeException('unique() must be called after a column definition (e.g., $table->string("name")->unique()).');
         }
         $col = trim($this->lastColumn, '`');
-        $this->commands[] = "UNIQUE KEY `uk_{$col}` (`{$col}`)";
+        // SQLite 不支持表内的 `UNIQUE KEY name (col)` 子句，
+        // 只能写成列级约束 UNIQUE(col)；MySQL 保留原语法。
+        if ($this->driver === 'sqlite') {
+            $this->commands[] = "UNIQUE (`{$col}`)";
+        } else {
+            $this->commands[] = "UNIQUE KEY `uk_{$col}` (`{$col}`)";
+        }
         return $this;
     }
 
@@ -412,7 +484,14 @@ class Blueprint
             throw new \RuntimeException('index() must be called after a column definition (e.g., $table->string("name")->index()).');
         }
         $col = trim($this->lastColumn, '`');
-        $this->commands[] = "KEY `idx_{$col}` (`{$col}`)";
+        // SQLite 的 CREATE TABLE 子句不接受 `KEY idx_x (x)`（语法错误）。
+        // 改为登记到独立索引列表，由 Schema::create() 在建表后单独发 CREATE INDEX。
+        if ($this->driver === 'sqlite') {
+            $this->indexes[] = "idx_{$col}";
+            $this->indexColumns[] = $col;
+        } else {
+            $this->commands[] = "KEY `idx_{$col}` (`{$col}`)";
+        }
         return $this;
     }
 
@@ -602,6 +681,20 @@ class Blueprint
     public function getCommands(): array
     {
         return $this->commands;
+    }
+
+    /**
+     * 获取需在建表后单独创建的索引（仅 SQLite 使用）
+     *
+     * @return array<int, array{name: string, columns: string}>
+     */
+    public function getIndexes(): array
+    {
+        $indexes = [];
+        foreach ($this->indexes as $i => $name) {
+            $indexes[] = ['name' => $name, 'columns' => $this->indexColumns[$i] ?? ''];
+        }
+        return $indexes;
     }
 
     private string $lastForeignKey = '';

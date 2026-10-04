@@ -66,17 +66,32 @@ abstract class FormRequest extends Request
     /**
      * 执行验证
      *
+     * 只校验「请求体」数据（JSON + POST），不包含 GET 查询参数。
+     * 此前使用 $this->all()（GET + JSON + POST），导致
+     * `POST /users?email=attacker@evil.com` 能用查询串满足 required|email，
+     * 使 validated() 返回攻击者可控的 GET 值而非实际提交的数据。
+     *
      * @return bool 是否通过
      */
     public function validate(): bool
     {
         $validator = new Validate();
         $validator->rules($this->rules())->messages($this->messages());
-        $ok = $validator->validate($this->all());
+        $ok = $validator->validate($this->body());
         $this->validator = $validator;
         $this->validatedData = $ok ? $validator->validated() : [];
         $this->validated = true;
         return $ok;
+    }
+
+    /**
+     * 获取请求体数据（JSON 优先，回退 POST），不含 GET 查询参数
+     *
+     * @return array<string, mixed>
+     */
+    public function body(): array
+    {
+        return $this->post();
     }
 
     /**

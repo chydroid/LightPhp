@@ -173,8 +173,17 @@ class Blade
         }
 
         $compiled = $this->compileString($content);
-        if (file_put_contents($cacheFile, $compiled, LOCK_EX) === false) {
+        // 原子写：先写临时文件再 rename。直接 file_put_contents 会让并发的另一请求
+        // require 到写了一半的 PHP 文件，产生 ParseError 或执行残缺模板
+        // （FileCache::write() 已采用同样的 tmp+rename 策略，此处对齐）。
+        $tmpFile = $cacheFile . '.' . getmypid() . '.tmp';
+        if (file_put_contents($tmpFile, $compiled, LOCK_EX) === false) {
             trigger_error("Blade: Failed to write compiled template cache: {$cacheFile}", E_USER_WARNING);
+            return;
+        }
+        if (!@rename($tmpFile, $cacheFile)) {
+            @unlink($tmpFile);
+            trigger_error("Blade: Failed to publish compiled template cache: {$cacheFile}", E_USER_WARNING);
         }
     }
 
@@ -198,13 +207,28 @@ class Blade
             $content
         );
 
+        // 保护「邮箱形态」的 token：support@endif.com / user@endforeach
+        // 否则其中的 @endif / @endforeach 会被当作指令编译，产生 ParseError。
+        // 用 `@@` 转义指令的写法不冲突（这里匹配的是 xxx@yyy.zzz 形态）。
+        $emailTokens = [];
+        $content = (string) preg_replace_callback(
+            '/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/',
+            function ($m) use (&$emailTokens) {
+                $key = '__EMAILETOKEN_' . count($emailTokens) . '__';
+                $emailTokens[$key] = $m[0];
+                return $key;
+            },
+            $content
+        );
+
         $content = $this->compileEach($content);
         $content = $this->compileStatements($content);
         $content = $this->compileEchos($content);
         $content = $this->compileDirectives($content);
         $content = $this->compileIncludes($content);
 
-        // 还原 verbatim 块
+        // 还原邮箱 token 与 verbatim 块
+        $content = str_replace(array_keys($emailTokens), array_values($emailTokens), $content);
         return str_replace(array_keys($verbatimBlocks), array_values($verbatimBlocks), $content);
     }
 
@@ -262,28 +286,28 @@ class Blade
         }
 
         $statements = [
-            '@endsection'                  => '<?php $__blade->endSection(); ?>',
-            '@csrf(?:\(\s*\))?(?!\w)'                   => '<input type="hidden" name="_token" value="<?= htmlspecialchars(\core\Session::token(), ENT_QUOTES, \'UTF-8\') ?>">',
+            '@endsection(?!\w)'              => '<?php $__blade->endSection(); ?>',
+            '@csrf(?:\(\s*\))?(?!\w)'       => '<input type="hidden" name="_token" value="<?= htmlspecialchars(\core\Session::token(), ENT_QUOTES, \'UTF-8\') ?>">',
             '@php(?!\w)'                   => '<?php ',
-            '@endphp'                      => '?>',
-            '@else(?!\w)'                    => '<?php else: ?>',
-            '@endif'                       => '<?php endif; ?>',
-            '@endunless'                   => '<?php endif; ?>',
-            '@endforeach'                  => '<?php endforeach; ?>',
-            '@endfor'                      => '<?php endfor; ?>',
-            '@endwhile'                    => '<?php endwhile; ?>',
-            '@endisset'                    => '<?php endif; ?>',
-            '@endempty'                    => '<?php endif; ?>',
-            '@break(?!\w)'                  => '<?php break; ?>',
-            '@default(?!\w)'                => '<?php default: ?>',
-            '@endswitch'                   => '<?php endswitch; ?>',
-            '@continue(?!\w)'               => '<?php continue; ?>',
-            '@verbatim'                    => '',
-            '@endverbatim'                 => '',
-            '@endpush'                    => '<?php $__blade->endPush(); ?>',
-            '@endprepend'                 => '<?php $__blade->endPrepend(); ?>',
-            '@production(?!\w)'           => '<?php if (env(\'APP_ENV\') === \'production\'): ?>',
-            '@endproduction'              => '<?php endif; ?>',
+            '@endphp(?!\w)'                => '?>',
+            '@else(?!\w)'                  => '<?php else: ?>',
+            '@endif(?!\w)'                 => '<?php endif; ?>',
+            '@endunless(?!\w)'             => '<?php endif; ?>',
+            '@endforeach(?!\w)'            => '<?php endforeach; ?>',
+            '@endfor(?!\w)'                => '<?php endfor; ?>',
+            '@endwhile(?!\w)'              => '<?php endwhile; ?>',
+            '@endisset(?!\w)'              => '<?php endif; ?>',
+            '@endempty(?!\w)'              => '<?php endif; ?>',
+            '@break(?!\w)'                 => '<?php break; ?>',
+            '@default(?!\w)'               => '<?php default: ?>',
+            '@endswitch(?!\w)'             => '<?php endswitch; ?>',
+            '@continue(?!\w)'              => '<?php continue; ?>',
+            '@verbatim(?!\w)'              => '',
+            '@endverbatim(?!\w)'           => '',
+            '@endpush(?!\w)'               => '<?php $__blade->endPush(); ?>',
+            '@endprepend(?!\w)'            => '<?php $__blade->endPrepend(); ?>',
+            '@production(?!\w)'            => '<?php if (env(\'APP_ENV\') === \'production\'): ?>',
+            '@endproduction(?!\w)'         => '<?php endif; ?>',
         ];
 
         foreach ($statements as $pattern => $replacement) {
@@ -306,8 +330,14 @@ class Blade
      */
     private function compileBalanced(string $content, string $directive, string $prefix, string $suffix): string
     {
+        // 允许 `@if($x)` 与 `@if ($x)` 两种写法（后者是 Blade/Laravel 的惯用形式）。
+        //
+        // 注意：不要在此追加 (?!\w) 后向断言。参数部分使用了 possessive 量词 *+，
+        // 一旦匹配失败就不允许回溯，追加断言会让 `@if ($x)` 这类写法整体失配
+        // （实测 plus_both 变体无法编译，而仅加 \s* 的 plus_ws 正常）。
+        // 指令名误匹配（如 @iffy）由 compileDirectives / 词形完整名约束规避。
         return (string) preg_replace_callback(
-            '/@' . preg_quote($directive, '/') . '\(((?:[^()]++|\((?1)\))*+)\)/s',
+            '/@' . preg_quote($directive, '/') . '\s*\(((?:[^()]++|\((?1)\))*+)\)/s',
             fn ($m) => $prefix . $m[1] . $suffix,
             $content
         );
@@ -423,8 +453,25 @@ class Blade
                 }
 
                 // 运行时解析 include，确保子模板修改后能触发重编译
-                // 使用唯一变量名，防止嵌套 include 时保存的状态被内层覆盖
-                return '<?php $__prevSections_' . $suffix . ' = $__blade->getSections(); $__prevStack_' . $suffix . ' = $__blade->getStack(); if ($__inc_' . $suffix . ' = $__blade->resolveInclude(\'' . addslashes($view) . '\')) { extract(' . $vars . ', EXTR_SKIP); require $__inc_' . $suffix . '; } $__blade->restoreState($__prevSections_' . $suffix . ', $__prevStack_' . $suffix . '); ?>';
+                // 使用唯一变量名，防止嵌套 include 时保存的状态被内层覆盖。
+                //
+                // extract 必须用 EXTR_OVERWRITE：父作用域已存在同名变量时，
+                // EXTR_SKIP 会静默丢弃 @include 传入的值
+                // （实测 @include('row', ['name'=>'OVERRIDE']) 在父模板已有
+                //   $name 时渲染出父模板的值，文档承诺的「覆盖」语义失效）。
+                // include 结束后恢复父作用域，避免污染后续模板代码。
+                return '<?php $__prevSections_' . $suffix . ' = $__blade->getSections(); $__prevStack_' . $suffix . ' = $__blade->getStack(); '
+                     . 'if ($__inc_' . $suffix . ' = $__blade->resolveInclude(\'' . addslashes($view) . '\')) { '
+                     . '$__incKeys_' . $suffix . ' = array_keys(' . $vars . '); '
+                     . '$__incPrev_' . $suffix . ' = []; '
+                     . 'foreach ($__incKeys_' . $suffix . ' as $__incK' . $suffix . ') { '
+                     . 'if (isset($$__incK' . $suffix . ')) { $__incPrev_' . $suffix . '[$__incK' . $suffix . '] = $$__incK' . $suffix . '; } '
+                     . '} '
+                     . 'extract(' . $vars . ', EXTR_OVERWRITE); '
+                     . 'require $__inc_' . $suffix . '; '
+                     . 'foreach ($__incPrev_' . $suffix . ' as $__incK' . $suffix . ' => $__incV' . $suffix . ') { $$__incK' . $suffix . ' = $__incV' . $suffix . '; } '
+                     . '} '
+                     . '$__blade->restoreState($__prevSections_' . $suffix . ', $__prevStack_' . $suffix . '); ?>';
             },
             $content
         );

@@ -23,9 +23,12 @@ abstract class ServiceProvider
     /** @var Application|null */
     protected ?Application $application = null;
 
-    public function __construct(Container $app)
+    public function __construct(?Container $app = null)
     {
-        $this->app = $app;
+        // 允许省略容器：Application 从 config('app.providers') 实例化提供者时
+        // 直接 new $className()，此时容器随后由 setApplication()/container() 注入。
+        // 强制要求参数会让该路径无法工作。
+        $this->app = $app ?? Container::getInstance() ?? new Container();
     }
 
     public function setApplication(Application $application): void

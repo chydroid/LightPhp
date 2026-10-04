@@ -210,6 +210,13 @@ class Response
             }
         }
 
+        // RFC 9110：HEAD 响应必须与 GET 相同的状态码与响应头，但不得包含消息体。
+        // 路由层允许 HEAD 复用 GET 路由，因此输出阶段必须拦截，否则会把整个
+        // 页面（含 download() 的 readfile）发送给 HEAD 客户端。
+        if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'HEAD') {
+            return;
+        }
+
         if ($this->filePath !== null) {
             // 流式输出文件，避免大文件全量读入内存
             readfile($this->filePath);

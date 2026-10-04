@@ -72,6 +72,13 @@ class Application
         // 尝试从缓存加载配置，提高启动速度
         $cachedFile = STORAGE_PATH . 'cache/config_cache.php';
         if (file_exists($cachedFile)) {
+            // 必须先定义守卫常量：缓存文件首行为
+            //   if(!defined('LIGHTPHP_CONFIG_CACHE')){http_response_code(403);exit;}
+            // 直接 require 会在此触发 exit(403)，导致执行 config:cache 后
+            // 全站返回空白 403（应用完全不可用）。
+            if (!defined('LIGHTPHP_CONFIG_CACHE')) {
+                define('LIGHTPHP_CONFIG_CACHE', true);
+            }
             $cached = require $cachedFile;
             if (is_array($cached)) {
                 $this->config = $cached;
@@ -130,6 +137,32 @@ class Application
 
         // 设置应用密钥用于加密
         \core\Hash::setApplicationKey($this->getConfig('app.key', ''));
+
+        // 注册框架内置中间件别名。
+        // app/route/*.php 中的 'cors' 等别名此前从未注册，导致骨架项目
+        // 所有 /api/* 端点在运行时抛 "Invalid middleware: cors"（500）。
+        $this->registerMiddlewareAliases();
+    }
+
+    /**
+     * 注册内置中间件别名
+     *
+     * 允许路由文件直接使用 `'cors'`、`'throttle:60,1'` 形式的短别名，
+     * 而不必书写完整的命名空间类名。
+     */
+    private function registerMiddlewareAliases(): void
+    {
+        $aliases = [
+            'cors' => \middleware\Cors::class,
+            'csrf' => \middleware\CsrfMiddleware::class,
+            'throttle' => \middleware\Throttle::class,
+            'output-cache' => \middleware\OutputCache::class,
+            'request-log' => \middleware\RequestLogMiddleware::class,
+        ];
+
+        foreach ($aliases as $alias => $class) {
+            $this->router->aliasMiddleware($alias, $class);
+        }
     }
 
     /**
@@ -155,6 +188,29 @@ class Application
             return;
         }
 
+        // 实例化 config('app.providers') 中声明的服务提供者。
+        // 该配置此前从未被读取，开发者按文档在 app.php 中注册的提供者永远不会执行。
+        foreach ($this->getConfig('app.providers', []) as $providerClass) {
+            if (!is_string($providerClass) || !class_exists($providerClass)) {
+                continue;
+            }
+            if (!is_subclass_of($providerClass, ServiceProvider::class)) {
+                error_log(sprintf(
+                    'LightPHP: provider %s must extend %s',
+                    $providerClass,
+                    ServiceProvider::class
+                ));
+                continue;
+            }
+            // 避免同一提供者在 Application 生命周期内被重复注册
+            foreach ($this->providers as $registered) {
+                if ($registered instanceof $providerClass) {
+                    continue 2;
+                }
+            }
+            $this->registerProvider(new $providerClass());
+        }
+
         foreach ($this->providers as $provider) {
             $provider->boot();
         }
@@ -172,13 +228,24 @@ class Application
      */
     public function run(): void
     {
+        // 开启输出缓冲：控制器/视图可能已 echo 部分内容，
+        // 若随后抛异常，未缓冲时 http_response_code(500) 会静默失效（实际返回 200），
+        // 且已输出的半截内容会与错误 JSON 拼接在一起。
+        //
+        // 记录本次 run() 自身的缓冲层级，异常清理与正常刷新都只作用于该层级，
+        // 不得破坏调用方（如测试）预先开启的外层缓冲。
+        ob_start();
+        $ownObLevel = ob_get_level();
+
         try {
             $this->bootProviders();
 
             $routeCacheFile = STORAGE_PATH . 'cache/route_cache.php';
             if (!$this->router->loadCachedRoutes($routeCacheFile)) {
+                // sort() 保证路由文件加载顺序稳定（glob 的返回顺序依赖文件系统）
                 $routeFiles = glob(APP_PATH . 'route/*.php');
                 if ($routeFiles !== false) {
+                    sort($routeFiles);
                     foreach ($routeFiles as $file) {
                         $this->router->load($file);
                     }
@@ -206,7 +273,18 @@ class Application
                 \core\Response::json(['code' => 500, 'message' => 'Internal Server Error'])->send();
             }
         } catch (\Throwable $e) {
+            // 丢弃异常前已输出的半截内容（可能含 HTML 片段/敏感数据），
+            // 否则会与错误响应拼接。只清理本次 run() 自身创建的缓冲层级，
+            // 保留调用方（如测试 runner）预先开启的外层缓冲。
+            while (ob_get_level() >= $ownObLevel) {
+                ob_end_clean();
+            }
             $this->handleException($e);
+        }
+
+        // 正常路径：把缓冲内容一次性输出（同样只刷新自己的层级）
+        while (ob_get_level() >= $ownObLevel) {
+            ob_end_flush();
         }
     }
 

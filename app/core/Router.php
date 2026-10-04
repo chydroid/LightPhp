@@ -96,14 +96,20 @@ class Router
      * @param array $middlewares 中间件列表
      * @return array 解析后的中间件列表
      */
-    private function resolveMiddleware(array $middlewares): array
+    private function resolveMiddleware(array $middlewares, array $seen = []): array
     {
         $resolved = [];
         foreach ($middlewares as $mw) {
             if (is_string($mw) && isset($this->middlewareAliases[$mw])) {
                 $resolved[] = $this->middlewareAliases[$mw];
             } elseif (is_string($mw) && isset($this->middlewareGroups[$mw])) {
-                $resolved = array_merge($resolved, $this->resolveMiddleware($this->middlewareGroups[$mw]));
+                // 中间件组可能自引用/互相引用（如 'web' 含 'web'），
+                // 无环检测会无限递归耗尽内存。遇到已在展开链中的组直接跳过。
+                if (isset($seen[$mw])) {
+                    continue;
+                }
+                $seen[$mw] = true;
+                $resolved = array_merge($resolved, $this->resolveMiddleware($this->middlewareGroups[$mw], $seen));
             } else {
                 $resolved[] = $mw;
             }
@@ -348,10 +354,16 @@ class Router
             $this->group['prefix'] = ($this->group['prefix'] ?? '') . $innerPrefix;
         }
 
-        $callback($this);
-
-        $this->group = $previousGroup;
-        $this->middlewares = $previousMiddleware;
+        // 回调内若抛异常，必须恢复分组状态。
+        // 否则后续注册的路由会继承本组的 prefix/middleware
+        //（实测：group(['prefix'=>'/admin'], fn()=>throw) 后 get('/public')
+        //       被注册成 '/admin/public' 并继承错误中间件）。
+        try {
+            $callback($this);
+        } finally {
+            $this->group = $previousGroup;
+            $this->middlewares = $previousMiddleware;
+        }
 
         return $this;
     }
@@ -413,7 +425,7 @@ class Router
         }
 
         $count = 0;
-        $register = function () use ($reflection, $controllerClass, &$count): void {
+        $register = function () use ($reflection, $controllerClass, &$count, $middleware): void {
             foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
                 if ($method->isConstructor() || $method->isStatic()) {
                     continue;
@@ -426,20 +438,42 @@ class Router
                 foreach ($attrs as $attr) {
                     $route = $attr->newInstance();
                     $httpMethod = strtoupper($route->method);
-                    $this->addRoute($httpMethod, $route->path, [$controllerClass, $method->getName()]);
-                    if ($route->name !== null) {
-                        $this->name($route->name);
+
+                    // 方法级 middleware 追加到类级 middleware 之后。
+                    // 此前 $route->middleware 从未被读取，方法上写的中间件被静默丢弃
+                    // （实测：#[Route('/secure', middleware:['auth'])] 实际未受保护）。
+                    // 支持 '!name' 前缀从继承链中剔除类级中间件。
+                    $routeMiddleware = $middleware;
+                    foreach ($route->middleware as $mw) {
+                        if (is_string($mw) && str_starts_with($mw, '!')) {
+                            $routeMiddleware = array_values(array_filter(
+                                $routeMiddleware,
+                                fn ($m) => $m !== substr($mw, 1)
+                            ));
+                        } else {
+                            $routeMiddleware[] = $mw;
+                        }
+                    }
+
+                    $previousMiddleware = $this->middlewares;
+                    if ($routeMiddleware) {
+                        $this->middlewares = $routeMiddleware;
+                    }
+                    try {
+                        $this->addRoute($httpMethod, $route->path, [$controllerClass, $method->getName()]);
+                        if ($route->name !== null) {
+                            $this->name($route->name);
+                        }
+                    } finally {
+                        $this->middlewares = $previousMiddleware;
                     }
                     $count++;
                 }
             }
         };
 
-        if ($prefix !== null || !empty($middleware)) {
-            $this->group(
-                array_filter(['prefix' => $prefix, 'middleware' => $middleware], fn($v) => $v !== null && $v !== []),
-                $register
-            );
+        if ($prefix !== null) {
+            $this->group(['prefix' => $prefix], $register);
         } else {
             $register();
         }
@@ -488,29 +522,90 @@ class Router
         }
 
         $method = $request->method();
-        $uri = '/' . trim((string) parse_url($request->uri(), PHP_URL_PATH), '/');
+        $uri = $this->normalizeUri($request->uri());
+        if ($uri === false) {
+            // 请求 URI 含有控制字符 / 反斜杠等异常内容，直接判定为不匹配
+            return $this->handleNotFound();
+        }
         if ($uri !== '/') {
             $uri = rtrim($uri, '/');
         }
+
+        // 第一遍记录「URI 命中但方法不匹配」的路由，用于返回 405 + Allow 头
+        $allowedMethods = [];
 
         foreach ($this->routes as $route) {
             // HEAD 请求应匹配 GET 路由（HTTP 规范）
             $methodMatch = $route['method'] === $method
                 || ($method === 'HEAD' && $route['method'] === 'GET');
-            if (!$methodMatch) {
+
+            $params = $this->matchRoute($route['uri'], $uri);
+            if ($params === false) {
                 continue;
             }
 
-            $params = $this->matchRoute($route['uri'], $uri);
-            if ($params !== false) {
-                $handler = fn () => $this->executeHandler($route['handler'], $params, $request);
-                $routeMiddleware = $this->resolveMiddleware($route['middleware'] ?? []);
-                $allMiddleware = array_merge($this->resolveMiddleware($this->globalMiddleware), $routeMiddleware);
-                return $this->executeMiddleware($allMiddleware, $handler, $request);
+            if (!$methodMatch) {
+                // URI 命中但方法不允许：记录下来，供循环结束后返回 405 + Allow
+                $allowedMethods[$route['method']] = true;
+                continue;
             }
+
+            $handler = fn () => $this->executeHandler($route['handler'], $params, $request);
+            $routeMiddleware = $this->resolveMiddleware($route['middleware'] ?? []);
+            $allMiddleware = array_merge($this->resolveMiddleware($this->globalMiddleware), $routeMiddleware);
+            return $this->executeMiddleware($allMiddleware, $handler, $request);
+        }
+
+        if ($allowedMethods !== []) {
+            if ($method === 'HEAD') {
+                // HEAD 允许由 GET 兜底
+                $allowedMethods['GET'] = true;
+            }
+            if ($method === 'OPTIONS') {
+                // 自动应答预检：返回允许的方法，不进入应用逻辑
+                $response = Response::make('', 204);
+                $response->header('Allow', implode(', ', array_keys($allowedMethods)));
+                return $response;
+            }
+            return Response::make('<h1>405 Method Not Allowed</h1>', 405)
+                ->header('Allow', implode(', ', array_keys($allowedMethods)));
         }
 
         return $this->handleNotFound();
+    }
+
+    /**
+     * 规范化请求 URI
+     *
+     * 处理要点：
+     * - 折叠重复斜杠（//a//b → /a/b）
+     * - 以 `//` 开头时先折叠，否则 parse_url() 会按 authority-form 解析，
+     *   把首段当成主机名，导致 `//evil.com/admin` 被分发到 `/admin` 路由
+     *   （WAF/日志/限流看到的路径与实际分发的路由不一致）
+     * - 拒绝含反斜杠、NUL 与控制字符的 URI
+     *
+     * @param string $raw 原始 REQUEST_URI
+     * @return string|false 规范化后的路径；无法安全解析时返回 false
+     */
+    private function normalizeUri(string $raw): string|false
+    {
+        if (str_contains($raw, '\\') || preg_match('/[\x00-\x1F\x7F]/', $raw) === 1) {
+            return false;
+        }
+
+        // 先折叠重复斜杠，避免 authority-form 解析歧义
+        $collapsed = preg_replace('#/+#', '/', $raw);
+        if (!is_string($collapsed)) {
+            return false;
+        }
+
+        // 剥离查询串与 fragment（REQUEST_URI 形如 /path?query）
+        $path = parse_url($collapsed, PHP_URL_PATH);
+        if (!is_string($path)) {
+            return false;
+        }
+
+        return '/' . trim($path, '/');
     }
 
     /**
@@ -615,11 +710,24 @@ class Router
             $params = [];
             foreach ($matches as $key => $value) {
                 // 只收集命名参数（字符串 key），不收集数字 key（整体匹配）
-                if (is_string($key)) {
-                    // urldecode 值，避免控制器收到 %20 等编码后的值
-                    // 与 Router::route() 的 urlencode 形成往返一致
-                    $params[$key] = is_string($value) ? urldecode($value) : $value;
+                if (!is_string($key)) {
+                    continue;
                 }
+                // urldecode 值，避免控制器收到 %20 等编码后的值
+                // 与 Router::route() 的 urlencode 形成往返一致
+                $decoded = is_string($value) ? urldecode($value) : $value;
+                if (!is_string($decoded)) {
+                    $params[$key] = $decoded;
+                    continue;
+                }
+                // 路由段按定义不得含分隔符。若解码后出现 / \ 或 NUL，
+                // 说明调用方编码了分隔符（%2F 等）。直接放行会把
+                // /files/a%2F..%2F..%2Fetc%2Fpasswd 还原成 a/../../etc/passwd，
+                // 任何把该参数拼进文件路径的控制器都会被穿越。
+                if (str_contains($decoded, '/') || str_contains($decoded, '\\') || str_contains($decoded, "\0")) {
+                    return false;
+                }
+                $params[$key] = $decoded;
             }
             return $params;
         }
@@ -701,7 +809,21 @@ class Router
     {
         // 闭包直接执行
         if ($handler instanceof \Closure) {
-            return $handler(...$params);
+            // 路由参数数组的键是占位符名字符串（如 ['path' => 'a']）。
+            // PHP 8.1+ 中 `...$array` 对含字符串键的数组按「命名参数」展开，
+            // 会要求闭包形参名与占位符名完全一致，否则抛 Error: Unknown named parameter。
+            // 框架语义应为「按声明顺序位置传参」，因此必须 array_values() 丢弃键。
+            $args = array_values($params);
+            $reflection = new \ReflectionFunction($handler);
+            if ($reflection->isVariadic()) {
+                return $handler(...$args);
+            }
+            // 形参数量不足时截断，多余形参交由默认值处理（PHP 会忽略多余实参）
+            $count = $reflection->getNumberOfParameters();
+            if ($count < count($args)) {
+                $args = array_slice($args, 0, $count);
+            }
+            return $handler(...$args);
         }
 
         // 数组形式的控制器方法
@@ -846,9 +968,14 @@ class Router
      */
     public function cacheRoutes(string $cacheFile): bool
     {
-        // 检查是否包含闭包路由，闭包无法被 var_export 序列化
+        // var_export 无法还原闭包，也无法还原任意对象实例
+        // （对象会变成 ClassName::__set_state(array(...))，类未实现该方法时致命错误）。
+        // 因此 handler 与 middleware 中的任何不可序列化值都必须让缓存整体放弃。
         foreach ($this->routes as $route) {
-            if ($route['handler'] instanceof \Closure) {
+            if (!$this->isCacheableValue($route['handler'] ?? null)) {
+                return false;
+            }
+            if (!$this->isCacheableValue($route['middleware'] ?? null)) {
                 return false;
             }
         }
@@ -864,6 +991,41 @@ class Router
         ];
         $export = var_export($data, true);
         $content = '<?php return ' . $export . ';';
-        return file_put_contents($cacheFile, $content, LOCK_EX) !== false;
+        // 原子写：先写临时文件再 rename，避免并发请求 require 到半截文件
+        $tmpFile = $cacheFile . '.' . getmypid() . '.tmp';
+        if (file_put_contents($tmpFile, $content, LOCK_EX) === false) {
+            return false;
+        }
+        if (!@rename($tmpFile, $cacheFile)) {
+            @unlink($tmpFile);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * 判断某个值能否被 var_export 正确还原为等价的可执行代码
+     *
+     * 仅允许：标量、数组、类名字符串（对应 [Class::class, 'method'] 形式）。
+     * 闭包、对象实例、资源一律视为不可缓存。
+     *
+     * @param mixed $value 待检查的值
+     * @return bool 是否可缓存
+     */
+    private function isCacheableValue(mixed $value): bool
+    {
+        if (is_array($value)) {
+            foreach ($value as $item) {
+                if (!$this->isCacheableValue($item)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if ($value === null || is_scalar($value)) {
+            return true;
+        }
+        // 字符串类名可被 var_export 原样还原（[SomeClass::class, 'method']）
+        return is_string($value);
     }
 }

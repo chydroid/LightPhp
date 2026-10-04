@@ -21,15 +21,66 @@ class Upload
     private const DANGEROUS_EXTENSIONS = [
         'php', 'phtml', 'php3', 'php4', 'php5', 'php7', 'php8', 'phar',
         'pht', 'phps', 'shtml', 'htaccess', 'htpasswd',
+        // .user.ini 在 PHP-FPM/CGI 下可设置 auto_prepend_file 等，
+        // 上传后被 web 服务器解析即等同于远程代码执行
+        'user', 'ini',
         'jsp', 'jspx', 'asp', 'aspx', 'cgi', 'pl', 'py',
         'sh', 'bash', 'bat', 'cmd', 'ps1',
         // 可承载脚本/XSS 的内容型扩展名，上传到 PUBLIC_PATH 会被浏览器执行
         'html', 'htm', 'xhtml', 'svg', 'xml', 'swf',
     ];
 
+    /** @var string[] 必须整体按文件名匹配（无点分隔），否则按扩展名拆分检查会漏掉 */
+    private const DANGEROUS_FILENAMES = [
+        '.htaccess', '.htpasswd', '.user.ini', '.env', 'web.config',
+    ];
+
+    /**
+     * 检查文件名（含多段扩展名）是否命中危险名单
+     *
+     * @param string $filename 原始文件名
+     * @return bool 是否危险
+     */
+    private static function isDangerousFilename(string $filename): bool
+    {
+        $lower = strtolower(basename(trim($filename)));
+        if ($lower === '') {
+            return false;
+        }
+
+        // 整体匹配（.htaccess / .user.ini 等以点开头的特殊文件）
+        if (in_array($lower, self::DANGEROUS_FILENAMES, true)) {
+            return true;
+        }
+
+        // 多段扩展名检查：a.php.jpg 的每一段都不得命中危险名单（防双扩展名绕过）
+        $parts = explode('.', $lower);
+        if (count($parts) > 1) {
+            array_shift($parts); // 去掉主文件名
+            foreach ($parts as $ext) {
+                if (in_array(strtolower($ext), self::DANGEROUS_EXTENSIONS, true)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public static function file(string $name): ?self
     {
-        if (!isset($_FILES[$name]) || $_FILES[$name]['error'] === UPLOAD_ERR_NO_FILE) {
+        if (!isset($_FILES[$name]) || !is_array($_FILES[$name])) {
+            return null;
+        }
+
+        // 多文件字段（name 为数组）不能当作单个文件处理：
+        // 直接取 ['name'] 会拿到数组，is_uploaded_file(array) 抛 TypeError。
+        // 此时返回 null，由 files() 处理。
+        if (is_array($_FILES[$name]['name'] ?? null)) {
+            return null;
+        }
+
+        if (($_FILES[$name]['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
             return null;
         }
         return new self($_FILES[$name]);
@@ -127,17 +178,10 @@ class Upload
             }
         }
 
-        // 始终拒绝危险扩展名（无论 allowedExtensions 配置），直接检查文件名所有扩展名部分防止绕过
-        $filename = $this->file['name'] ?? '';
-        $parts = explode('.', $filename);
-        if (count($parts) > 1) {
-            array_shift($parts);
-            foreach ($parts as $ext) {
-                if (in_array(strtolower($ext), self::DANGEROUS_EXTENSIONS, true)) {
-                    $this->error = 'Dangerous file extension not allowed';
-                    return false;
-                }
-            }
+        // 始终拒绝危险文件名/扩展名（无论 allowedExtensions 配置）
+        if (self::isDangerousFilename($this->file['name'] ?? '')) {
+            $this->error = 'Dangerous file extension not allowed';
+            return false;
         }
 
         if ($this->maxSize > 0 && $this->file['size'] > $this->maxSize) {
@@ -148,15 +192,66 @@ class Upload
         return true;
     }
 
+    /**
+     * 落盘根目录
+     *
+     * 默认 PUBLIC_PATH（保持历史行为，兼容性优先）。
+     * 需要把用户上传存到 web 根之外时，用 disk('local') 或 root() 显式指定。
+     *
+     * @var string
+     */
+    private string $root = '';
+
+    /**
+     * 设置落盘根目录（绝对路径）
+     *
+     * 传入 STORAGE_PATH.'app/' 等私有目录即可避免上传文件被直接 HTTP 访问。
+     *
+     * @param string $root 绝对路径根目录
+     * @return self
+     */
+    public function root(string $root): self
+    {
+        $this->root = rtrim($root, '/\\');
+        return $this;
+    }
+
+    /**
+     * 使用 storage.php 中配置的磁盘作为落盘位置
+     *
+     * 例：$upload->disk('local')->save('avatars/');   // 私有，不对外暴露
+     *     $upload->disk('public')->save('avatars/');  // 公开，可通过 URL 访问
+     *
+     * @param string $disk 磁盘名（storage.php 中的 disks 键）
+     * @return self
+     */
+    public function disk(string $disk): self
+    {
+        $config = \core\Application::getInstance()?->getConfig("storage.disks.{$disk}");
+        $root = is_array($config) ? ($config['root'] ?? null) : null;
+        if (!is_string($root) || $root === '') {
+            throw new \InvalidArgumentException(
+                "Upload disk [{$disk}] is not configured in storage.php or has no root."
+            );
+        }
+        return $this->root($root);
+    }
+
     public function save(?string $path = null): ?string
     {
         if (!$this->validate()) {
             return null;
         }
 
-        $path = $this->sanitizePath($path ?? $this->uploadPath ?: '/uploads/');
+        // 落盘根目录：显式 root()/disk() 优先，否则回退 PUBLIC_PATH
+        $root = $this->root !== '' ? $this->root : (defined('PUBLIC_PATH') ? PUBLIC_PATH : '');
+        if ($root === '') {
+            $this->error = 'Upload root directory is not configured';
+            return null;
+        }
 
-        $fullPath = PUBLIC_PATH . $path;
+        $path = $this->sanitizePath($path ?? ($this->uploadPath ?: '/uploads/'));
+        $fullPath = $root . $path;
 
         if (!is_dir($fullPath)) {
             if (!mkdir($fullPath, 0755, true) && !is_dir($fullPath)) {
@@ -165,7 +260,7 @@ class Upload
             }
         }
 
-        $realBase = realpath(PUBLIC_PATH);
+        $realBase = realpath($root);
         $resolvedPath = realpath($fullPath);
 
         if ($realBase === false || $resolvedPath === false || ($resolvedPath !== $realBase && !str_starts_with($resolvedPath, $realBase . DIRECTORY_SEPARATOR))) {

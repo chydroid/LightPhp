@@ -131,6 +131,16 @@ class OutputCache extends Middleware
         }
         $headers = [];
         foreach ($merged as $name => $value) {
+            // 绝不缓存 Set-Cookie：其中携带 session id，
+            // 写入缓存后会把首个访问者的会话标识分发给后续所有命中该缓存的请求
+            // （会话劫持 / 权限串号）。同理跳过会因缓存而失效的单调递增头。
+            $lower = strtolower($name);
+            if ($lower === 'set-cookie' || $lower === 'set-cookie2') {
+                continue;
+            }
+            if (in_array($lower, ['age', 'date', 'expires', 'last-modified'], true)) {
+                continue;
+            }
             $headers[] = ['name' => $name, 'value' => $value];
         }
         return $headers;

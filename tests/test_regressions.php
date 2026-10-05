@@ -1668,3 +1668,189 @@ $runner->run('Regression - HttpClient 拒绝 json=false 下的数组请求体', 
         $client->post('http://127.0.0.1:1/never', ['body' => ['a' => 1], 'json' => false]);
     }, '数组请求体在 json=false 时应抛异常而不是发送 "Array"');
 });
+$runner->run('Regression - RequestLogMiddleware 接受任意 PSR-3 logger', function ($t) {
+    // 回归点：resolveLogger() 返回类型硬编码 ?Logger 且 private，
+    // 绑非 log\Logger 子类的 logger 会抛 TypeError 并被空 catch 吞掉 —— 表现为日志静默消失
+    $container = new \core\Container();
+    \core\Container::setInstance($container);
+
+    $logger = new class {
+        public array $lines = [];
+        public function info($message, array $context = []): void
+        {
+            $this->lines[] = (string) $message;
+        }
+    };
+    $container->instance('log', $logger);
+
+    $prevUri = $_SERVER['REQUEST_URI'] ?? null;
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+    $_SERVER['REQUEST_URI'] = '/api/thing';
+
+    try {
+        ob_start();
+        (new \middleware\RequestLogMiddleware())->handle(
+            new \core\Request(),
+            fn() => \core\Response::make('ok')
+        );
+        ob_end_clean();
+        $t->assertTrue(count($logger->lines) > 0, 'PSR-3 风格 logger 应正常收到日志');
+        $t->assertStringContains('/api/thing', $logger->lines[0] ?? '', '日志应包含请求路径');
+    } finally {
+        if ($prevUri !== null) { $_SERVER['REQUEST_URI'] = $prevUri; } else { unset($_SERVER['REQUEST_URI']); }
+    }
+});
+
+$runner->run('Regression - RequestLogMiddleware 对非法 logger 绑定给出诊断', function ($t) {
+    // 绑一个没有 info() 的对象：应静默跳过但不能影响请求处理
+    $container = new \core\Container();
+    \core\Container::setInstance($container);
+    $container->instance('log', new \stdClass());
+
+    $prevUri = $_SERVER['REQUEST_URI'] ?? null;
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+    $_SERVER['REQUEST_URI'] = '/api/thing';
+
+    try {
+        ob_start();
+        $result = (new \middleware\RequestLogMiddleware())->handle(
+            new \core\Request(),
+            fn() => \core\Response::make('ok')
+        );
+        ob_end_clean();
+        $t->assertEquals('ok', $result->getContent(), '无 info() 的绑定不应影响请求处理');
+    } finally {
+        if ($prevUri !== null) { $_SERVER['REQUEST_URI'] = $prevUri; } else { unset($_SERVER['REQUEST_URI']); }
+    }
+});
+
+$runner->run('Regression - Request::host() 拒绝白名单外的 Host', function ($t) {
+    // 回归点：host() 直接采信 HTTP_HOST，攻击者可让 url() 指向自己的域名
+    // （实测 $_SERVER['HTTP_HOST']='evil.example.com' → https://evil.example.com/reset-password）
+    $prevHost = $_SERVER['HTTP_HOST'] ?? null;
+    $prevUrl = \config\Config::get('app.url');
+    $prevTrusted = \config\Config::get('app.trusted_hosts');
+    $prevScheme = $_SERVER['HTTPS'] ?? null;
+    $prevPort = $_SERVER['SERVER_PORT'] ?? null;
+    $prevUri = $_SERVER['REQUEST_URI'] ?? null;
+
+    try {
+        \config\Config::set('app.url', 'https://app.example.com');
+        \config\Config::set('app.trusted_hosts', ['app.example.com']);
+
+        $_SERVER['HTTPS'] = 'on';
+        $_SERVER['SERVER_PORT'] = '443';
+        $_SERVER['REQUEST_URI'] = '/reset-password';
+
+        $_SERVER['HTTP_HOST'] = 'evil.example.com';
+        $t->assertEquals('app.example.com', (new \core\Request())->host(), '白名单外 Host 应被拒绝');
+        $t->assertFalse(
+            str_contains((new \core\Request())->url(), 'evil.example.com'),
+            'url() 不得指向白名单外的主机'
+        );
+
+        $_SERVER['HTTP_HOST'] = 'app.example.com';
+        $t->assertEquals('app.example.com', (new \core\Request())->host(), '白名单内 Host 应被采信');
+
+        \config\Config::set('app.trusted_hosts', ['app.example.com', 'api.example.com']);
+        foreach (['app.example.com', 'api.example.com'] as $h) {
+            $_SERVER['HTTP_HOST'] = $h;
+            $t->assertEquals($h, (new \core\Request())->host(), "{$h} 应在白名单内");
+        }
+
+        // 通配仅匹配一层子域
+        \config\Config::set('app.trusted_hosts', ['*.example.com']);
+        $_SERVER['HTTP_HOST'] = 'a.example.com';
+        $t->assertEquals('a.example.com', (new \core\Request())->host(), '一层子域应匹配通配');
+        $_SERVER['HTTP_HOST'] = 'a.b.example.com';
+        $t->assertEquals('app.example.com', (new \core\Request())->host(), '两层子域不应匹配通配');
+        $_SERVER['HTTP_HOST'] = 'example.com';
+        $t->assertEquals('app.example.com', (new \core\Request())->host(), '裸域不应匹配 *. 通配');
+
+        // '*' 恢复旧行为（不校验）
+        \config\Config::set('app.trusted_hosts', '*');
+        $_SERVER['HTTP_HOST'] = 'anything.test';
+        $t->assertEquals('anything.test', (new \core\Request())->host(), "'*' 应不做校验");
+    } finally {
+        \config\Config::set('app.url', $prevUrl);
+        \config\Config::set('app.trusted_hosts', $prevTrusted);
+        foreach ([
+            'HTTP_HOST' => $prevHost, 'HTTPS' => $prevScheme,
+            'SERVER_PORT' => $prevPort, 'REQUEST_URI' => $prevUri,
+        ] as $k => $v) {
+            if ($v !== null) { $_SERVER[$k] = $v; } else { unset($_SERVER[$k]); }
+        }
+    }
+});
+
+$runner->run('Regression - Request 支持多文件上传字段', function ($t) {
+    // 回归点：hasFile() 对多文件字段取顶层 'error' 会抛
+    // "Undefined array key error" 警告；file() 会把整个数组塞进 Upload 产出坏对象
+    $prevFiles = $_FILES ?? null;
+    $_FILES = [
+        'single' => ['name' => 'a.pdf', 'type' => 'application/pdf', 'tmp_name' => '/tmp/a', 'error' => 0, 'size' => 10],
+        'docs' => [
+            ['name' => 'a.pdf', 'type' => 'application/pdf', 'tmp_name' => '/tmp/a', 'error' => 0, 'size' => 10],
+            ['name' => 'b.pdf', 'type' => 'application/pdf', 'tmp_name' => '/tmp/b', 'error' => 0, 'size' => 20],
+        ],
+    ];
+
+    try {
+        $req = new \core\Request();
+
+        $t->assertTrue($req->hasFile('docs'), '多文件字段应识别为有文件且不产生 Warning');
+        $t->assertEquals(2, count($req->files('docs')), 'files() 应返回全部文件');
+        $t->assertEquals('a.pdf', $req->files('docs')[0]->getClientName(), '应保留原始文件名');
+        $t->assertEquals('b.pdf', $req->files('docs')[1]->getClientName(), '顺序应保持');
+
+        $t->assertEquals(1, count($req->files('single')), '单文件字段 files() 应返回 1 个');
+        $t->assertEquals('a.pdf', $req->singleFile('single')->getClientName(), 'singleFile() 应返回该文件');
+
+        $t->assertThrows(\LogicException::class, function () use ($req) {
+            $req->singleFile('docs');
+        }, '多文件字段调 singleFile() 应抛 LogicException');
+
+        $t->assertFalse($req->hasFile('missing'), '不存在的字段应返回 false');
+        $t->assertEquals([], $req->files('missing'), '不存在的字段应返回空数组');
+        $t->assertNull($req->singleFile('missing'), '不存在的字段 singleFile() 应返回 null');
+    } finally {
+        if ($prevFiles === null) { unset($_FILES); } else { $_FILES = $prevFiles; }
+    }
+});
+
+$runner->run('Regression - Throttle 回收已过期的计数文件', function ($t) {
+    // 回归点：每个 (IP, path) 的 throttle_*.data 窗口过期后只重置内存计数，
+    // 文件永不删除 —— 长期运行会累积大量僵尸 inode
+    $dir = rtrim(STORAGE_PATH, '/') . '/cache/';
+    if (!is_dir($dir)) {
+        $t->assertTrue(true, '缓存目录不存在，跳过');
+        return;
+    }
+
+    $expired = $dir . 'throttle_reg_expired.data';
+    $active = $dir . 'throttle_reg_active.data';
+    $corrupt = $dir . 'throttle_reg_corrupt.data';
+
+    try {
+        file_put_contents($expired, json_encode(['attempts' => 9, 'expire' => time() - 100]));
+        file_put_contents($active, json_encode(['attempts' => 2, 'expire' => time() + 3600]));
+        file_put_contents($corrupt, 'not-json');
+
+        $throttle = new \middleware\Throttle(100, 3600);
+        $ref = new \ReflectionMethod($throttle, 'maybeSweep');
+        $ref->setAccessible(true);
+        // maybeSweep() 以 1/100 概率触发；循环直到真正发生回收，
+        // 避免固定次数带来的随机失败
+        for ($i = 0; $i < 2000 && file_exists($expired); $i++) {
+            $ref->invoke($throttle);
+        }
+
+        $t->assertFalse(file_exists($expired), '已过期的计数文件应被回收');
+        $t->assertTrue(file_exists($active), '未过期的计数文件必须保留');
+        $t->assertTrue(file_exists($corrupt), '损坏文件应保留（避免误删正在使用的计数）');
+    } finally {
+        foreach ([$expired, $active, $corrupt] as $f) {
+            @unlink($f);
+        }
+    }
+});

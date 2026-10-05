@@ -100,22 +100,36 @@ All notable changes to the LightPHP framework will be documented in this file.
   - 现象：拼错的类名完全看不出是「类不存在」，误导排障
   - 修复：字符串且类不存在时抛 `Middleware class [X] not found`；同时支持 `'Class::method'` 静态中间件
 
+### 修复 (遗留项收尾)
+
+- **[HIGH] `Request::url()` / `host()` 主机头投毒**
+  - 现象：实测 `$_SERVER['HTTP_HOST'] = 'evil.example.com'` 时 `url()` 返回 `https://evil.example.com/reset-password`。找回密码链接、OAuth 回调、分页链接等都会指向攻击者域名
+  - 根因：`host()` 无条件返回 `HTTP_HOST`，框架无任何白名单约束
+  - 修复：新增 `app.trusted_hosts` 配置（默认 `'*'` 保持既有行为）。支持精确匹配与 `*.example.com` 单层通配；`*.` **不跨点**，故 `a.b.example.com` 不匹配 `*.example.com`。不在白名单内的 Host 被忽略并回落到 `APP_URL` 的主机部分
+  - 建议：生产环境显式配置 `APP_TRUSTED_HOSTS` 环境变量
+- **[MEDIUM] `RequestLogMiddleware::resolveLogger()` 绑定 PSR-3 logger 时完全静默**
+  - 现象：返回类型硬编码 `?Logger` 且方法为 `private`，绑非 `log\Logger` 子类的 logger 会抛 TypeError 并被空 `catch` 吞掉 —— 表现为「日志突然消失」，极难排查
+  - 修复：改为 `protected` 并只要求对象具备 `info()`（PSR-3 最小契约）；失败原因写入 `error_log` 而非无声丢弃
+- **[MEDIUM] `Request::file()` / `hasFile()` 不支持多文件字段**
+  - 现象：`hasFile('docs')` 对 `name="docs[]"` 的多文件字段触发 `Undefined array key "error"` 警告；`file()` 会把整个嵌套数组塞进 `Upload`，产出「看起来正常」的坏对象
+  - 修复：新增 `files($key)` 返回全部文件（单文件字段返回长度 1）、`singleFile($key)` 对多文件字段明确抛 `LogicException`；`hasFile()` 改为遍历子文件判断。`file()` 行为保持不变以维持 BC
+- **[MEDIUM] `Throttle` 计数文件永不回收**
+  - 现象：每个 `(IP, path)` 组合对应一个 `throttle_*.data`，窗口过期后仅在内存中重置计数，文件本身永不删除
+  - 修复：新增机会式回收 `maybeSweep()`，以 1/100 概率删除**已过期**的计数文件；未过期与损坏的文件一律保留
+
 ### 已知行为 (非缺陷)
 
 - **`Model` 静态化对子类覆盖的兼容性代价**：子类若以**实例方法**覆盖父类的静态方法（如 `public function create()` 覆盖 `Model::create()`），PHP 在**编译期**抛 `Cannot make static method ... non static`，无法用 try/catch 捕获。这是静态化改造的固有 BC 变更，需同步子类改为静态方法签名。
 - **`Response::download()` 不会因输出缓冲而全量物化**：实测 16 MB 文件在 `Application::run()` 的 `ob_end_flush()` 路径下 peak 内存增量为 0，`readfile` 保持流式写入。
 
-### 遗留 (未修复)
+### 遗留 (无)
 
-- `RequestLogMiddleware::resolveLogger()` 返回类型硬编码 `\log\Logger` 且为 `private`，绑 PSR-3 logger（非 `log\Logger` 子类）会抛 TypeError 并被空 `catch` 静默吞掉。修复需改动 logger 抽象边界，影响面较大。
-- `Request::url()` 采信 `Host` 请求头，缺 `trusted_hosts` 白名单（主机头投毒）。需新增配置项，属功能增强。
-- `Request::file()` / `hasFile()` 不支持多文件字段。
-- `Throttle` 计数文件永不回收，每个 (IP, path) 永久占用一个 inode。
+第五轮遗留的 4 项已全部修复：`resolveLogger()` logger 抽象边界、`Request::url()` 主机头投毒、`Request::file()` 多文件字段、`Throttle` 计数文件回收。
 
 ### 测试
 
-- 累计新增回归测试覆盖：中间件对象/别名参数/OPTIONS 预检/`$except` 归一化、CRLF 注入/JSON 编码失败/数组请求体/timeout 校验、日志凭据剥离、`header()` 默认值收窄、`Request::path()`、Loader 前缀与分隔符、Macroable 宏隔离、`JsonResource` 包装键保护与集合实例化、`LocalDisk` 路径清洗、`Pipeline` 错误信息
-- 全量测试 **1169/1169 通过**，全项目 `php -l` 无错误
+- 累计新增回归测试覆盖：中间件对象/别名参数/OPTIONS 预检/`$except` 归一化、CRLF 注入/JSON 编码失败/数组请求体/timeout 校验、日志凭据剥离、`header()` 默认值收窄、`Request::path()`、Loader 前缀与分隔符、Macroable 宏隔离、`JsonResource` 包装键保护与集合实例化、`LocalDisk` 路径清洗、`Pipeline` 错误信息、PSR-3 logger 兼容、`trusted_hosts` 白名单、多文件上传、Throttle 文件回收
+- 全量测试 **1194/1194 通过**，全项目 `php -l` 无错误
 
 ## [2.15.9] - 2026-08-02
 

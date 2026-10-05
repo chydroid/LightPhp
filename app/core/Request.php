@@ -439,6 +439,86 @@ class Request
     }
 
     /**
+     * 获取单个上传文件（显式版）
+     *
+     * 与 file() 的区别：多文件字段（$_FILES['x'] 是数组的数组）时明确抛异常，
+     * 而不是把整个数组塞进 Upload 产出一个「看起来正常」的坏对象。
+     *
+     * @param string $key 文件字段名
+     * @return Upload|null 上传文件，不存在时返回 null
+     * @throws \LogicException 当该字段是多文件上传时
+     */
+    public function singleFile(string $key): ?Upload
+    {
+        if (!isset($this->files[$key])) {
+            return null;
+        }
+        if ($this->isMultiFileField($key)) {
+            throw new \LogicException(
+                sprintf('字段 "%s" 是多文件上传，请改用 files() 获取全部文件', $key)
+            );
+        }
+        return new Upload($this->files[$key]);
+    }
+
+    /**
+     * 获取某个字段下的所有上传文件
+     *
+     * 单文件字段返回长度为 1 的数组，多文件字段返回全部元素。
+     *
+     * @param string $key 文件字段名
+     * @return list<Upload> 上传文件列表（无文件时返回空数组）
+     */
+    public function files(string $key): array
+    {
+        if (!isset($this->files[$key])) {
+            return [];
+        }
+        $field = $this->files[$key];
+
+        if (!$this->isMultiFileField($key)) {
+            return [new Upload($field)];
+        }
+
+        $out = [];
+        foreach ($field as $single) {
+            if (is_array($single)) {
+                $out[] = new Upload($single);
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * 判断字段是否为多文件上传
+     *
+     * PHP 对 name="docs[]" 的多文件上传会产出嵌套数组结构。
+     *
+     * @param string $key 文件字段名
+     * @return bool 是否为多文件字段
+     */
+    private function isMultiFileField(string $key): bool
+    {
+        if (!isset($this->files[$key])) {
+            return false;
+        }
+        $field = $this->files[$key];
+        if (!is_array($field)) {
+            return false;
+        }
+        // 多文件结构：没有顶层 'error'/'name' 键，且存在数组元素
+        if (array_key_exists('error', $field) || array_key_exists('name', $field)) {
+            return false;
+        }
+        foreach ($field as $v) {
+            if (is_array($v)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * 检查是否有上传文件
      * 
      * @param string $key 文件字段名
@@ -446,7 +526,20 @@ class Request
      */
     public function hasFile(string $key): bool
     {
-        return isset($this->files[$key]) && $this->files[$key]['error'] !== UPLOAD_ERR_NO_FILE;
+        if (!isset($this->files[$key])) {
+            return false;
+        }
+        // 多文件字段没有顶层 'error' 键，直接取会触发
+        // "Undefined array key error" 警告；任一子文件成功上传即视为存在
+        if ($this->isMultiFileField($key)) {
+            foreach ($this->files[$key] as $single) {
+                if (is_array($single) && ($single['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return $this->files[$key]['error'] !== UPLOAD_ERR_NO_FILE;
     }
 
     /**
@@ -494,12 +587,98 @@ class Request
 
     /**
      * 获取主机名
-     * 
+     *
+     * 若配置了 app.trusted_hosts，则只接受白名单内的 Host 请求头，
+     * 否则回落到 APP_URL 的主机部分，避免主机头投毒。
+     *
      * @return string 主机名
      */
     public function host(): string
     {
-        return $this->server['HTTP_HOST'] ?? 'localhost';
+        $host = (string) ($this->server['HTTP_HOST'] ?? '');
+        if ($host !== '' && $this->isTrustedHost($host)) {
+            return $host;
+        }
+        return $this->fallbackHost();
+    }
+
+    /**
+     * 从 APP_URL 配置解析出主机部分
+     *
+     * @return string 主机名（含端口，若配置中带）
+     */
+    private function fallbackHost(): string
+    {
+        $appUrl = '';
+        try {
+            if (class_exists(\config\Config::class)) {
+                $appUrl = (string) \config\Config::get('app.url', '');
+            }
+        } catch (\Throwable) {
+            // 配置不可用时退回字面量默认值
+        }
+        if ($appUrl === '') {
+            $appUrl = 'http://localhost';
+        }
+        $parsed = parse_url($appUrl);
+        if (!is_array($parsed) || !isset($parsed['host'])) {
+            return 'localhost';
+        }
+        return $parsed['host'] . (isset($parsed['port']) ? ':' . $parsed['port'] : '');
+    }
+
+    /**
+     * 校验 Host 是否在可信白名单内
+     *
+     * @param string $host 原始 Host 头（含可能的端口）
+     * @return bool 是否可信
+     */
+    private function isTrustedHost(string $host): bool
+    {
+        $hostname = strtolower(explode(':', $host, 2)[0]);
+        if ($hostname === '') {
+            return false;
+        }
+
+        $trusted = '*';
+        try {
+            if (class_exists(\config\Config::class)) {
+                $cfg = \config\Config::get('app.trusted_hosts', '*');
+                if ($cfg !== null && $cfg !== '' && $cfg !== '*') {
+                    $trusted = $cfg;
+                }
+            }
+        } catch (\Throwable) {
+            // 配置不可用时不启用白名单
+        }
+
+        if ($trusted === '*' || $trusted === true) {
+            return true;
+        }
+
+        $list = is_array($trusted) ? $trusted : preg_split('/[\s,]+/', (string) $trusted);
+        foreach ($list as $pattern) {
+            $pattern = strtolower(trim((string) $pattern));
+            if ($pattern === '') {
+                continue;
+            }
+            if ($pattern === '*') {
+                return true;
+            }
+            if (str_starts_with($pattern, '*.')) {
+                $suffix = substr($pattern, 2);
+                // 通配仅匹配一层子域：a.b.example.com 不匹配 *.example.com
+                if (str_ends_with($hostname, '.' . $suffix)
+                    && substr_count($hostname, '.') === substr_count($suffix, '.') + 1) {
+                    return true;
+                }
+                continue;
+            }
+            if ($hostname === $pattern) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

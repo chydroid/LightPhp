@@ -37,6 +37,10 @@ class Throttle
             return $next($request);
         }
 
+        // 机会式回收：偶尔清理已过期的计数文件，避免每个 (IP, path)
+        // 组合永久占用一个 inode（长期运行的服务尤其明显）。
+        $this->maybeSweep();
+
         $key = $this->resolveKey($request);
 
         if (!$this->attempt($key)) {
@@ -61,6 +65,53 @@ class Throttle
         $ipHash = hash('sha256', $ip);
         $routeHash = hash('sha256', $route);
         return 'throttle_' . $ipHash . '_' . $routeHash;
+    }
+
+    /**
+     * 机会式清理已过期的计数文件
+     *
+     * 每个 (IP, path) 组合对应一个 throttle_*.data 文件。此前窗口过期后
+     * 只在内存里重置计数，文件本身永不删除 —— 长期运行的服务会累积
+     * 大量僵尸 inode。
+     *
+     * 这里按概率触发（避免每个请求都扫描目录）并删除已过期文件。
+     * 删除在 attempt() 之外进行，不会与计数写入产生锁竞争：
+     * attempt() 对已过期键本来就是重置为 1，删掉文件不影响配额语义。
+     *
+     * @return void
+     */
+    private function maybeSweep(): void
+    {
+        // 1/100 概率触发；同一请求内只可能触发一次
+        if (random_int(1, 100) !== 1) {
+            return;
+        }
+        // 目录不存在说明还没用过，无需扫描
+        if (!is_dir($this->storagePath)) {
+            return;
+        }
+
+        $files = @glob($this->storagePath . 'throttle_*.data');
+        if ($files === false) {
+            return;
+        }
+        $now = time();
+        foreach ($files as $file) {
+            $raw = @file_get_contents($file);
+            if ($raw === false || $raw === '') {
+                continue;
+            }
+            $decoded = json_decode($raw, true);
+            // 只回收带有效过期时间且已过期的文件；
+            // 损坏/无 expire 的文件保留，避免误删正在使用的计数
+            if (!is_array($decoded) || !isset($decoded['expire'])) {
+                continue;
+            }
+            $expire = (int) $decoded['expire'];
+            if ($expire > 0 && $expire <= $now) {
+                @unlink($file);
+            }
+        }
     }
 
     private function getCacheFile(string $key): string

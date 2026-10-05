@@ -61,15 +61,37 @@ class RequestLogMiddleware extends Middleware
         return $result;
     }
 
-    private function resolveLogger(): ?Logger
+    /**
+     * 解析日志记录器
+     *
+     * 返回类型此前硬编码 `?Logger` 且方法为 private，导致：
+     *  1. 容器绑定 PSR-3 风格 logger（非 log\Logger 子类）时抛 TypeError，
+     *  2. 该 TypeError 被下面的空 catch 吞掉 —— 表现为「日志静默消失」，极难排查。
+     *
+     * 现改为只要求对象具备 info() 方法（PSR-3 最小契约），
+     * 并把失败原因记入 error_log 而非无声丢弃。
+     *
+     * @return object|null 具备 info() 方法的对象，或 null
+     */
+protected function resolveLogger(): ?object
     {
         try {
             $container = \core\Container::getInstance();
-            if ($container !== null && $container->has('log')) {
-                return $container->get('log');
+            if ($container === null || !$container->has('log')) {
+                return null;
             }
+            $logger = $container->get('log');
+            if (is_object($logger) && method_exists($logger, 'info')) {
+                return $logger;
+            }
+            error_log(
+                'RequestLogMiddleware: container binding "log" must be an object with an info() method, got '
+                . get_debug_type($logger)
+            );
+            return null;
         } catch (\Throwable $e) {
+            error_log('RequestLogMiddleware: resolveLogger failed - ' . $e->getMessage());
+            return null;
         }
-        return null;
     }
 }

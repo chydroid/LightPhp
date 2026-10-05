@@ -217,7 +217,7 @@ class User extends Model
     // 允许批量赋值的字段白名单（⚠️ 安全最佳实践：永远明确指定 fillable）
     protected array $fillable = ['username', 'email', 'password', 'nickname'];
 
-    // 序列化时需要隐藏的字段（JSON 输出时自动过滤）
+    // 隐藏字段：查询链返回模型后，toArray()/toJson()/json_encode() 均自动过滤
     protected array $hidden = ['password'];
 
     // 字段类型转换（自动将数据库值转为 PHP 类型）

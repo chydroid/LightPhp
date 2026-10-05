@@ -4945,7 +4945,12 @@ $runner->run('Validate - size:0.5 仍按数值比较', function($t) {
 });
 
 // Bug: Request::url() 端口重复（HTTP_HOST 已含端口时不再追加）
+// Bug: url() 中 host 已含端口时不再追加
 $runner->run('Request - url() HTTP_HOST 已含端口不重复追加', function($t) {
+    // trusted_hosts 默认已开启防护（未配置时以 app.url 主机为白名单），
+    // 因此这里需显式把 example.com 加入白名单，本测试只关心端口去重逻辑。
+    \config\Config::set('app.trusted_hosts', ['example.com']);
+
     $ref = new \ReflectionClass(\core\Request::class);
     $req = $ref->newInstanceWithoutConstructor();
 

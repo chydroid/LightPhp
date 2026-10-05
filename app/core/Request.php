@@ -640,16 +640,19 @@ class Request
             return false;
         }
 
-        $trusted = '*';
+        $trusted = null;
         try {
             if (class_exists(\config\Config::class)) {
-                $cfg = \config\Config::get('app.trusted_hosts', '*');
-                if ($cfg !== null && $cfg !== '' && $cfg !== '*') {
-                    $trusted = $cfg;
-                }
+                $trusted = \config\Config::get('app.trusted_hosts', null);
             }
         } catch (\Throwable) {
-            // 配置不可用时不启用白名单
+            // 配置不可用时按「默认开启防护」处理
+        }
+
+        // 未显式配置：从 APP_URL 的主机部分自动推导白名单，
+        // 使默认状态下即免疫 Host 头投毒（生产只需正确设置 APP_URL）
+        if ($trusted === null || $trusted === '' || $trusted === []) {
+            $trusted = [$this->appUrlHostname()];
         }
 
         if ($trusted === '*' || $trusted === true) {
@@ -679,6 +682,31 @@ class Request
             }
         }
         return false;
+    }
+
+    /**
+     * 从 app.url 解析出主机名（不含端口），用于自动推导可信白名单
+     *
+     * @return string 主机名；配置不可用时返回 'localhost'
+     */
+    private function appUrlHostname(): string
+    {
+        $appUrl = '';
+        try {
+            if (class_exists(\config\Config::class)) {
+                $appUrl = (string) \config\Config::get('app.url', '');
+            }
+        } catch (\Throwable) {
+            // 忽略，回落到默认值
+        }
+        if ($appUrl === '') {
+            return 'localhost';
+        }
+        $parsed = parse_url($appUrl);
+        if (!is_array($parsed) || !isset($parsed['host'])) {
+            return 'localhost';
+        }
+        return strtolower($parsed['host']);
     }
 
     /**

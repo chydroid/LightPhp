@@ -8,10 +8,10 @@
 
 [![PHP Version](https://img.shields.io/badge/PHP-8.0%2B-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=for-the-badge)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1218%2F1218%20passing-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
+[![Tests](https://img.shields.io/badge/tests-1240%2F1240%20passing-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
 [![Zero Dependencies](https://img.shields.io/badge/zero%20dependencies-no%20composer%20required-f97316?style=for-the-badge)](https://github.com/chydroid/lightphp)
 
-> **1218 项测试全部通过**，经过 7 轮系统性审计。
+> **1240 项测试全部通过**，经过 7 轮系统性审计。
 > 本文档如实描述框架的**能力边界**——包括它不擅长什么、以及几处需要你主动留意的陷阱。
 > 请先阅读 [使用前必读](#使用前必读) 再动手。
 
@@ -49,7 +49,7 @@ LightPHP 是一个面向 PHP 8.0+ 的全栈 MVC 框架，**无需 Composer 即�
 | 不足 | 影响 | 应对 |
 |------|------|------|
 | **无 Composer 生态** | 无法直接 `composer require` 引入成熟库，支付 / 短信 / 云 SDK 需手写 | 自行封装，或用 REST 调用第三方服务 |
-| **查询链返回裸数组** | `Model::where()->first()` **不套用 `$hidden`**，可能泄漏敏感字段 | 见 [使用前必读](#1-敏感字段查询链不套用-hidden) |
+| ~~**查询链返回裸数组**~~ | **已根治**：查询链现返回模型实例，`$hidden` 自动生效 | — |
 | **无内置用户认证** | 只有 `Hash` / `Session` / `CsrfMiddleware`，**没有** login / register / 权限体系 | 自行实现 |
 | **无后台脚手架** | 菜单、权限、CRUD 界面都要自己写 | 用 `JsonResource` + `make:controller` 拼装 |
 | **ORM 功能有限** | 无嵌套关联写回、无多态关联、无分库分表；预加载需显式调 `withRelation()` | 复杂查询直接用 `QueryBuilder` / `raw()` |
@@ -63,37 +63,30 @@ LightPHP 是一个面向 PHP 8.0+ 的全栈 MVC 框架，**无需 Composer 即�
 
 这几条是实测中真实踩到的坑，不是理论风险。
 
-### 1. 敏感字段：查询链不套用 `$hidden`
+### 1. 敏感字段：查询链默认安全
 
-`$hidden` **只在 Model 实例的 `toArray()` / `toJson()` 上生效**。而 `Model::where(...)` 返回的是 `QueryBuilder`，其 `first()` / `fetchAll()` 产出**裸数组**，完全绕过 `$hidden`：
+模型声明 `$hidden` 后，**查询链返回的就是模型实例**，`toArray()` / `toJson()` /
+`json_encode()` 全部自动套用该声明：
 
 ```php
 class User extends \model\Model {
     protected array $hidden = ['password'];
 }
 
-// ❌ 危险：裸数组，password 明文会被 json() 吐出去
-$rows = User::where('status', 1)->fetchAll();
-return $this->json($rows);
+$rows = User::where('status', 1)->fetchAll();  // Model[]
+echo json_encode($rows);
+// [{"id":1,"name":"Tom"},{"id":2,...}]        ← password 已被隐藏
 
-// ✅ 安全：visibleOnly() 显式过滤
-return $this->json(User::visibleOnly($rows));
-
-// ✅ 更好：hydrate() 转成 Model，行为与 find() 完全一致
-$users = User::hydrate(User::where('status', 1)->fetchAll());
-return $this->json(array_map(fn($u) => $u->toArray(), $users));
+$one = User::where('id', 1)->first();          // ?User
+echo $one->toArray();                          // password 已被隐藏
 ```
 
-实测对照：
+`find()` / `first()` / `firstOrFail()` / `paginate()` / `fetchAll()` / `chunk()`
+返回的**都是模型**，可直接 `json_encode()`。
 
-```php
-User::where('id',1)->first();   // {"id":1,...,"password":"p"}   ← 泄漏
-User::find(1)->toArray();       // {"id":1,...}                   ← 已隐藏
-User::find(1)->toJson();        // {"id":1,...}                   ← 已隐藏
-```
-
-> **原则**：只要数据要离开 PHP，就先过 `toArray()`、`visibleOnly()` 或 `hydrate()`。
-> `find()` / `first()` / `firstOrFail()` / `paginate()` 返回的已经是 Model 实例，本身是安全的。
+> **什么时候需要手动处理？** 只有当你绕过查询链、直接取原始行数组时——
+> 例如 `User::where(...)->toBase()->fetchAll()`（`toBase()` 返回裸 `QueryBuilder`）。
+> 此时用 `User::visibleOnly($rows)` 过滤，或用 `User::hydrate($rows)` 转回模型。
 
 ### 2. 无时间戳的表要显式关闭
 
@@ -111,19 +104,27 @@ class Setting extends \model\Model {
 }
 ```
 
-### 3. 生产环境务必配置 `APP_TRUSTED_HOSTS`
+### 3. `Host` 头白名单默认已开启
 
-`Request::url()` 由 `Host` 请求头拼装。攻击者发一个伪造 Host 的请求，就能让找回密码链接、OAuth 回调指向自己的域名。
+`Request::url()` 由 `Host` 请求头拼装，攻击者发一个伪造 Host 的请求就能让找回密码链接、OAuth 回调指向自己的域名。
 
-框架默认 `trusted_hosts = '*'`（不校验）以保证兼容，**生产环境必须收紧**：
+框架**默认即开启防护**：未设置 `APP_TRUSTED_HOSTS` 时，白名单自动取 `APP_URL` 的主机名。
 
 ```bash
 # .env
 APP_URL=https://your-domain.com
-APP_TRUSTED_HOSTS=your-domain.com,*.your-domain.com
+# APP_TRUSTED_HOSTS 不设 → 白名单 = your-domain.com（已免疫投毒）
 ```
 
-不在白名单内的 Host 会被忽略，`host()` 回落到 `APP_URL`。注意 `*.` **只匹配一层子域**：`a.b.example.com` 不会匹配 `*.example.com`。
+需要额外域名时再追加（逗号分隔，支持 `*.` 单层通配）：
+
+```bash
+APP_URL=https://www.example.com
+APP_TRUSTED_HOSTS=example.com,*.example.com
+```
+
+注意 `*.` **只匹配一层子域**：`a.b.example.com` 不会匹配 `*.example.com`。
+显式设为 `'*'` 可关闭校验（不建议）。
 
 ### 4. `config:cache` 会锁定配置
 
@@ -266,8 +267,8 @@ echo json_encode($posts[0]->toArray());
 // {"id":1,"author_id":1,"published":1,"author":{"id":1,"name":"Tom"}}
 ```
 
-> ⚠️ `User::where(...)` 返回的是 `QueryBuilder`，其 `first()` / `fetchAll()` 产出**裸数组**，**不套用 `$hidden`**。
-> 查询结果要输出到响应时，请用 `User::visibleOnly($rows)` 或 `User::hydrate($rows)`——详见 [使用前必读](#1-敏感字段查询链不套用-hidden)。
+> ⚠️ 查询链返回的是**模型实例**，`$hidden` / `$casts` 自动生效，可直接 `json_encode()`。
+> 只有用 `->toBase()` 取原始行数组时才需手动 `User::visibleOnly($rows)`。
 >
 > ⚠️ `with()` **不是** 批量预加载入口：它只把关联挂在当前实例上，
 > 拼进查询链（`Model::with('author')->where(...)`）不会生效。请用 `withRelation()`。
@@ -454,7 +455,8 @@ server {
 | `app/config/app.php` → `debug` | 设为 `false` |
 | `app/config/app.php` → `key` | 已修改为自定义值 |
 | `app/config/database.php` | 数据库信息正确 |
-| **`.env` → `APP_TRUSTED_HOSTS`** | **必须设置**，否则 `url()` 可被 Host 头投毒 |
+| `.env` → `APP_URL` | **必填**，正确设置后 Host 投毒防护自动生效 |
+| `.env` → `APP_TRUSTED_HOSTS` | 需额外域名时再设（可选） |
 | `storage/` 权限 | Web 服务器有写入权限 |
 | Web 根目录 | 指向 `public/` |
 | PHP 版本 | ≥ 8.0 |
@@ -526,10 +528,10 @@ LightPHP 内置了完整的安全机制：
 - **路径遍历防护**：文件操作严格校验路径
 - **会话安全**：Cookie 支持 `HttpOnly`、`Secure`、`SameSite` 标志
 
-框架通过 1218 项测试保障核心组件稳定性：
+框架通过 1240 项测试保障核心组件稳定性：
 
 ```bash
-php bin/console test   # 1218/1218 测试通过
+php bin/console test   # 1240/1240 测试通过
 ```
 
 > 审计发现的历史缺陷与修复记录见 [CHANGELOG.md](CHANGELOG.md)，审计报告见 `.comate/audit*/`。

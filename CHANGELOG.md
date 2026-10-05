@@ -117,6 +117,27 @@ All notable changes to the LightPHP framework will be documented in this file.
   - 现象：每个 `(IP, path)` 组合对应一个 `throttle_*.data`，窗口过期后仅在内存中重置计数，文件本身永不删除
   - 修复：新增机会式回收 `maybeSweep()`，以 1/100 概率删除**已过期**的计数文件；未过期与损坏的文件一律保留
 
+### 破坏性变更 (不兼容既有代码)
+
+- **查询链终结方法改为返回模型实例**
+  - 变更前：`User::where(...)->fetchAll()` 返回**行数组**，`$hidden` / `$casts` 不生效（实测泄漏明文 password）
+  - 变更后：返回 **Model[]**，敏感字段自动隐藏，可直接 `json_encode()`
+  - 受影响写法（需改为对象访问）：
+    - `$rows[0]['name']`      → `$rows[0]->name`
+    - `$row['password']`     → `$row->getAttribute('password')`（注意 `$hidden` 只影响输出，不影响属性）
+    - `is_array($row)`       → `$row instanceof \model\Model`
+    - `$rows[0]['id']`       → `$rows[0]->id`
+  - 需要原始行数组时：`User::where(...)->toBase()->fetchAll()`
+  - 内部写入路径（`save()` / `update()` / 关联方法）仍使用裸 `QueryBuilder`，属性往返完整，隐藏字段不会被误清空
+
+- **`Model` 实现 `JsonSerializable`**
+  - 此前 `json_encode($model)` 因 `$attributes` 为 protected 会编码成 `{}`；现在与 `toJson()` 一致，自动套用 `$hidden` / `$casts`
+
+- **`app.trusted_hosts` 默认值由 `'*'` 改为 `''`**
+  - 变更前：默认不校验 Host 头，`url()` 可被投毒
+  - 变更后：默认以 `app.url` 的主机名为白名单，**默认即开启防护**
+  - 如需关闭：显式设置 `APP_TRUSTED_HOSTS='*'`
+
 ### 新增 (面向使用者的改进)
 
 本轮从「拿这个框架写真实应用」的视角复核，新增 4 项能力并重写 README。

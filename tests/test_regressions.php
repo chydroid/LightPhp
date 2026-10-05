@@ -1884,9 +1884,17 @@ $runner->run('Regression - Model::visibleOnly 过滤查询结果中的敏感字�
     };
 
     $rows = $M::where('id', '<', 3)->fetchAll();
-    $t->assertTrue(isset($rows[0]['password']), '原始查询结果仍应含 password（不改变底层数据）');
+    // 查询链默认已返回模型实例（$hidden 生效）
+    $t->assertTrue($rows[0] instanceof \model\Model, 'fetchAll() 应返回 Model 实例');
+    $t->assertFalse(
+        array_key_exists('password', $rows[0]->toArray()),
+        '查询链结果默认套用 $hidden'
+    );
+    // toBase() 可取回原始行数组，此时需要 visibleOnly() 过滤
+    $raw = $M::where('id', '<', 3)->toBase()->fetchAll();
+    $t->assertTrue(isset($raw[0]['password']), 'toBase() 返回原始数据，含 password');
 
-    $safe = $M::visibleOnly($rows);
+    $safe = $M::visibleOnly($raw);
     $t->assertFalse(isset($safe[0]['password']), 'visibleOnly() 应剔除 $hidden 字段');
     $t->assertEquals(2, count($safe), 'visibleOnly() 不应丢行');
     $t->assertEquals('a', $safe[0]['name'], 'visibleOnly() 应保留其他字段');
@@ -1896,7 +1904,10 @@ $runner->run('Regression - Model::visibleOnly 过滤查询结果中的敏感字�
         protected string $table = 'ux_hidden';
         protected array $fillable = ['name', 'email', 'password'];
     };
-    $t->assertTrue(isset($N::visibleOnly($rows)[0]['password']), '未声明 $hidden 时不应过滤');
+    $t->assertTrue(
+        isset($N::visibleOnly($raw)[0]['password']),
+        '未声明 $hidden 时不应过滤'
+    );
 });
 
 $runner->run('Regression - Model::hydrate 把查询结果转为模型实例', function ($t) {
@@ -2007,7 +2018,10 @@ $runner->run('Regression - Model::withRelation 真正预加载关联数据', fun
 
     $rows = (new UxRelPost())->where('published', 1)->fetchAll();
     $t->assertEquals(3, count($rows), '前置条件：查询应返回 3 行');
-    $t->assertFalse(isset($rows[0]['author']), '裸查询结果本身不含关联字段');
+    $t->assertFalse(
+        array_key_exists('author', $rows[0]->toArray()),
+        '关联未加载时不应出现 author 键'
+    );
 
     $posts = UxRelPost::withRelation($rows, 'author', 'belongsTo', 'author_id', 'id');
     $t->assertEquals(3, count($posts), 'withRelation() 不应丢行');
@@ -2020,4 +2034,113 @@ $runner->run('Regression - Model::withRelation 真正预加载关联数据', fun
     $t->assertEquals('Tom', $posts[2]->toArray()['author']['name'] ?? null, 'post#3 的 author 应为 Tom');
 
     $t->assertEquals([], UxRelPost::withRelation([], 'author', 'belongsTo'), '空输入应返回空数组');
+});
+// 根治项专用模型
+class RootUser extends \model\Model
+{
+    protected string $table = 'root_users';
+    protected array $fillable = ['name', 'email', 'password', 'age'];
+    protected array $hidden = ['password'];
+    protected array $casts = ['age' => 'int'];
+}
+
+$runner->run('Regression - 查询链默认安全：$hidden 在 where/fetchAll/paginate 上生效', function ($t) {
+    // 根治点：Model::where() 曾返回裸 QueryBuilder，fetch()/fetchAll() 产出
+    // 行数组绕过 toArray()，$hidden 形同虚设（实测泄漏明文 password）。
+    // 现在查询链返回 ModelQuery，终结方法返回模型实例。
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite 不可用，跳过');
+        return;
+    }
+
+    $conn = new \db\Connection(['driver' => 'sqlite', 'database' => ':memory:']);
+    $conn->getPdo()->exec('CREATE TABLE root_users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, password TEXT, age INT, created_at TEXT, updated_at TEXT)');
+    $conn->getPdo()->exec("INSERT INTO root_users VALUES (1,'a','a@x.com','pw1',30,'2026-01-01','2026-01-01'),(2,'b','b@x.com','pw2',20,'2026-01-01','2026-01-01')");
+    \model\Model::setDb($conn);
+
+    // first()
+    $one = RootUser::where('id', 1)->first();
+    $t->assertTrue($one instanceof \model\Model, 'where()->first() 应返回 Model 实例');
+    $t->assertFalse(array_key_exists('password', $one->toArray()), 'first() 应套用 $hidden');
+    $t->assertTrue(is_int($one->age), '$casts 应生效');
+    $t->assertFalse(str_contains(json_encode($one), 'password'), 'json_encode 不应泄漏 password');
+
+    // fetchAll()
+    $all = RootUser::where('id', '<', 3)->fetchAll();
+    $t->assertEquals(2, count($all), 'fetchAll() 行数正确');
+    $t->assertTrue($all[0] instanceof \model\Model, 'fetchAll() 应返回 Model 实例');
+    $t->assertFalse(str_contains(json_encode($all), 'password'), 'fetchAll() 编码后不应泄漏 password');
+
+    // paginate()
+    $page = RootUser::where('id', '<', 3)->paginate(1, 1);
+    $t->assertTrue($page['items'][0] instanceof \model\Model, 'paginate() items 应是模型实例');
+    $t->assertFalse(str_contains(json_encode($page['items']), 'password'), 'paginate() 不应泄漏 password');
+
+    // 链式：select / orderBy 后仍保持模型感知
+    $chained = RootUser::select()->where('id', 1)->fetch();
+    $t->assertTrue($chained instanceof \model\Model, 'select() 链应返回模型');
+    $t->assertFalse(str_contains(json_encode($chained), 'password'), 'select() 链不应泄漏 password');
+
+    $ordered = RootUser::orderBy('id', 'desc')->where('id', '<', 3)->fetchAll();
+    $t->assertTrue($ordered[0] instanceof \model\Model, 'orderBy() 链应返回模型');
+    $t->assertFalse(str_contains(json_encode($ordered), 'password'), 'orderBy() 链不应泄漏 password');
+});
+
+$runner->run('Regression - 查询链返回模型但 save() 仍能往返原始属性', function ($t) {
+    // 根治不能牺牲写入：$hidden 是在 toArray() 过滤，不是从属性里删掉，
+    // 因此 save() 仍需能写回 password 等"隐藏"字段。
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite 不可用，跳过');
+        return;
+    }
+
+    $conn = new \db\Connection(['driver' => 'sqlite', 'database' => ':memory:']);
+    $conn->getPdo()->exec('CREATE TABLE root_users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, password TEXT, age INT, created_at TEXT, updated_at TEXT)');
+    $conn->getPdo()->exec("INSERT INTO root_users VALUES (1,'a','a@x.com','pw1',30,'2026-01-01','2026-01-01')");
+    \model\Model::setDb($conn);
+
+    $m = RootUser::where('id', 1)->first();
+    $m->name = 'changed';
+    $m->save();
+
+    $row = $conn->getPdo()->query('SELECT name, password FROM root_users WHERE id=1')->fetch(\PDO::FETCH_ASSOC);
+    $t->assertEquals('changed', $row['name'], 'save() 应写回修改');
+    $t->assertEquals('pw1', $row['password'], '隐藏字段不得被误清空');
+});
+
+$runner->run('Regression - trusted_hosts 默认即开启防护', function ($t) {
+    // 需求：不再默认 '*'。未配置时应以 app.url 的主机为白名单。
+    $prevUrl = \config\Config::get('app.url');
+    $prevTrusted = \config\Config::get('app.trusted_hosts');
+    $prevHost = $_SERVER['HTTP_HOST'] ?? null;
+
+    try {
+        \config\Config::set('app.url', 'https://app.example.com');
+        \config\Config::set('app.trusted_hosts', '');   // 默认值：未配置
+
+        $_SERVER['HTTP_HOST'] = 'app.example.com';
+        $t->assertEquals('app.example.com', (new \core\Request())->host(), 'APP_URL 主机本身应被信任');
+
+        $_SERVER['HTTP_HOST'] = 'evil.example.com';
+        $t->assertEquals('app.example.com', (new \core\Request())->host(), '未配置时也必须拒绝其他 Host（默认开启防护）');
+
+        $_SERVER['HTTP_HOST'] = 'attacker.test';
+        $t->assertEquals('app.example.com', (new \core\Request())->host(), '无关 Host 应回落到 APP_URL');
+
+        // url() 不得被伪造 Host 污染
+        $_SERVER['HTTP_HOST'] = 'evil.example.com';
+        $t->assertFalse(
+            str_contains((new \core\Request())->url(), 'evil.example.com'),
+            'url() 不得指向未授权主机'
+        );
+
+        // 显式 '*' 仍可关闭校验（保留逃生口）
+        \config\Config::set('app.trusted_hosts', '*');
+        $_SERVER['HTTP_HOST'] = 'anything.test';
+        $t->assertEquals('anything.test', (new \core\Request())->host(), "显式 '*' 应不做校验");
+    } finally {
+        \config\Config::set('app.url', $prevUrl);
+        \config\Config::set('app.trusted_hosts', $prevTrusted);
+        if ($prevHost !== null) { $_SERVER['HTTP_HOST'] = $prevHost; } else { unset($_SERVER['HTTP_HOST']); }
+    }
 });

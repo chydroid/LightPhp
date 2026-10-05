@@ -50,15 +50,21 @@ return [
      | 自定义 Host 的请求就能让这些链接指向自己的域名。
      |
      | 支持三种写法（可混用）：
-     |   '*'                 —— 不做校验（默认，兼容既有行为；不推荐用于生产）
+     |   ''                  —— 默认。从 app.url 的主机部分自动推导
      |   ['app.example.com'] —— 精确匹配
      |   ['*.example.com']   —— 通配子域（一层，不跨点）
      |
-     | 不在白名单内的 Host 会被忽略，host() 回落到 APP_URL 的主机部分。
-     | 生产环境请显式配置，并确保 APP_URL 已正确设置。
+     | 不在白名单内的 Host 会被忽略，host() 回落到 app.url 的主机部分。
+     |
+     | 默认即开启防护：未设置 APP_TRUSTED_HOSTS 时，白名单取 APP_URL 的
+     | 主机名，因此生产环境只要正确设置了 APP_URL 就自动免疫 Host 头投毒。
+     | 需要额外域名时用 APP_TRUSTED_HOSTS 追加（逗号分隔），例如：
+     |   APP_URL=https://www.example.com
+     |   APP_TRUSTED_HOSTS=example.com,*.example.com
+     | 显式设为 '*' 可关闭校验（不建议）。
      |
      */
-    'trusted_hosts' => env('APP_TRUSTED_HOSTS', '*'),
+    'trusted_hosts' => env('APP_TRUSTED_HOSTS', ''),
 
     /*
     |--------------------------------------------------------------------------

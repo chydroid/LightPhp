@@ -3,10 +3,17 @@ declare(strict_types=1);
 
 namespace model;
 
+use db\ModelQuery;
 use db\QueryBuilder;
 use traits\HasModelEvents;
 
-class Model
+/**
+ * Eloquent 风格的模型基类
+ *
+ * 模型实例可安全地直接 json_encode()：实现 JsonSerializable 后，
+ * 编码会走 toArray()，从而自动套用 $hidden 与 $casts。
+ */
+class Model implements \JsonSerializable
 {
     use HasModelEvents;
     protected string $table = '';
@@ -163,15 +170,35 @@ class Model
         return array_map(fn($row) => $instance->newFromBuilder($row), $rows);
     }
 
-    public static function select(array $columns = ['*']): QueryBuilder
+    public static function select(array $columns = ['*']): ModelQuery
     {
-        return static::makeQueryInstance()->newQuery()->select($columns);
+        return new ModelQuery(
+            static::makeQueryInstance()->newQuery()->select($columns),
+            static::class
+        );
     }
 
-    public static function where(string $column, mixed $operator = null, mixed $value = null): QueryBuilder
+    /**
+     * 开始一个模型查询链
+     *
+     * 返回 \db\ModelQuery 而非裸 QueryBuilder：终结方法（fetch /
+     * fetchAll / first / paginate / chunk）返回**模型实例**，
+     * 因此 $hidden、$casts、访问器全部自动生效。
+     *
+     * ```php
+     * $rows = User::where('status', 1)->fetchAll();   // Model[]
+     * echo json_encode($rows);                        // 自动隐藏 password
+     * ```
+     *
+     * @param string $column 列名
+     * @param mixed $operator 运算符或值（二参数简写时）
+     * @param mixed $value 值（三参数形式时）
+     * @return ModelQuery 模型感知查询链
+     */
+    public static function where(string $column, mixed $operator = null, mixed $value = null): ModelQuery
     {
-        $query = static::makeQueryInstance()->newQuery();
-        // 保持参数数量语义，让 QueryBuilder 正确区分两参数简写和三参数形式
+        $query = new ModelQuery(static::makeQueryInstance()->newQuery(), static::class);
+        // 保持参数数量语义，让查询正确区分两参数简写和三参数形式
         if (func_num_args() >= 3) {
             return $query->where($column, $operator, $value);
         }
@@ -713,6 +740,33 @@ class Model
     }
 
     /**
+     * 由一行查询结果构建模型实例
+     *
+     * 供 \db\ModelQuery 等外部调用方使用：把行数组转成模型，
+     * 从而让查询链的终结方法返回模型实例（$hidden / $casts 自动生效）。
+     *
+     * @param array<string, mixed> $attributes 查询结果行
+     * @return static 已标记为存在的模型实例
+     */
+    public static function makeFromRow(array $attributes): static
+    {
+        return (new static())->newFromBuilder($attributes);
+    }
+
+    /**
+     * JSON 序列化
+     *
+     * 使 `json_encode($model)` / `json_encode($models)` 与 toJson() 行为一致，
+     * 自动套用 $hidden 与 $casts——不会因 $attributes 是 protected 而编码成 {}。
+     *
+     * @return array<string, mixed> 过滤后的属性数组
+     */
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
+    }
+
+    /**
      * 对查询结果行套用 $hidden，供查询链输出前过滤敏感字段
      *
      * 背景：`Model::where(...)` 返回的是 QueryBuilder，`first()` / `fetchAll()`
@@ -890,13 +944,21 @@ class Model
             'fetch', 'fetchAll', 'value'];
 
         if (in_array($method, $proxiedMethods, true)) {
-            return call_user_func_array([$this->newQuery(), $method], $args);
+            // 经 ModelQuery 转发：链式调用保持模型感知，
+            // 终结方法返回模型实例而非裸数组
+            $query = new ModelQuery($this->newQuery(), static::class);
+            return $query->{$method}(...$args);
         }
 
         $scopeMethod = 'scope' . ucfirst($method);
         if (method_exists($this, $scopeMethod)) {
+            // 作用域仍接收裸 QueryBuilder（保持既有签名），
+            // 但若其返回 QueryBuilder，则包成 ModelQuery 以免返回裸数组
             array_unshift($args, $this->newQuery());
-            return call_user_func_array([$this, $scopeMethod], $args);
+            $result = call_user_func_array([$this, $scopeMethod], $args);
+            return $result instanceof QueryBuilder
+                ? new ModelQuery($result, static::class)
+                : $result;
         }
 
         throw new \BadMethodCallException(sprintf('Method %s::%s does not exist', static::class, $method));
@@ -912,7 +974,10 @@ class Model
             'join', 'count', 'sum', 'avg', 'max', 'min', 'chunk', 'value'];
 
         if (in_array($method, $queryMethods, true)) {
-            return call_user_func_array([static::makeQueryInstance()->newQuery(), $method], $args);
+            // 经 ModelQuery 转发：链式调用保持模型感知，
+            // 终结方法返回模型实例而非裸数组
+            $query = new ModelQuery(static::makeQueryInstance()->newQuery(), static::class);
+            return $query->{$method}(...$args);
         }
 
         if ($method === 'eagerLoad') {
@@ -924,8 +989,13 @@ class Model
         // 本地作用域：User::active() → scopeActive(QueryBuilder $query, ...$args)
         $scopeMethod = 'scope' . ucfirst($method);
         if (method_exists($instance, $scopeMethod)) {
+            // 作用域仍接收裸 QueryBuilder（保持既有签名），
+            // 但若其返回 QueryBuilder，则包成 ModelQuery 以免返回裸数组
             array_unshift($args, $instance->newQuery());
-            return call_user_func_array([$instance, $scopeMethod], $args);
+            $result = call_user_func_array([$instance, $scopeMethod], $args);
+            return $result instanceof QueryBuilder
+                ? new ModelQuery($result, static::class)
+                : $result;
         }
 
         // 兜底：允许静态调用实例方法（如 SoftDelete 的 restore/trashed/with）。

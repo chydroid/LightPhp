@@ -1073,6 +1073,345 @@ $runner->run('Regression - Config::load 无尾斜杠仍能加载且可重复调�
     }
 });
 
+// ============================================================================
+// 第四轮审计修复 —— Loader / Macroable（条目 [16][17][18][19][20]）
+// ============================================================================
+
+// ---------- [16] Loader 前缀校验缺目录分隔符 → 穿越到共享前缀的兄弟目录 ----------
+$runner->run('Regression - Loader 拒绝穿越到共享前缀的兄弟目录', function ($t) {
+    $tmp = sys_get_temp_dir() . '/lp_reg_loader_sib_' . getmypid();
+    @mkdir($tmp . '/ns/core', 0777, true);
+    @mkdir($tmp . '/ns/coreEvil', 0777, true);
+
+    file_put_contents(
+        $tmp . '/ns/coreEvil/X.php',
+        "<?php\nnamespace core;\nclass X { public static \$tag = 'ESCAPED'; }\n"
+    );
+
+    \core\Loader::addNamespace('core\\', $tmp . '/ns/core');
+
+    // str_starts_with('.../ns/coreEvil/X.php', '.../ns/core') 为 true，
+    // 补上分隔符后必须不再匹配
+    \core\Loader::autoload('core\\..\\coreEvil\\X');
+    $t->assertFalse(
+        class_exists('core\X', false),
+        '不应加载 base 目录之外的 coreEvil\\X'
+    );
+
+    @unlink($tmp . '/ns/coreEvil/X.php');
+    @rmdir($tmp . '/ns/coreEvil');
+    @rmdir($tmp . '/ns/core');
+    @rmdir($tmp . '/ns');
+    @rmdir($tmp);
+});
+
+// ---------- [16b] 类名中的 "." / ".." 段直接拒绝 ----------
+$runner->run('Regression - Loader 拒绝类名中的 . 与 .. 段', function ($t) {
+    $tmp = sys_get_temp_dir() . '/lp_reg_loader_dot_' . getmypid();
+    @mkdir($tmp . '/ns/core', 0777, true);
+    @mkdir($tmp . '/secret', 0777, true);
+    file_put_contents($tmp . '/secret/Flag.php', "<?php\nnamespace secret;\nclass Flag {}\n");
+
+    \core\Loader::addNamespace('core\\', $tmp . '/ns/core');
+    \core\Loader::autoload('core\\..\\..\\secret\\Flag');
+    $t->assertFalse(class_exists('secret\Flag', false), '".." 段应被直接拒绝');
+
+    \core\Loader::autoload('core\\.\\Good');
+    $t->assertFalse(class_exists('core\Good', false), '"." 段应被直接拒绝');
+
+    @unlink($tmp . '/secret/Flag.php');
+    @rmdir($tmp . '/secret');
+    @rmdir($tmp . '/ns/core');
+    @rmdir($tmp . '/ns');
+    @rmdir($tmp);
+});
+
+// ---------- [17] 短前缀永久遮蔽更具体前缀 ----------
+$runner->run('Regression - Loader 按最长前缀优先匹配', function ($t) {
+    $tmp = sys_get_temp_dir() . '/lp_reg_loader_order_' . getmypid();
+    @mkdir($tmp . '/ns/aaa/deep', 0777, true);
+    @mkdir($tmp . '/ns/bbb', 0777, true);
+
+    $short = 'LpRegShort_' . getmypid();
+    $long  = 'LpRegLong_' . getmypid();
+
+    file_put_contents(
+        $tmp . '/ns/aaa/deep/' . $short . '.php',
+        "<?php\nnamespace zzz\\deep;\nclass {$short} { public const FROM = 'SHORT'; }\n"
+    );
+    file_put_contents(
+        $tmp . '/ns/bbb/' . $long . '.php',
+        "<?php\nnamespace zzz\\deep;\nclass {$long} { public const FROM = 'LONG'; }\n"
+    );
+
+    // 先注册短前缀，再注册更具体的长前缀
+    \core\Loader::addNamespace('zzz\\', $tmp . '/ns/aaa');
+    \core\Loader::addNamespace('zzz\\deep\\', $tmp . '/ns/bbb');
+
+    \core\Loader::autoload('zzz\\deep\\' . $long);
+    $fqcn = 'zzz\deep\\' . $long;
+    $t->assertTrue(class_exists($fqcn, false), '长前缀对应的类应被加载');
+    $t->assertEquals('LONG', constant($fqcn . '::FROM'), '应命中更具体的长前缀');
+
+    @unlink($tmp . '/ns/aaa/deep/' . $short . '.php');
+    @unlink($tmp . '/ns/bbb/' . $long . '.php');
+    @rmdir($tmp . '/ns/aaa/deep');
+    @rmdir($tmp . '/ns/aaa');
+    @rmdir($tmp . '/ns/bbb');
+    @rmdir($tmp . '/ns');
+    @rmdir($tmp);
+});
+
+// ---------- [17b] 内置 core\console\ / core\traits\ 仍可正常加载 ----------
+$runner->run('Regression - Loader 内置 core 子命名空间仍能自动加载', function ($t) {
+    $t->assertTrue(trait_exists('core\traits\Macroable'), 'core\traits\Macroable 应可加载');
+    $t->assertTrue(class_exists('core\Response'), 'core\Response 应可加载');
+    $t->assertTrue(class_exists('core\console\Console'), 'core\console\Console 应可加载');
+});
+
+// ---------- [18] mixin() 对带公开构造器 / 带参方法的类必崩 ----------
+$runner->run('Regression - Macroable mixin 支持显式 __construct 的类', function ($t) {
+    $mixin = new class {
+        public function hello(): \Closure { return fn () => 'hi'; }
+        public function __construct() {}
+    };
+
+    \core\Request::flushMacros();
+    \core\Request::mixin($mixin);
+
+    $t->assertTrue(\core\Request::hasMacro('hello'), '显式 __construct 不应导致 mixin() 崩溃');
+    $t->assertFalse(\core\Request::hasMacro('__construct'), '__construct 不应被注册为宏');
+    $t->assertEquals('hi', (new \core\Request())->hello());
+
+    \core\Request::flushMacros();
+});
+
+$runner->run('Regression - Macroable mixin 跳过带必填参数的方法而不崩溃', function ($t) {
+    $mixin = new class {
+        public function ok(): \Closure { return fn () => 'ok'; }
+        public function greet(string $who): \Closure { return fn () => "hi {$who}"; }
+    };
+
+    \core\Request::flushMacros();
+    \core\Request::mixin($mixin);
+
+    $t->assertTrue(\core\Request::hasMacro('ok'), '零参工厂方法应正常注册');
+    $t->assertFalse(\core\Request::hasMacro('greet'), '带必填参数的方法应被跳过而非崩溃');
+    $t->assertEquals('ok', (new \core\Request())->ok());
+
+    \core\Request::flushMacros();
+});
+
+// ---------- [19] __call 遇静态闭包宏 ----------
+$runner->run('Regression - Macroable 实例调用静态闭包宏不再报错', function ($t) {
+    \core\Request::flushMacros();
+    \core\Request::macro('staticMacro', static fn () => 'static-closure-result');
+
+    // 修复前：Warning + Error: Value of type null is not callable
+    $t->assertEquals('static-closure-result', (new \core\Request())->staticMacro());
+    $t->assertEquals('static-closure-result', \core\Request::staticMacro());
+
+    \core\Request::flushMacros();
+});
+
+// ─── 第四轮审计用到的辅助类 ───
+// 必须声明在使用它们的测试之前：PHP 只对「无条件且已执行到」的类声明做早期绑定，
+// 放在闭包体内会导致运行到这里时类尚未定义（Class not found）。
+class LpRegMacroChildA extends \core\Request {}
+class LpRegMacroChildB extends \core\Request {}
+
+class LpRegWrapRes extends \core\JsonResource
+{
+    public function toArray(?\core\Request $request = null): array
+    {
+        return $this->resource;
+    }
+}
+
+class LpRegItemsRes extends \LpRegWrapRes
+{
+    public static ?string $wrap = 'items';
+}
+
+class LpRegNeedsArgsRes extends \core\JsonResource
+{
+    public function __construct(mixed $resource, string $tenant)
+    {
+        parent::__construct($resource);
+    }
+
+    public function toArray(?\core\Request $request = null): array
+    {
+        return $this->resource;
+    }
+}
+
+abstract class LpRegAbstractRes extends \core\JsonResource
+{
+    public function toArray(?\core\Request $request = null): array
+    {
+        return $this->resource;
+    }
+}
+
+class LpRegStaticMw
+{
+    public static function handle(mixed $passable, \Closure $next): string
+    {
+        return '[static]' . $next($passable);
+    }
+}
+
+// ---------- [20] 兄弟子类之间宏表互相污染 ----------
+$runner->run('Regression - Macroable 兄弟子类的宏互不污染', function ($t) {
+    // 父类注册 → 子类可见
+    \core\Request::macro('fromParent', fn () => 'P');
+
+    $t->assertTrue(\LpRegMacroChildA::hasMacro('fromParent'), '子类应继承父类的宏');
+    $t->assertTrue(\LpRegMacroChildB::hasMacro('fromParent'));
+
+    // 子类注册 → 兄弟类与父类不可见
+    \LpRegMacroChildA::macro('onlyA', fn () => 'A');
+    $t->assertTrue(\LpRegMacroChildA::hasMacro('onlyA'), 'A 注册后自身应可见');
+    $t->assertFalse(\LpRegMacroChildB::hasMacro('onlyA'), '兄弟类 B 不应看到 A 的宏');
+    $t->assertFalse(\core\Request::hasMacro('onlyA'), '父类不应看到子类的宏');
+
+    // B 清空自己的宏不应影响 A
+    \LpRegMacroChildB::flushMacros();
+    $t->assertTrue(\LpRegMacroChildA::hasMacro('onlyA'), 'B::flushMacros() 不应清掉 A 的宏');
+
+    // 清空父类也不应影响子类自己注册的宏
+    \core\Request::flushMacros();
+    $t->assertTrue(\LpRegMacroChildA::hasMacro('onlyA'), '父类::flushMacros() 不应清掉子类的宏');
+    $t->assertFalse(\core\Request::hasMacro('fromParent'), '父类宏应已被清空');
+
+    \LpRegMacroChildA::flushMacros();
+    \LpRegMacroChildB::flushMacros();
+});
+
+// ---------- [23] additional() 同名键静默覆盖包装键 ----------
+$runner->run('Regression - JsonResource additional 不能覆盖包装键', function ($t) {
+    // 修复前输出 {"data":"OVERRIDDEN"}，资源数据彻底消失
+    $t->assertThrows(\LogicException::class, function () {
+        (new \LpRegWrapRes(['id' => 1]))->additional(['data' => 'OVERRIDDEN'])->resolve();
+    }, 'additional() 覆盖 data 包装键应抛 LogicException 而不是静默丢数据');
+
+    // 非保留键仍可正常追加
+    $ok = (new \LpRegWrapRes(['id' => 1]))->additional(['links' => ['self' => '/u/1']]);
+    $t->assertEquals(['id' => 1], $ok->resolve()['data'], '资源数据应保持完整');
+    $t->assertEquals(['self' => '/u/1'], $ok->resolve()['links'], '附加元数据应保留');
+});
+
+$runner->run('Regression - JsonResource 集合模式同样保护包装键', function ($t) {
+    $t->assertThrows(\LogicException::class, function () {
+        \LpRegItemsRes::collection([['id' => 1]])->additional(['items' => 'OVERRIDDEN'])->resolve();
+    }, '集合模式下覆盖 items 包装键也应抛 LogicException');
+
+    $ok = \LpRegItemsRes::collection([['id' => 1]])->additional(['total' => 1])->resolve();
+    $t->assertArrayHasKey('items', $ok);
+    $t->assertEquals(1, $ok['total']);
+});
+
+// ---------- [27] LocalDisk::url() 不做路径清洗 ----------
+$runner->run('Regression - LocalDisk url 拒绝路径穿越并编码路径段', function ($t) {
+    $tmp = sys_get_temp_dir() . '/lp_reg_disk_url_' . getmypid();
+    @mkdir($tmp, 0777, true);
+
+    $disk = new \core\LocalDisk(['root' => $tmp, 'url' => '/uploads']);
+
+    // 修复前会产出 /uploads/../../secret.txt，浏览器会归一化成 /secret.txt
+    $t->assertThrows(\InvalidArgumentException::class, function () use ($disk) {
+        $disk->url('../../secret.txt');
+    }, "url('../../secret.txt') 应被拒绝");
+
+    $t->assertThrows(\InvalidArgumentException::class, function () use ($disk) {
+        $disk->url('..\\..\\windows\\win.ini');
+    }, "url('..\\..\\windows\\win.ini') 应被拒绝");
+
+    // 合法路径保持原样
+    $t->assertEquals('/uploads/img/foo.png', $disk->url('img/foo.png'));
+    $t->assertEquals('/uploads/img/foo.png', $disk->url('/img/foo.png'), '前导斜杠应被忽略');
+    $t->assertEquals('/uploads/img/foo.png', $disk->url('./img/./foo.png'), '"." 段应被规范化');
+
+    // 每段 rawurlencode，杜绝 & / ? 注入
+    $t->assertEquals('/uploads/a%20b%26c.txt', $disk->url('a b&c.txt'));
+
+    @rmdir($tmp);
+});
+
+// ---------- [28] put('') 泄漏 PHP Warning / $isDir 死参数 ----------
+$runner->run('Regression - LocalDisk put 空路径不泄漏 Warning', function ($t) {
+    $tmp = sys_get_temp_dir() . '/lp_reg_disk_put_' . getmypid();
+    @mkdir($tmp, 0777, true);
+
+    $disk = new \core\LocalDisk(['root' => $tmp, 'url' => '/uploads']);
+
+    $leaked = [];
+    set_error_handler(function (int $no, string $str) use (&$leaked): bool {
+        $leaked[] = $str;
+        return true;
+    });
+    try {
+        $result = $disk->put('', 'x');
+        $resultDot = $disk->put('.', 'x');
+    } finally {
+        restore_error_handler();
+    }
+
+    $t->assertFalse($result, "put('') 应返回 false");
+    $t->assertFalse($resultDot, "put('.') 应返回 false");
+    $t->assertEquals([], $leaked, 'put 空路径不应泄漏 PHP Warning');
+    $t->assertFalse(is_file($tmp), 'root 目录本身不应被当成文件写入');
+
+    @rmdir($tmp);
+});
+
+$runner->run('Regression - LocalDisk normalizePath 不再保留死参数 $isDir', function ($t) {
+    $method = new \ReflectionMethod(\core\LocalDisk::class, 'normalizePath');
+    $t->assertEquals(1, $method->getNumberOfParameters(), 'normalizePath 应只保留 $path 一个参数');
+    $t->assertEquals('path', $method->getParameters()[0]->getName());
+});
+
+// ---------- [30] collection() 对必填构造参数 / 抽象子类抛异常 ----------
+$runner->run('Regression - JsonResource collection 支持必填构造参数的子类', function ($t) {
+    // 修复前：ArgumentCountError: Too few arguments to function ...::__construct()
+    $out = \LpRegNeedsArgsRes::collection([['id' => 'x']])->resolve();
+    $t->assertEquals([['id' => 'x']], $out['data'], '带必填构造参数的子类应能生成集合');
+});
+
+$runner->run('Regression - JsonResource collection 对抽象类给出明确异常', function ($t) {
+    $t->assertThrows(\LogicException::class, function () {
+        \LpRegAbstractRes::collection([['id' => 1]]);
+    }, '抽象资源类应抛 LogicException 而非 "Cannot instantiate abstract class" Error');
+});
+
+// ---------- [31] Pipeline 对不存在的中间件类名报错误导 ----------
+$runner->run('Regression - Pipeline 不存在的中间件类名报 class not found', function ($t) {
+    $thrown = null;
+    try {
+        (new \core\Pipeline())
+            ->send('x')
+            ->through(['middleware\\NoSuchMiddlewareExists'])
+            ->then(fn ($p) => $p);
+    } catch (\RuntimeException $e) {
+        $thrown = $e;
+    }
+
+    $t->assertInstanceOf(\RuntimeException::class, $thrown, '应抛出 RuntimeException');
+    $t->assertStringContains('not found', $thrown->getMessage());
+    $t->assertStringContains('NoSuchMiddlewareExists', $thrown->getMessage());
+    $t->assertStringNotContains('Invalid pipe type', $thrown->getMessage());
+});
+
+$runner->run('Regression - Pipeline 支持 Class::method 静态中间件', function ($t) {
+    $out = (new \core\Pipeline())
+        ->send('X')
+        ->through([\LpRegStaticMw::class . '::handle'])
+        ->then(fn ($p) => $p);
+
+    $t->assertEquals('[static]X', $out);
+});
+
 $runner->run('Regression - Config 点号路径穿过标量不抛 TypeError', function ($t) {
     \config\Config::set('lp_scalar', 'plain-string');
     $t->assertEquals('plain-string', \config\Config::get('lp_scalar'));
@@ -1207,4 +1546,125 @@ $runner->run('Regression - shouldSkip 重复斜杠无法绕过白名单', functi
         }
     }
     if ($oldMethod !== null) { $_SERVER['REQUEST_METHOD'] = $oldMethod; }
+});
+$runner->run('Regression - Request::header() 接受非字符串默认值', function ($t) {
+    // 回归点：返回类型 ?string 但 $default 是 mixed，非字符串默认值抛 TypeError
+    $_SERVER['HTTP_X_CUSTOM'] = 'v1';
+    $req = new \core\Request();
+    $t->assertNull($req->header('X-Missing', ['a', 'b']), '数组默认值应收窄为 null 而非抛错');
+    $t->assertEquals('123', $req->header('X-Missing', 123), '标量默认值应转成字符串');
+    $t->assertNull($req->header('X-Missing'), '缺省默认值仍为 null');
+    $t->assertEquals('v1', $req->header('X-Custom'), '正常取值不受影响');
+    unset($_SERVER['HTTP_X_CUSTOM']);
+});
+
+$runner->run('Regression - Request::path() 剥离 query string', function ($t) {
+    $cases = [
+        '/api/user/login?token=x' => '/api/user/login',
+        '//api//user' => '/api/user',
+        '/plain' => '/plain',
+        '/' => '/',
+    ];
+    foreach ($cases as $uri => $expected) {
+        $_SERVER['REQUEST_URI'] = $uri;
+        $t->assertEquals($expected, (new \core\Request())->path(), "path() 对 {$uri} 应剥离 query 并折叠斜杠");
+    }
+    // uri() 仍保留完整 REQUEST_URI（BC 不变）
+    $_SERVER['REQUEST_URI'] = '/a/b?x=1';
+    $t->assertEquals('/a/b?x=1', (new \core\Request())->uri(), 'uri() 行为不变');
+});
+
+$runner->run('Regression - RequestLogMiddleware 不把 query 凭据写入日志', function ($t) {
+    // 回归点：日志用 uri()（含 query），会把 ?token=...&password=... 明文落盘
+    $prev = $_SERVER['REQUEST_URI'] ?? null;
+    $_SERVER['REQUEST_METHOD'] = 'POST';
+    $_SERVER['REQUEST_URI'] = '/api/user/login?token=SECRET_TOKEN_123&password=hunter2';
+
+    $container = new \core\Container();
+    \core\Container::setInstance($container);
+    $fake = new class extends \log\Logger {
+        public function info(\Stringable|string $m, array $c = []): void
+        {
+            $GLOBALS['__lp_log'][] = (string) $m;
+        }
+    };
+    $GLOBALS['__lp_log'] = [];
+    $container->instance('log', $fake);
+
+    try {
+        (new \middleware\RequestLogMiddleware())->handle(
+            new \core\Request(),
+            fn() => \core\Response::make('ok')
+        );
+        $line = $GLOBALS['__lp_log'][0] ?? '';
+        $t->assertFalse(
+            str_contains($line, 'SECRET_TOKEN_123'),
+            '日志不得包含 query 中的 token 明文'
+        );
+        $t->assertFalse(str_contains($line, 'hunter2'), '日志不得包含 query 中的 password 明文');
+        $t->assertStringContains('/api/user/login', $line, '日志应仍记录请求路径');
+    } finally {
+        unset($GLOBALS['__lp_log']);
+        if ($prev !== null) { $_SERVER['REQUEST_URI'] = $prev; } else { unset($_SERVER['REQUEST_URI']); }
+    }
+});
+
+$runner->run('Regression - HttpClient 拒绝 CRLF 请求头注入', function ($t) {
+    // 回归点：normalizeHeaders() 原样拼接，"X-A: 1\r\nX-Evil: pwned"
+    // 会在服务端变成两个独立请求头（实测 HTTP_X_EVIL=pwned）
+    if (!function_exists('curl_init')) {
+        $t->assertTrue(true, 'cURL 不可用，跳过');
+        return;
+    }
+    // 类需先加载：反射查询不会触发 Loader 的惰性自动加载
+    if (!class_exists(\core\HttpClient::class)) {
+        require_once APP_PATH . 'core/HttpClient.php';
+    }
+    $ref = new \ReflectionMethod(\core\HttpClient::class, 'normalizeHeaders');
+    $ref->setAccessible(true);
+    $client = new \core\HttpClient();
+
+    foreach ([
+        ['整行含 CRLF', ["X-A: 1\r\nX-Evil: pwned"]],
+        ['头名含 CRLF', ["X-A\r\nX-Evil: pwned"]],
+        ['关联数组含 CRLF', ['X-A' => "1\r\nX-Evil: pwned"]],
+    ] as [$label, $input]) {
+        $out = $ref->invoke($client, $input);
+        $joined = implode(' | ', $out);
+        $t->assertFalse(
+            (bool) preg_match('/[\r\n]/', $joined),
+            "{$label}：规范化后不得残留 CR/LF"
+        );
+    }
+
+    // Host 头不可被调用方覆盖
+    $t->assertEquals([], $ref->invoke($client, ['Host' => 'evil.example.com']), '关联数组 Host 应被丢弃');
+    $t->assertEquals([], $ref->invoke($client, ['Host: evil.example.com']), '整行 Host 应被丢弃');
+    // 正常头必须保留
+    $t->assertEquals(['X-Good: value'], $ref->invoke($client, ['X-Good' => 'value']), '正常头应保留');
+});
+
+$runner->run('Regression - HttpClient JSON 编码失败不再静默发空体', function ($t) {
+    if (!function_exists('curl_init')) {
+        $t->assertTrue(true, 'cURL 不可用，跳过');
+        return;
+    }
+    // 回归点：json_encode(...) ?: '' 把失败吞成空串，而 Content-Type 仍标 JSON，
+    // 服务端收到一个零字节的 POST
+    $client = new \core\HttpClient();
+    $t->assertThrows(\core\HttpClientException::class, function () use ($client) {
+        $client->post('http://127.0.0.1:1/never', ['bad' => "\xB1\x31"]);
+    }, '非法 UTF-8 请求体应抛 HttpClientException 而不是发出空体');
+});
+
+$runner->run('Regression - HttpClient 拒绝 json=false 下的数组请求体', function ($t) {
+    if (!function_exists('curl_init')) {
+        $t->assertTrue(true, 'cURL 不可用，跳过');
+        return;
+    }
+    // 回归点：(string)['a'=>1] 得到字面量 "Array"
+    $client = new \core\HttpClient();
+    $t->assertThrows(\core\HttpClientException::class, function () use ($client) {
+        $client->post('http://127.0.0.1:1/never', ['body' => ['a' => 1], 'json' => false]);
+    }, '数组请求体在 json=false 时应抛异常而不是发送 "Array"');
 });

@@ -17,7 +17,9 @@ class RequestLogMiddleware extends Middleware
 
         $startTime = microtime(true);
         $method = $request->method();
-        $uri = $request->uri();
+        // 必须用 path() 而非 uri()：uri() 含 query string，
+        // 会把 ?token=...&password=... 明文写进日志。
+        $uri = $request->path();
 
         $result = null;
         try {

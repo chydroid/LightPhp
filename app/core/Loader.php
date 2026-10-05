@@ -35,16 +35,35 @@ class Loader
 
     public static function autoload(string $class): void
     {
-        foreach (self::$prefixes as $prefix => $path) {
+        // 最长前缀优先：否则先注册的短前缀（如 core\）会永久遮蔽后注册的具体前缀
+        // （如 core\traits\），addNamespace() 新增的更具体前缀会被静默忽略。
+        $prefixes = self::$prefixes;
+        uksort($prefixes, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
+
+        foreach ($prefixes as $prefix => $path) {
             $len = strlen($prefix);
             if (strncmp($prefix, $class, $len) === 0) {
                 $relativeClass = substr($class, $len);
+
+                // 类名中的 '.' / '..' 段会被拼进真实路径，先行拒绝
+                $segments = explode('\\', $relativeClass);
+                foreach ($segments as $segment) {
+                    if ($segment === '.' || $segment === '..' || $segment === '') {
+                        continue 2;
+                    }
+                }
+
                 $file = $path . str_replace('\\', '/', $relativeClass) . '.php';
 
                 // 防止路径遍历：验证解析后的真实路径仍在预期目录内
+                // 基路径必须补上目录分隔符，否则 ns/coreEvil 会被 ns/core 前缀匹配放行
                 $realBase = realpath($path);
                 $realFile = realpath($file);
-                if ($realBase === false || $realFile === false || !str_starts_with($realFile, $realBase)) {
+                if ($realBase === false || $realFile === false) {
+                    continue;
+                }
+                $realBase = rtrim($realBase, '/\\') . DIRECTORY_SEPARATOR;
+                if (!str_starts_with($realFile, $realBase)) {
                     continue;
                 }
 

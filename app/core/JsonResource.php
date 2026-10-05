@@ -127,24 +127,102 @@ class JsonResource
         if ($this->collectionItems !== null) {
             $items = [];
             foreach ($this->collectionItems as $item) {
-                $child = new static($item);
+                $child = $this->makeForCollection($item);
                 $items[] = $child->toArray($request);
             }
             // 此前硬编码 'data'，使子类设置 public static ?string $wrap = 'items'
             // 在集合模式下完全失效（单资源用 items、集合仍用 data）。
             // $wrap 为 null 时不包装，与单资源模式语义保持一致。
             if ($wrap === null) {
-                return array_merge($items, $meta);
+                return static::mergeWithMeta($items, $meta, null);
             }
-            return array_merge([$wrap => $items], $meta);
+            return static::mergeWithMeta($items, $meta, $wrap);
         }
 
         // 单资源模式
         $data = $this->toArray($request);
+        return static::mergeWithMeta($data, $meta, $wrap);
+    }
+
+    /**
+     * 合并资源数据与附加元数据
+     *
+     * 单资源模式与集合模式此前合并顺序不一致（`[$wrap => ...]` 在前 vs 在后），
+     * 且都用 array_merge 让 $meta 里的同名键直接顶掉整块资源：
+     * additional(['data' => ...]) 会让单资源输出变成 {"data":"OVERRIDDEN"}，
+     * 资源数据彻底消失。这里统一为「资源在前、元数据在后」，并对保留的包装键
+     * 做保护——交由调用方显式选择是不安全的，直接拒绝更明确。
+     *
+     * @param array<string, mixed> $data
+     * @param array<string, mixed> $meta
+     * @param string|null $wrap 包装键；null 表示不包装（此时不保留任何保留键）
+     * @return array<string, mixed>
+     */
+    protected static function mergeWithMeta(array $data, array $meta, ?string $wrap): array
+    {
+        if ($wrap !== null && array_key_exists($wrap, $meta)) {
+            throw new \LogicException(
+                sprintf('additional()/with() 不能覆盖保留的包装键 "%s"', $wrap)
+            );
+        }
+
         if ($wrap === null) {
             return array_merge($data, $meta);
         }
+
         return array_merge([$wrap => $data], $meta);
+    }
+
+    /**
+     * 为集合中的单个元素创建资源实例
+     *
+     * 子类若声明了带必填参数的构造器，覆写本方法来提供自己的实例化逻辑。
+     *
+     * @param mixed $item
+     * @return static
+     */
+    protected function makeForCollection(mixed $item): static
+    {
+        $reflection = new \ReflectionClass(static::class);
+        $constructor = $reflection->getConstructor();
+        $required = $constructor === null ? 0 : $constructor->getNumberOfRequiredParameters();
+
+        if ($required <= 1) {
+            return new static($item);
+        }
+
+        // 构造器需要 1 个以上必填参数时无法用单个 item 满足，
+        // 集合模式下子类构造器本就无意义，跳过它并直接挂载 resource。
+        /** @var static $instance */
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $instance->resource = $item;
+
+        return $instance;
+    }
+
+/**
+     * 创建集合实例自身（不经过子类构造器）
+     *
+     * 子类若声明了带必填参数的构造器，`new static()` 会抛 ArgumentCountError。
+     * 集合模式下本实例只承载 $collectionItems，构造器逻辑无意义，
+     * 因此改用 newInstanceWithoutConstructor() 跳过，并把 $resource 置空。
+     */
+    private static function newCollectionInstance(): static
+    {
+        $reflection = new \ReflectionClass(static::class);
+        $constructor = $reflection->getConstructor();
+        $needsArgs = $constructor !== null && $constructor->getNumberOfRequiredParameters() > 0;
+
+        if (! $needsArgs) {
+            return new static();
+        }
+
+        /** @var static $instance */
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $instance->resource = null;
+        $instance->additional = [];
+
+        return $instance;
     }
 
     /**
@@ -155,7 +233,16 @@ class JsonResource
      */
     public static function collection(iterable $items): static
     {
-        $instance = new static();
+        // 抽象类无法实例化，直接 new static() 只会抛出难以定位的
+        // "Cannot instantiate abstract class" Error，这里给出明确提示。
+        if ((new \ReflectionClass(static::class))->isAbstract()) {
+            throw new \LogicException(sprintf(
+                '资源类 [%s] 是抽象类，无法用于集合；请使用具体子类或覆写 makeForCollection()',
+                static::class
+            ));
+        }
+
+        $instance = self::newCollectionInstance();
         $instance->collectionItems = is_array($items) ? $items : iterator_to_array($items);
         return $instance;
     }

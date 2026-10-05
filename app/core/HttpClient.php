@@ -105,11 +105,26 @@ class HttpClient
                 $body = $opts['body'];
                 $useJson = $opts['json'] ?? is_array($body);
                 if ($useJson) {
-                    $bodyStr = json_encode($body, JSON_UNESCAPED_UNICODE) ?: '';
+                    // json_encode 失败必须显式报错：此前 ?: '' 会静默变成空体，
+                    // 但 Content-Type 仍标 JSON，服务端收到一个零字节的 POST。
+                    $encoded = json_encode($body, JSON_UNESCAPED_UNICODE);
+                    if ($encoded === false) {
+                        throw new HttpClientException(
+                            'Failed to JSON-encode request body: ' . json_last_error_msg()
+                        );
+                    }
+                    $bodyStr = $encoded;
                     if (!$this->hasHeader($headers, 'Content-Type')) {
                         $headers[] = 'Content-Type: application/json; charset=utf-8';
                     }
                 } else {
+                    // 非 JSON 模式下的数组不能转字符串（会得到字面量 "Array"）
+                    if (is_array($body)) {
+                        throw new HttpClientException(
+                            'Request body is an array but json is disabled; '
+                            . 'set json => true to send it as a JSON payload'
+                        );
+                    }
                     $bodyStr = (string) $body;
                 }
             }
@@ -119,7 +134,18 @@ class HttpClient
             curl_setopt($ch, CURLOPT_HEADER, false);
             curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
             curl_setopt($ch, CURLOPT_MAXREDIRS, 5);
-            curl_setopt($ch, CURLOPT_TIMEOUT, (int) ($opts['timeout'] ?? 30));
+            // timeout 必须校验：libcurl 的 CURLOPT_TIMEOUT=0 表示「永不超时」，
+            // 而 (int)'abc' 与 (int)null 都是 0，会让慢服务永久占用 worker。
+            $timeout = (int) ($opts['timeout'] ?? 30);
+            if ($timeout <= 0) {
+                $timeout = 30;
+            }
+            curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+            // 连接阶段单独设限，避免 DNS/TCP 握手挂死吃满整个超时预算
+            $connectTimeout = (int) ($opts['connect_timeout'] ?? min($timeout, 5));
+            if ($connectTimeout > 0) {
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, min($connectTimeout, $timeout));
+            }
             curl_setopt($ch, CURLOPT_USERAGENT, (string) ($opts['user_agent'] ?? 'LightPHP/HttpClient'));
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 
@@ -203,18 +229,40 @@ class HttpClient
     }
 
     /**
-     * @param array<string,string> $headers
-     * @return list<string> 形如 "Name: Value"
-     */
-    private function normalizeHeaders(array $headers): array
+ * 规范化请求头，剔除可用于注入的字符
+ *
+ * 原实现直接拼接 `$name . ': ' . $value`，未剔除 CRLF/NUL。
+ * 实测传入 "X-A: 1\r\nX-Evil: pwned" 时，服务端会收到两个独立请求头
+ * （HTTP_X_A=1 与 HTTP_X_EVIL=pwned），构成请求头注入。
+ * 框架的 Response::header() 已做同样处理，此处补齐对称路径。
+ *
+ * @param array<string,string> $headers
+ * @return list<string> 形如 "Name: Value"
+ */
+private function normalizeHeaders(array $headers): array
     {
+        // 调用方不得覆盖这些头：否则可劫持虚拟主机判定/缓存键，
+        // 或与 curl 自动生成的长度、传输编码冲突
+        $forbidden = ['host', 'content-length', 'transfer-encoding'];
+
+        $strip = static fn($v): string => str_replace(["\r", "\n", "\0"], '', (string) $v);
         $result = [];
         foreach ($headers as $name => $value) {
             if (is_int($name)) {
-                $result[] = (string) $value;
-            } else {
-                $result[] = $name . ': ' . $value;
+                // 整行形式 "Name: Value"
+                $clean = $strip($value);
+                $headerName = trim(explode(':', $clean, 2)[0]);
+                if (strtolower($headerName) === 'host') {
+                    continue;
+                }
+                $result[] = $clean;
+                continue;
             }
+            $headerName = trim((string) $name);
+            if (in_array(strtolower($headerName), $forbidden, true)) {
+                continue;
+            }
+            $result[] = $strip($headerName) . ': ' . $strip($value);
         }
         return $result;
     }

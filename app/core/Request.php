@@ -204,6 +204,24 @@ class Request
     }
 
     /**
+     * 获取请求路径（不含 query string）
+     *
+     * uri() 返回完整 REQUEST_URI（含 ?query），直接用于日志会泄漏
+     * token / password 等凭据。需要纯路径时使用本方法。
+     *
+     * @return string 请求路径
+     */
+    public function path(): string
+    {
+        $uri = (string) ($this->server['REQUEST_URI'] ?? '/');
+        // 先折叠重复斜杠，避免 parse_url 把 '//api//user' 当成 authority-form
+        $collapsed = preg_replace('#/+#', '/', $uri);
+        $path = parse_url(is_string($collapsed) ? $collapsed : '/', PHP_URL_PATH);
+        $path = is_string($path) ? $path : '/';
+        return $path !== '' ? $path : '/';
+    }
+
+    /**
      * 获取请求头
      * 
      * @param string $key 头名
@@ -213,7 +231,14 @@ class Request
     public function header(string $key, $default = null): ?string
     {
         $key = $this->normalizeHeaderKey($key);
-        return $this->headers[$key] ?? $default;
+        $value = $this->headers[$key] ?? null;
+        if ($value === null) {
+            // 返回类型声明为 ?string，默认值也一并收窄；
+            // 此前 mixed 默认值直接返回，非字符串会抛 TypeError。
+            return $default === null ? null : (is_scalar($default) ? (string) $default : null);
+        }
+        // parseHeaders() 把 $_SERVER 的值原样存入，非字符串头值在此收窄
+        return is_scalar($value) ? (string) $value : null;
     }
 
     /**

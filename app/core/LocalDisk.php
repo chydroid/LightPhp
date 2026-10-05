@@ -23,6 +23,12 @@ class LocalDisk implements Disk
 
     public function put(string $path, mixed $content): bool
     {
+        // 空路径 / '.' 会把 root 目录本身当成目标文件，
+        // 导致 file_put_contents 抛出未抑制的 PHP Warning，直接拒绝。
+        if ($this->isEmptyPath($path)) {
+            return false;
+        }
+
         $full = $this->normalizePath($path);
         $dir = dirname($full);
         if (!is_dir($dir)) {
@@ -44,7 +50,7 @@ class LocalDisk implements Disk
             }
         }
 
-        return file_put_contents($full, (string) $content, LOCK_EX) !== false;
+        return @file_put_contents($full, (string) $content, LOCK_EX) !== false;
     }
 
     public function get(string $path): string
@@ -82,12 +88,22 @@ class LocalDisk implements Disk
         if ($this->urlPrefix === null) {
             throw new \RuntimeException("Disk has no public URL configured for path: {$path}");
         }
-        return rtrim($this->urlPrefix, '/') . '/' . ltrim(str_replace('\\', '/', $path), '/');
+        // 复用 normalizePath() 的词法校验：否则 url('../../secret.txt') 会产出
+        // /uploads/../../secret.txt，浏览器会归一化成 /secret.txt（任意站内路径）。
+        $segments = $this->normalizePath($path);
+        $relative = ltrim(substr($segments, strlen($this->root)), '/\\');
+
+        $encoded = implode('/', array_map(
+            static fn (string $segment): string => rawurlencode($segment),
+            $relative === '' ? [] : explode('/', $relative)
+        ));
+
+        return rtrim($this->urlPrefix, '/') . '/' . $encoded;
     }
 
     public function files(string $directory = ''): array
     {
-        $dir = $this->normalizePath($directory, true);
+        $dir = $this->normalizePath($directory);
         if (!is_dir($dir)) {
             return [];
         }
@@ -112,7 +128,7 @@ class LocalDisk implements Disk
 
     public function directories(string $directory = ''): array
     {
-        $dir = $this->normalizePath($directory, true);
+        $dir = $this->normalizePath($directory);
         if (!is_dir($dir)) {
             return [];
         }
@@ -141,6 +157,17 @@ class LocalDisk implements Disk
     }
 
     /**
+     * 判断路径是否为空路径（解析后落在 root 本身）
+     *
+     * @param string $path 相对路径
+     */
+    private function isEmptyPath(string $path): bool
+    {
+        $trimmed = str_replace('\\', '/', trim($path));
+        return $trimmed === '' || $trimmed === '.';
+    }
+
+    /**
      * 将相对路径转换为绝对路径，并拒绝路径遍历
      *
      * 通过词法分析剥离 '.' 与 '..' 段，确保最终路径仍在 root 之内。
@@ -148,7 +175,7 @@ class LocalDisk implements Disk
      *
      * @param string $path 相对路径
      */
-    private function normalizePath(string $path, bool $isDir = false): string
+    private function normalizePath(string $path): string
     {
         // 规范化分隔符
         $normalized = str_replace('\\', '/', $path);

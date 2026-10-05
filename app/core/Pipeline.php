@@ -134,14 +134,23 @@ class Pipeline
     public function carry(): \Closure
     {
         return fn (\Closure $stack, mixed $pipe) => function (mixed $passable) use ($stack, $pipe) {
-            if (is_string($pipe) && class_exists($pipe)) {
-                $instance = $this->container ? $this->container->get($pipe) : new $pipe();
-                if (!method_exists($instance, $this->method)) {
-                    throw new \RuntimeException(sprintf('Middleware [%s] missing method [%s]', $pipe, $this->method));
+            if (is_string($pipe)) {
+                // 'Class::method' 形式的静态中间件
+                if (str_contains($pipe, '::') && is_callable($pipe)) {
+                    return $pipe($passable, $stack);
                 }
-                return $instance->{$this->method}($passable, $stack);
+                if (class_exists($pipe)) {
+                    $instance = $this->container ? $this->container->get($pipe) : new $pipe();
+                    if (!method_exists($instance, $this->method)) {
+                        throw new \RuntimeException(sprintf('Middleware [%s] missing method [%s]', $pipe, $this->method));
+                    }
+                    return $instance->{$this->method}($passable, $stack);
+                }
+                // 拼错/不存在的类名此前落到最下面报 "Invalid pipe type: string"，
+                // 完全看不出是类名找不到，误导排障。
+                throw new \RuntimeException(sprintf('Middleware class [%s] not found', $pipe));
             }
-            if (is_callable($pipe)) {
+            if ($pipe instanceof \Closure || (is_object($pipe) && is_callable($pipe))) {
                 return $pipe($passable, $stack);
             }
             if (is_object($pipe)) {

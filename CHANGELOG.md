@@ -40,15 +40,82 @@ All notable changes to the LightPHP framework will be documented in this file.
   - 现象：`headers already sent` 警告刷屏
   - 修复：新增 `sendHeader()`，在 `PHP_SAPI === 'cli'` 或 `headers_sent()` 时跳过原生发送（CORS 头仍写入 Response 对象）
 
+### 修复 (HIGH，第五轮)
+
+- **[HIGH] `HttpClient` 请求头注入（CRLF）**
+  - 现象：实测传入 `['headers' => ["X-A: 1\r\nX-Evil: pwned"]]`，服务端收到**两个独立请求头** `HTTP_X_A=1` 与 `HTTP_X_EVIL=pwned`；头名含 CRLF、`Host` 被覆盖同样可注入
+  - 根因：`normalizeHeaders()` 直接拼接 `$name . ': ' . $value`，未剔除 CRLF/NUL
+  - 修复：统一剥离 `\r` `\n` `\0`；同时禁止调用方覆盖 `Host` / `Content-Length` / `Transfer-Encoding`
+  - 验证：修复后服务端只收到 `HTTP_X_A: 1X-Evil: pwned`（单头），`Host` 保持真实值
+
+- **[HIGH] `HttpClient` `timeout` 静默失效变成「永不超时」**
+  - 现象：`timeout => 'abc'`、`null`、`-1` 时 `(int)` 均为 0，而 libcurl 的 `CURLOPT_TIMEOUT=0` 语义是**不设超时**，实测 `timeout='abc'` 打 sleep(6) 端点耗时 6.02s 完整返回
+  - 修复：非正数回退到默认 30s；新增 `CURLOPT_CONNECTTIMEOUT`（默认 `min(timeout, 5)`）单独限制连接阶段
+  - 验证：`timeout=2` 实测 2.01s 正常超时；`timeout='abc'` 回退到 30s
+
+### 修复 (MEDIUM，第五轮)
+
+- **[MEDIUM] `HttpClient` JSON 编码失败静默发出空请求体**
+  - 现象：非法 UTF-8 请求体时 `json_encode(...) ?: ''` 把失败吞成空串，`Content-Type` 仍标 JSON，服务端收到一个**零字节的 POST**且调用方收不到任何错误
+  - 修复：`json_encode` 返回 false 时抛 `HttpClientException` 并带上 `json_last_error_msg()`
+- **[MEDIUM] `HttpClient` 在 `json=false` 时把数组请求体转成字面量 `"Array"`**
+  - 修复：数组请求体配合 `json=false` 时抛 `HttpClientException`，提示改用 `json => true`
+- **[MEDIUM] `RequestLogMiddleware` 把明文凭据写进日志**
+  - 现象：`/api/user/login?token=SECRET_TOKEN_123&password=hunter2` 被整行记入日志
+  - 根因：日志使用 `Request::uri()`（含 query string）
+  - 修复：新增 `Request::path()`（剥离 query + 折叠重复斜杠），日志改用 `path()`；`uri()` 行为保持不变以维持 BC
+- **[MEDIUM] `Request::header()` 非字符串默认值抛 TypeError**
+  - 现象：返回类型声明 `?string` 但 `$default` 是 `mixed`，`header('X-Missing', ['a','b'])` 抛 `Return value must be of type ?string, array returned`
+  - 修复：标量默认值转字符串，非标量（数组/对象）收窄为 `null`；同时收窄 `parseHeaders()` 存入的非标量头值
+- **[MEDIUM] `Loader::autoload()` 前缀校验缺目录分隔符**
+  - 现象：`str_starts_with($realFile, $realBase)` 缺分隔符，存在 `core/` 与 `coreEvil/` 兄弟目录时，命名空间根目录之外的文件可被 `require`
+  - 修复：`$realBase` 补 `DIRECTORY_SEPARATOR`；并对类名中的 `.` / `..` / 空段直接跳过
+- **[MEDIUM] `Loader` 前缀匹配顺序导致短前缀永久遮蔽长前缀**
+  - 现象：先注册的 `core\` 会遮蔽后注册的 `core\traits\`，`addNamespace()` 新增的更具体前缀被静默忽略
+  - 修复：`uksort` 按前缀长度降序匹配
+- **[MEDIUM] `Macroable` 宏表在兄弟子类间互相污染**
+  - 现象：`SubB::flushMacros()` 会清掉 `SubA` 注册的宏
+  - 修复：宏表改为按类分层存储，读取时沿类继承链回溯，写入/清空只影响自身层
+- **[MEDIUM] `Macroable::mixin()` 对带公开构造器/带参方法的类必崩**
+  - 修复：跳过构造器与带必填参数的方法；其余方法照常注册
+- **[MEDIUM] `Macroable::__call` 遇静态闭包宏报错**
+  - 现象：`Error: Value of type null is not callable`
+  - 修复：静态闭包在实例/静态两种调用方式下均正确解包
+- **[MEDIUM] `JsonResource::additional()` 同名键静默覆盖包装键**
+  - 现象：`additional(['data' => 'OVERRIDDEN'])` 输出 `{"data":"OVERRIDDEN"}`，**资源数据彻底消失**
+  - 修复：统一单资源/集合模式的合并顺序为「资源在前、元数据在后」，并对保留包装键抛 `LogicException`（比静默丢数据更安全、更明确）
+- **[MEDIUM] `JsonResource::collection()` 对必填构造参数/抽象子类抛底层异常**
+  - 修复：抽象类抛带类名的 `LogicException`；带必填构造参数的子类走 `makeForCollection()` 钩子
+- **[MEDIUM] `LocalDisk::url()` 不做路径清洗**
+  - 现象：`url('../../secret.txt')` 产出 `/uploads/../../secret.txt`，浏览器归一化成 `/secret.txt`（任意站内路径）
+  - 修复：复用 `normalizePath()` 的词法校验，并对每个路径段做 `rawurlencode`
+
+### 修复 (LOW，第五轮)
+
+- **[LOW] `LocalDisk::put('')` 泄漏 PHP Warning**
+  - 修复：空路径/`.` 直接返回 `false`，并对 `file_put_contents` 加 `@` 抑制
+- **[LOW] `LocalDisk::normalizePath()` 的 `$isDir` 是死参数**
+  - 修复：移除该参数及其全部调用点
+- **[LOW] `Pipeline` 对不存在的中间件类名报「Invalid pipe type: string」**
+  - 现象：拼错的类名完全看不出是「类不存在」，误导排障
+  - 修复：字符串且类不存在时抛 `Middleware class [X] not found`；同时支持 `'Class::method'` 静态中间件
+
 ### 已知行为 (非缺陷)
 
 - **`Model` 静态化对子类覆盖的兼容性代价**：子类若以**实例方法**覆盖父类的静态方法（如 `public function create()` 覆盖 `Model::create()`），PHP 在**编译期**抛 `Cannot make static method ... non static`，无法用 try/catch 捕获。这是静态化改造的固有 BC 变更，需同步子类改为静态方法签名。
 - **`Response::download()` 不会因输出缓冲而全量物化**：实测 16 MB 文件在 `Application::run()` 的 `ob_end_flush()` 路径下 peak 内存增量为 0，`readfile` 保持流式写入。
 
+### 遗留 (未修复)
+
+- `RequestLogMiddleware::resolveLogger()` 返回类型硬编码 `\log\Logger` 且为 `private`，绑 PSR-3 logger（非 `log\Logger` 子类）会抛 TypeError 并被空 `catch` 静默吞掉。修复需改动 logger 抽象边界，影响面较大。
+- `Request::url()` 采信 `Host` 请求头，缺 `trusted_hosts` 白名单（主机头投毒）。需新增配置项，属功能增强。
+- `Request::file()` / `hasFile()` 不支持多文件字段。
+- `Throttle` 计数文件永不回收，每个 (IP, path) 永久占用一个 inode。
+
 ### 测试
 
-- 新增 5 组回归测试（16 条断言），覆盖对象中间件、部分配置 CORS、别名参数语法、OPTIONS 预检 CORS 头、`shouldSkip` 重复斜杠归一化
-- 全量测试 **1100/1100 通过**，全项目 `php -l` 无错误
+- 累计新增回归测试覆盖：中间件对象/别名参数/OPTIONS 预检/`$except` 归一化、CRLF 注入/JSON 编码失败/数组请求体/timeout 校验、日志凭据剥离、`header()` 默认值收窄、`Request::path()`、Loader 前缀与分隔符、Macroable 宏隔离、`JsonResource` 包装键保护与集合实例化、`LocalDisk` 路径清洗、`Pipeline` 错误信息
+- 全量测试 **1169/1169 通过**，全项目 `php -l` 无错误
 
 ## [2.15.9] - 2026-08-02
 

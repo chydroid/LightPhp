@@ -15,6 +15,15 @@ class Model
     protected array $hidden = [];
     protected array $casts = [];
     protected string $dateFormat = 'Y-m-d H:i:s';
+    /**
+     * 是否自动维护 created_at / updated_at
+     *
+     * 此前 syncTimestamps() 无条件插入这两个字段，开发者若建了不含
+     * 时间戳的表（如配置表、日志表、关联表），每次 create()/update()
+     * 都会抛 "table X has no column named created_at"。
+     * 子类置为 false 即可关闭。
+     */
+    protected bool $timestamps = true;
     protected array $relations = [];
     protected array $attributes = [];
     protected bool $exists = false;
@@ -388,6 +397,87 @@ class Model
     }
 
     /**
+     * 预加载关联并返回模型集合（真正生效的 eager loading）
+     *
+     * 背景：此前 `with()` 只是把关联挂在「随后会被丢弃」的原型实例上，
+     * 拼到查询链上（`Model::with('author')->where(...)->fetchAll()`）时
+     * 完全不起作用——实测返回的行里没有任何关联字段，且 `__get` 也不会
+     * 触发惰性加载，于是关联功能几乎等于不可用。
+     *
+     * 本方法按关联名批量取出数据并注入到每个模型实例（一次查询，避免 N+1）：
+     *
+     * ```php
+     * $rows  = (new Post())->where('published', 1)->fetchAll();
+     * $posts = Post::withRelation($rows, 'author', 'belongsTo', 'author_id', 'id');
+     *
+     * echo json_encode($posts[0]->toArray());
+     * // {"id":1,"author_id":1,"published":1,"author":{"id":1,"name":"Tom"}}
+     * ```
+     *
+     * @param static[] $rows 查询结果（行数组或 Model 实例均可）
+     * @param string $relation 关联方法名（如 'author'）
+     * @param string $type 关联类型：hasMany | hasOne | belongsTo
+     * @param string|null $foreignKey 外键列
+     * @param string|null $ownerKey 本表用于匹配的列
+     * @return list<static> 已注入关联的模型实例
+     */
+    public static function withRelation(
+        array $rows,
+        string $relation,
+        string $type = 'hasMany',
+        ?string $foreignKey = null,
+        ?string $ownerKey = null
+    ): array {
+        $prototype = static::makeQueryInstance();
+        $models = [];
+        foreach ($rows as $row) {
+            $models[] = $row instanceof static ? $row : $prototype->newFromBuilder((array) $row);
+        }
+        if ($models === []) {
+            return [];
+        }
+
+        $relatedClass = static::inferRelatedClass($models[0], $relation);
+        return static::eagerLoad($models, $relation, $relatedClass, $type, $foreignKey, $ownerKey);
+    }
+
+    /**
+     * 推断关联方法对应的模型类名
+     *
+     * 优先使用 `protected ?string $authorModel = Author::class;` 这类显式声明，
+     * 避免为推断类名而额外执行一次关联查询。
+     *
+     * @param static $model 模型实例
+     * @param string $relation 关联方法名
+     * @return class-string 关联模型类名
+     */
+    protected static function inferRelatedClass(self $model, string $relation): string
+    {
+        // 约定：protected ?string $xxxModel 声明关联类
+        $declared = lcfirst($relation) . 'Model';
+        if (property_exists($model, $declared)) {
+            $ref = new \ReflectionProperty($model, $declared);
+            $ref->setAccessible(true);
+            $class = $ref->getValue($model);
+            if (is_string($class) && class_exists($class)) {
+                return $class;
+            }
+        }
+
+        // 回退：调用一次关联方法，从返回值取类名（只发生一次）
+        if (method_exists($model, $relation)) {
+            $result = $model->{$relation}();
+            if ($result instanceof self) {
+                return get_class($result);
+            }
+            if (is_array($result) && isset($result[0]) && $result[0] instanceof self) {
+                return get_class($result[0]);
+            }
+        }
+        return self::class;
+    }
+
+    /**
      * 预加载关联 - 批量查询避免 N+1
      *
      * @param static[] $models 模型集合
@@ -622,6 +712,76 @@ class Model
         return $model;
     }
 
+    /**
+     * 对查询结果行套用 $hidden，供查询链输出前过滤敏感字段
+     *
+     * 背景：`Model::where(...)` 返回的是 QueryBuilder，`first()` / `fetchAll()`
+     * 产出的是**裸数组**，不会经过 toArray()，因此 $hidden 不生效——
+     * 实测 `User::where('id',1)->first()` 返回含明文 password 的数组，
+     * 而 `User::find(1)->toArray()` 已正确隐藏。开发者在查询链上直接
+     * `return $this->json($rows)` 就会泄漏密码。
+     *
+     * 这里不在 QueryBuilder 内部过滤，因为 Model 自身的 save()/update()
+     * 需要完整的原始属性；改为提供显式方法，让「要输出给外部」的意图可见：
+     *
+     * ```php
+     * // 安全：过滤后再输出
+     * $rows = User::where('status', 1)->fetchAll();
+     * return $this->json(User::visibleOnly($rows));
+     *
+     * // 或者直接把查询结果转成模型（推荐，行为与 find() 一致）
+     * $users = User::hydrate(User::where('status', 1)->fetchAll());
+     * return $this->json($users);   // 每项 toArray() 自动套用 $hidden
+     * ```
+     *
+     * @param array<int|string,mixed> $rows 查询结果行
+     * @return array<int|string,mixed> 过滤后的行
+     */
+    public static function visibleOnly(array $rows): array
+    {
+        $hidden = (new static())->hidden;
+        if ($hidden === []) {
+            return $rows;
+        }
+        // 只处理数组行；已经是 Model 实例的请用 toArray()，这里不做处理
+        return array_map(
+            static function ($row) use ($hidden) {
+                if (!is_array($row)) {
+                    return $row;
+                }
+                foreach ($hidden as $key) {
+                    unset($row[$key]);
+                }
+                return $row;
+            },
+            $rows
+        );
+    }
+
+    /**
+     * 把查询结果行批量转为模型实例
+     *
+     * 让 `User::where(...)->fetchAll()` 与 `User::find(...)` 行为一致：
+     * 都返回 Model 实例，$hidden / $casts / 访问器全部生效。
+     *
+     * ```php
+     * $users = User::hydrate(User::where('status', 1)->fetchAll());
+     * return $this->json(array_map(fn($u) => $u->toArray(), $users));
+     * ```
+     *
+     * @param array<int|string,mixed> $rows 查询结果行
+     * @return list<static> 模型实例列表
+     */
+    public static function hydrate(array $rows): array
+    {
+        $instance = static::makeQueryInstance();
+        $out = [];
+        foreach ($rows as $row) {
+            $out[] = is_array($row) ? $instance->newFromBuilder($row) : $row;
+        }
+        return $out;
+    }
+
     protected function filterFillable(array $data): array
     {
         if (empty($this->fillable)) {
@@ -639,6 +799,10 @@ class Model
 
     protected function syncTimestamps(array $data, string $type): array
     {
+        // 子类可通过 $timestamps = false 关闭（表无时间戳列时必需）
+        if (!$this->timestamps) {
+            return $data;
+        }
         $now = date($this->dateFormat);
 
         if ($type === 'create') {

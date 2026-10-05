@@ -117,6 +117,31 @@ All notable changes to the LightPHP framework will be documented in this file.
   - 现象：每个 `(IP, path)` 组合对应一个 `throttle_*.data`，窗口过期后仅在内存中重置计数，文件本身永不删除
   - 修复：新增机会式回收 `maybeSweep()`，以 1/100 概率删除**已过期**的计数文件；未过期与损坏的文件一律保留
 
+### 新增 (面向使用者的改进)
+
+本轮从「拿这个框架写真实应用」的视角复核，新增 4 项能力并重写 README。
+
+- **`Model::visibleOnly()` — 查询链结果的敏感字段过滤**
+  - 问题：`$hidden` 只在 Model 实例的 `toArray()`/`toJson()` 生效；`Model::where()->first()`/`fetchAll()` 返回**裸数组**，实测直接输出会泄漏明文 password
+  - 新增：`User::visibleOnly($rows)` 在输出前套用 `$hidden`
+
+- **`Model::hydrate()` — 查询结果批量转为模型实例**
+  - 新增：让 `User::where(...)->fetchAll()` 与 `User::find(...)` 行为一致（都返回 Model，`$hidden` / `$casts` / 访问器全部生效）
+
+- **`Model::withRelation()` — 真正生效的关联批量预加载**
+  - 问题：`with()` 只把关联挂在**随后会被丢弃**的原型实例上，拼进查询链完全无效；`__get` 也不触发惰性加载 —— 实测关联功能几乎不可用。原测试只覆盖了内存实例，未覆盖真实 DB 查询
+  - 新增：`Post::withRelation($rows, 'author', 'belongsTo', 'author_id', 'id')`，一次 `whereIn` 查询完成批量注入（实测 200 行关联 0.2 ms）
+  - 配套：`protected ?string $authorModel = Author::class;` 可避免为推断类名而多查一次
+
+- **`Model::$timestamps` — 可关闭自动时间戳**
+  - 问题：`syncTimestamps()` 无条件写入 `created_at`/`updated_at`，表无这两列时 `create()` 直接抛 `table X has no column named created_at`，且无任何关闭开关
+  - 新增：`protected bool $timestamps = false;`
+
+- **README 重写**
+  - 新增「优势与不足」对照表与「使用前必读」章节，如实说明 6 处易踩的坑
+  - 修正错误示例：`Post::with('author')` 静态调用会抛 `Non-static method cannot be called statically`
+  - 修正过期数字：测试数 781 → 1218，审计轮次 6 → 7
+
 ### 已知行为 (非缺陷)
 
 - **`Model` 静态化对子类覆盖的兼容性代价**：子类若以**实例方法**覆盖父类的静态方法（如 `public function create()` 覆盖 `Model::create()`），PHP 在**编译期**抛 `Cannot make static method ... non static`，无法用 try/catch 捕获。这是静态化改造的固有 BC 变更，需同步子类改为静态方法签名。

@@ -1854,3 +1854,170 @@ $runner->run('Regression - Throttle 回收已过期的计数文件', function ($
         }
     }
 });
+$runner->run('Regression - Model::visibleOnly 过滤查询结果中的敏感字段', function ($t) {
+    // 背景：Model::where() 返回 QueryBuilder，first()/fetchAll() 产出裸数组，
+    // 不经过 toArray()，因此 $hidden 不生效（实测泄漏明文 password）。
+    // 本测试锁定 visibleOnly() 的过滤行为。
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite 不可用，跳过');
+        return;
+    }
+
+    $pdo = new \PDO('sqlite::memory:');
+    $pdo->exec('CREATE TABLE ux_hidden (id INTEGER PRIMARY KEY, name TEXT, email TEXT, password TEXT)');
+    $pdo->exec("INSERT INTO ux_hidden VALUES (1,'a','a@x.com','secret'),(2,'b','b@x.com','secret2')");
+
+    $conn = new \db\Connection(['driver' => 'sqlite', 'database' => ':memory:']);
+    $prev = null;
+    try {
+        $conn->getPdo()->exec('CREATE TABLE ux_hidden (id INTEGER PRIMARY KEY, name TEXT, email TEXT, password TEXT)');
+        $conn->getPdo()->exec("INSERT INTO ux_hidden VALUES (1,'a','a@x.com','secret'),(2,'b','b@x.com','secret2')");
+    } catch (\Throwable) {
+        // 复用已建立的连接即可
+    }
+    \model\Model::setDb($conn);
+
+    $M = new class extends \model\Model {
+        protected string $table = 'ux_hidden';
+        protected array $fillable = ['name', 'email', 'password'];
+        protected array $hidden = ['password'];
+    };
+
+    $rows = $M::where('id', '<', 3)->fetchAll();
+    $t->assertTrue(isset($rows[0]['password']), '原始查询结果仍应含 password（不改变底层数据）');
+
+    $safe = $M::visibleOnly($rows);
+    $t->assertFalse(isset($safe[0]['password']), 'visibleOnly() 应剔除 $hidden 字段');
+    $t->assertEquals(2, count($safe), 'visibleOnly() 不应丢行');
+    $t->assertEquals('a', $safe[0]['name'], 'visibleOnly() 应保留其他字段');
+
+    // 没有 $hidden 时应原样返回
+    $N = new class extends \model\Model {
+        protected string $table = 'ux_hidden';
+        protected array $fillable = ['name', 'email', 'password'];
+    };
+    $t->assertTrue(isset($N::visibleOnly($rows)[0]['password']), '未声明 $hidden 时不应过滤');
+});
+
+$runner->run('Regression - Model::hydrate 把查询结果转为模型实例', function ($t) {
+    // 让 User::where(...)->fetchAll() 与 User::find(...) 行为一致：
+    // 都返回 Model 实例，$hidden / $casts 生效
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite 不可用，跳过');
+        return;
+    }
+
+    $conn = new \db\Connection(['driver' => 'sqlite', 'database' => ':memory:']);
+    $conn->getPdo()->exec('CREATE TABLE ux_hyd (id INTEGER PRIMARY KEY, name TEXT, password TEXT, age INT)');
+    $conn->getPdo()->exec("INSERT INTO ux_hyd VALUES (1,'a','secret',30),(2,'b','secret2',40)");
+    \model\Model::setDb($conn);
+
+    $M = new class extends \model\Model {
+        protected string $table = 'ux_hyd';
+        protected array $fillable = ['name', 'password', 'age'];
+        protected array $hidden = ['password'];
+        protected array $casts = ['age' => 'int'];
+    };
+
+    $rows = $M::where('id', '<', 3)->fetchAll();
+    $models = $M::hydrate($rows);
+
+    $t->assertEquals(2, count($models), 'hydrate() 应返回同样数量的模型');
+    $t->assertTrue($models[0] instanceof \model\Model, 'hydrate() 应返回 Model 实例');
+    $arr = $models[0]->toArray();
+    $t->assertFalse(array_key_exists('password', $arr), 'hydrate() 后 toArray() 应套用 $hidden');
+    $t->assertTrue(is_int($arr['age']), 'hydrate() 后 $casts 应生效');
+    $t->assertEquals(30, $arr['age'], 'casts 转换后的值应正确');
+
+    // 空输入不报错
+    $t->assertEquals([], $M::hydrate([]), 'hydrate([]) 应返回空数组');
+});
+
+$runner->run('Regression - Model 可关闭自动时间戳', function ($t) {
+    // 回归点：syncTimestamps() 无条件插入 created_at/updated_at，
+    // 表无这两列时 create() 抛 "table X has no column named created_at"
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite 不可用，跳过');
+        return;
+    }
+
+    $conn = new \db\Connection(['driver' => 'sqlite', 'database' => ':memory:']);
+    // 故意不建 created_at / updated_at 列
+    $conn->getPdo()->exec('CREATE TABLE ux_nots (id INTEGER PRIMARY KEY, name TEXT)');
+    \model\Model::setDb($conn);
+
+    $M = new class extends \model\Model {
+        protected string $table = 'ux_nots';
+        protected array $fillable = ['name'];
+        protected bool $timestamps = false;
+    };
+
+    $id = $M::create(['name' => 'x']);
+    $t->assertTrue($id !== null && $id !== false, '$timestamps=false 时 create() 应成功');
+
+    $row = $conn->getPdo()->query('SELECT * FROM ux_nots')->fetch(\PDO::FETCH_ASSOC);
+    $t->assertEquals('x', $row['name'] ?? null, '数据应正确写入');
+    $t->assertFalse(array_key_exists('created_at', $row), '不应插入 created_at');
+
+    // 默认仍应开启时间戳
+    $conn->getPdo()->exec('CREATE TABLE ux_ts (id INTEGER PRIMARY KEY, name TEXT, created_at TEXT, updated_at TEXT)');
+    $D = new class extends \model\Model {
+        protected string $table = 'ux_ts';
+        protected array $fillable = ['name'];
+    };
+    $D::create(['name' => 'y']);
+    $row2 = $conn->getPdo()->query('SELECT * FROM ux_ts')->fetch(\PDO::FETCH_ASSOC);
+    $t->assertTrue(!empty($row2['created_at']), '默认应自动写入 created_at');
+});
+// 关联预加载测试用的模型（需在文件级声明，闭包内无法定义带上下文的类）
+class UxRelAuthor extends \model\Model
+{
+    protected string $table = 'ux_authors';
+    protected array $fillable = ['name'];
+    protected bool $timestamps = false;
+}
+
+class UxRelPost extends \model\Model
+{
+    protected string $table = 'ux_posts';
+    protected array $fillable = ['author_id', 'published'];
+    protected bool $timestamps = false;
+    protected ?string $authorModel = UxRelAuthor::class;
+
+    public function author()
+    {
+        return $this->belongsTo(UxRelAuthor::class, 'author_id', 'id');
+    }
+}
+
+$runner->run('Regression - Model::withRelation 真正预加载关联数据', function ($t) {
+    // 回归点：with() 只把关联挂在随后被丢弃的原型实例上，
+    // 拼到查询链上完全无效（实测返回行里没有任何关联字段）。
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite 不可用，跳过');
+        return;
+    }
+
+    $conn = new \db\Connection(['driver' => 'sqlite', 'database' => ':memory:']);
+    $conn->getPdo()->exec('CREATE TABLE ux_authors (id INTEGER PRIMARY KEY, name TEXT)');
+    $conn->getPdo()->exec('CREATE TABLE ux_posts (id INTEGER PRIMARY KEY, author_id INT, published INT)');
+    $conn->getPdo()->exec("INSERT INTO ux_authors VALUES (1,'Tom'),(2,'Ann')");
+    $conn->getPdo()->exec('INSERT INTO ux_posts VALUES (1,1,1),(2,2,1),(3,1,1)');
+    \model\Model::setDb($conn);
+
+    $rows = (new UxRelPost())->where('published', 1)->fetchAll();
+    $t->assertEquals(3, count($rows), '前置条件：查询应返回 3 行');
+    $t->assertFalse(isset($rows[0]['author']), '裸查询结果本身不含关联字段');
+
+    $posts = UxRelPost::withRelation($rows, 'author', 'belongsTo', 'author_id', 'id');
+    $t->assertEquals(3, count($posts), 'withRelation() 不应丢行');
+    $t->assertTrue($posts[0] instanceof \model\Model, 'withRelation() 应返回 Model 实例');
+
+    $a0 = $posts[0]->toArray();
+    $t->assertTrue(isset($a0['author']), '关联数据应被注入 toArray()');
+    $t->assertEquals('Tom', $a0['author']['name'] ?? null, 'post#1 的 author 应为 Tom');
+    $t->assertEquals('Ann', $posts[1]->toArray()['author']['name'] ?? null, 'post#2 的 author 应为 Ann');
+    $t->assertEquals('Tom', $posts[2]->toArray()['author']['name'] ?? null, 'post#3 的 author 应为 Tom');
+
+    $t->assertEquals([], UxRelPost::withRelation([], 'author', 'belongsTo'), '空输入应返回空数组');
+});

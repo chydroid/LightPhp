@@ -8,50 +8,159 @@
 
 [![PHP Version](https://img.shields.io/badge/PHP-8.0%2B-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.15.9-8b5cf6?style=for-the-badge)](CHANGELOG.md)
-[![Stability](https://img.shields.io/badge/stability-stable-brightgreen?style=for-the-badge)](CHANGELOG.md)
-[![Tests](https://img.shields.io/badge/tests-968%2F968%20passing-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
+[![Tests](https://img.shields.io/badge/tests-1218%2F1218%20passing-06b6d4?style=for-the-badge&logo=checkmarx)](tests/run_tests.php)
 [![Zero Dependencies](https://img.shields.io/badge/zero%20dependencies-no%20composer%20required-f97316?style=for-the-badge)](https://github.com/chydroid/lightphp)
 
-> **✅ 生产稳定版** — 经过 6 轮系统性安全与缺陷审计（核心 / 数据库 / 缓存 / 中间件 / 视图 / 控制台），968 项测试全部通过，可投入生产使用。
+> **1218 项测试全部通过**，经过 7 轮系统性审计。
+> 本文档如实描述框架的**能力边界**——包括它不擅长什么、以及几处需要你主动留意的陷阱。
+> 请先阅读 [使用前必读](#使用前必读) 再动手。
 
 </div>
 
 ---
 
-## 一句话定位
+## 定位
 
-LightPHP 是一个面向 PHP 8.0+ 的轻量级全栈框架，**无需 Composer 即可运行**，自带 IoC 容器、ORM、中间件、事件系统、多驱动缓存与模板引擎，适合构建 API、中小型 Web 应用、微服务以及教学项目。
+LightPHP 是一个面向 PHP 8.0+ 的全栈 MVC 框架，**无需 Composer 即可运行**，自带 IoC 容器、ORM、中间件、事件系统、多驱动缓存与模板引擎。
+
+**适合**：REST API、内部工具、微服务、教学项目、偏好轻量且能读懂全部源码的团队。
+
+**不适合**：需要开箱即用完整后台脚手架、大型团队分工、依赖庞大生态（支付 / IM / 云厂商 SDK）的项目——这类需求请考虑 Laravel 或 Hyperf。
 
 ---
 
-## 为什么选择 LightPHP
+## 优势与不足
 
-| 能力 | 说明 |
+我们把话说清楚。以下评价基于实测，而非宣传。
+
+### ✅ 优势
+
+| 优势 | 说明 |
 |------|------|
-| **开箱即用** | 单个 PHP 运行时即可启动，没有第三方依赖，部署只需 `git clone` |
-| **生产可用** | PSR-11 容器、参数化查询、中间件管道、配置缓存、日志、缓存驱动齐全 |
-| **学习曲线低** | API 参考 Laravel / ThinkPHP，上手成本低，文档完整 |
-| **性能优先** | 自定义自动加载、零反射路由缓存、轻量级 Facade 与事件调度 |
-| **可扩展** | 服务提供者、Macroable 运行时扩展、自定义控制台命令 |
-| **安全默认** | SQL 注入防护、XSS 自动转义、CSRF 令牌、AES-256-GCM 加密、bcrypt 哈希 |
+| **零依赖** | 只有一个 PHP 运行时 + 扩展即可跑，部署是 `git clone`。没有 `vendor/` 膨胀，没有供应链风险 |
+| **源码可读** | 核心约 50 个类，全部可通读。遇到问题能自己定位，不必等上游发版 |
+| **PSR-11 容器** | 依赖注入规范，`Container` 可直接替换为其他实现 |
+| **安全默认值合理** | 参数化查询、Blade 自动转义、CSRF、AES-256-GCM、bcrypt，且多数缺陷已在 7 轮审计中修复 |
+| **扩展点克制** | 服务提供者 + `Macroable` 运行时扩展，不需要为小需求引入整套插件体系 |
+| **CLI 完整** | `serve` / `migrate` / `make:*` / `config:cache` / `test` 覆盖日常开发 |
+
+### ⚠️ 不足（请务必了解）
+
+| 不足 | 影响 | 应对 |
+|------|------|------|
+| **无 Composer 生态** | 无法直接 `composer require` 引入成熟库，支付 / 短信 / 云 SDK 需手写 | 自行封装，或用 REST 调用第三方服务 |
+| **查询链返回裸数组** | `Model::where()->first()` **不套用 `$hidden`**，可能泄漏敏感字段 | 见 [使用前必读](#1-敏感字段查询链不套用-hidden) |
+| **无内置用户认证** | 只有 `Hash` / `Session` / `CsrfMiddleware`，**没有** login / register / 权限体系 | 自行实现 |
+| **无后台脚手架** | 菜单、权限、CRUD 界面都要自己写 | 用 `JsonResource` + `make:controller` 拼装 |
+| **ORM 功能有限** | 无嵌套关联写回、无多态关联、无分库分表；预加载需显式调 `withRelation()` | 复杂查询直接用 `QueryBuilder` / `raw()` |
+| **测试框架极简** | 自研 runner，无 Mock / 覆盖率 / 并行 | 简单够用；复杂项目建议另配 PHPUnit |
+| **升级成本** | `app/core/` 需整体替换，自定义改动会冲突 | 把扩展写在 `app/middleware`、`model\` 或用 `Macroable` |
+| **单进程假设** | 无队列 / worker / 定时任务 | 用 CLI 命令 + 系统 cron 兜底 |
 
 ---
 
-## 核心特性一览
+## 使用前必读
 
-<div align="center">
+这几条是实测中真实踩到的坑，不是理论风险。
 
-| 架构 | 数据 | 视图 | 安全 | 工程化 |
-|:--|:--|:--|:--|:--|
-| MVC 分层 | ORM + QueryBuilder | 原生 PHP / Blade / Smarty | CSRF 中间件 | 零依赖运行 |
-| IoC 容器（PSR-11） | Schema / Migration | Blade 自动转义 | XSS 防护 | `make:*` 代码生成 |
-| 中间件管道（洋葱模型） | 一对一 / 一对多关联 | 布局继承 / 区块 | SQL 注入防护 | 配置缓存 |
-| 事件系统（含通配符） | 软删除 / 模型事件 | 模板缓存 | 路径遍历防护 | API 文档自动生成 |
-| 服务提供者 | 数据库事务 / Savepoint | 组件化视图 | 会话 Cookie 安全 | 781+ 测试断言 |
-| Macroable 宏扩展 | 查询作用域 / 访问器修改器 | 自定义指令 | 限流中间件 | CLI 命令系统 |
+### 1. 敏感字段：查询链不套用 `$hidden`
 
-</div>
+`$hidden` **只在 Model 实例的 `toArray()` / `toJson()` 上生效**。而 `Model::where(...)` 返回的是 `QueryBuilder`，其 `first()` / `fetchAll()` 产出**裸数组**，完全绕过 `$hidden`：
+
+```php
+class User extends \model\Model {
+    protected array $hidden = ['password'];
+}
+
+// ❌ 危险：裸数组，password 明文会被 json() 吐出去
+$rows = User::where('status', 1)->fetchAll();
+return $this->json($rows);
+
+// ✅ 安全：visibleOnly() 显式过滤
+return $this->json(User::visibleOnly($rows));
+
+// ✅ 更好：hydrate() 转成 Model，行为与 find() 完全一致
+$users = User::hydrate(User::where('status', 1)->fetchAll());
+return $this->json(array_map(fn($u) => $u->toArray(), $users));
+```
+
+实测对照：
+
+```php
+User::where('id',1)->first();   // {"id":1,...,"password":"p"}   ← 泄漏
+User::find(1)->toArray();       // {"id":1,...}                   ← 已隐藏
+User::find(1)->toJson();        // {"id":1,...}                   ← 已隐藏
+```
+
+> **原则**：只要数据要离开 PHP，就先过 `toArray()`、`visibleOnly()` 或 `hydrate()`。
+> `find()` / `first()` / `firstOrFail()` / `paginate()` 返回的已经是 Model 实例，本身是安全的。
+
+### 2. 无时间戳的表要显式关闭
+
+框架默认在 `create()` / `update()` 时写入 `created_at` 与 `updated_at`。若你的表没有这两列（如配置表、日志表、纯关联表），会直接报错：
+
+```
+PDOException: table settings has no column named created_at
+```
+
+解决：
+
+```php
+class Setting extends \model\Model {
+    protected bool $timestamps = false;   // 关闭自动时间戳
+}
+```
+
+### 3. 生产环境务必配置 `APP_TRUSTED_HOSTS`
+
+`Request::url()` 由 `Host` 请求头拼装。攻击者发一个伪造 Host 的请求，就能让找回密码链接、OAuth 回调指向自己的域名。
+
+框架默认 `trusted_hosts = '*'`（不校验）以保证兼容，**生产环境必须收紧**：
+
+```bash
+# .env
+APP_URL=https://your-domain.com
+APP_TRUSTED_HOSTS=your-domain.com,*.your-domain.com
+```
+
+不在白名单内的 Host 会被忽略，`host()` 回落到 `APP_URL`。注意 `*.` **只匹配一层子域**：`a.b.example.com` 不会匹配 `*.example.com`。
+
+### 4. `config:cache` 会锁定配置
+
+执行 `php bin/console config:cache` 后，配置被冻结在缓存文件里。改了 `app/config/` 或 `.env` **不会生效**，必须先 `config:clear`。
+
+### 5. 路由中间件支持三种写法
+
+```php
+// 1. 类名
+$router->setGlobalMiddleware([\middleware\Cors::class]);
+
+// 2. 别名（可带构造参数，按构造函数签名自动转类型）
+$router->aliasMiddleware('throttle', \middleware\Throttle::class);
+$router->setGlobalMiddleware(['throttle:60,1']);   // → new Throttle(60, 1)
+
+// 3. 已实例化对象（需要自定义配置时）
+$router->setGlobalMiddleware([new \middleware\Cors(['allowed_origins' => ['*']])]);
+```
+
+### 6. 关联预加载要用 `withRelation()`
+
+`with()` **不是**批量预加载入口——它只把关联挂在**当前实例**上。拼进查询链后那个实例会被丢弃，关联数据不会进入结果：
+
+```php
+// ❌ 无效：author 不会出现在结果里
+$posts = Post::with('author')->where('published', 1)->fetchAll();
+
+// ✅ 有效：批量取出并注入每个模型实例（一次查询，无 N+1）
+$rows  = (new Post())->where('published', 1)->fetchAll();
+$posts = Post::withRelation($rows, 'author', 'belongsTo', 'author_id', 'id');
+echo json_encode($posts[0]->toArray());
+// {"id":1,...,"author":{"id":1,"name":"Tom"}}
+```
+
+在关联模型里声明 `protected ?string $authorModel = Author::class;` 可避免为推断类名而多查一次。
+
+`$type` 可选 `belongsTo` / `hasOne` / `hasMany`。
 
 ---
 
@@ -122,6 +231,7 @@ class User extends Model
     protected array  $fillable = ['name', 'email', 'password'];
     protected array  $hidden   = ['password'];
     protected array  $casts    = ['created_at' => 'datetime'];
+    protected bool   $timestamps = true;   // 表无 created_at/updated_at 列时设为 false
 }
 ```
 
@@ -130,17 +240,37 @@ class User extends Model
 $user = User::create([
     'name'     => 'Tom',
     'email'    => 'tom@example.com',
-    'password' => Hash::make('secret'),
+    'password' => Hash::make('secret'),   // 框架不自动哈希，需自行 Hash::make()
 ]);
 
-// 查询
-$users = User::where('status', 1)
-    ->orderBy('id', 'desc')
-    ->paginate(15, 1);
+// 查询（find/first/paginate 返回 Model 实例，$hidden 自动生效）
+$user  = User::find(1);
+$users = User::paginate(15, 1);   // ['items' => [Model...], 'total' => N, ...]
 
-// 关联预加载
-$posts = Post::with('author')->where('published', 1)->get();
+// 关联预加载（withRelation 是真正生效的批量预加载，避免 N+1）
+class Post extends \model\Model
+{
+    protected string $table = 'posts';
+    protected ?string $authorModel = User::class;   // 显式声明关联类，避免额外查询
+
+    public function author()
+    {
+        return $this->belongsTo(User::class, 'author_id', 'id');
+    }
+}
+
+$rows  = (new Post())->where('published', 1)->fetchAll();
+$posts = Post::withRelation($rows, 'author', 'belongsTo', 'author_id', 'id');
+
+echo json_encode($posts[0]->toArray());
+// {"id":1,"author_id":1,"published":1,"author":{"id":1,"name":"Tom"}}
 ```
+
+> ⚠️ `User::where(...)` 返回的是 `QueryBuilder`，其 `first()` / `fetchAll()` 产出**裸数组**，**不套用 `$hidden`**。
+> 查询结果要输出到响应时，请用 `User::visibleOnly($rows)` 或 `User::hydrate($rows)`——详见 [使用前必读](#1-敏感字段查询链不套用-hidden)。
+>
+> ⚠️ `with()` **不是** 批量预加载入口：它只把关联挂在当前实例上，
+> 拼进查询链（`Model::with('author')->where(...)`）不会生效。请用 `withRelation()`。
 
 ### 5. 中间件与限流
 
@@ -324,10 +454,29 @@ server {
 | `app/config/app.php` → `debug` | 设为 `false` |
 | `app/config/app.php` → `key` | 已修改为自定义值 |
 | `app/config/database.php` | 数据库信息正确 |
+| **`.env` → `APP_TRUSTED_HOSTS`** | **必须设置**，否则 `url()` 可被 Host 头投毒 |
 | `storage/` 权限 | Web 服务器有写入权限 |
 | Web 根目录 | 指向 `public/` |
 | PHP 版本 | ≥ 8.0 |
 | 错误显示 | `display_errors = Off` |
+
+### 6. 最小 `.env` 模板
+
+```bash
+APP_ENV=production
+APP_DEBUG=false
+APP_KEY=base64:$(php -r "echo base64_encode(random_bytes(32));")
+APP_URL=https://your-domain.com
+
+# 防 Host 头投毒（生产必填）
+APP_TRUSTED_HOSTS=your-domain.com,*.your-domain.com
+
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_DATABASE=your_db
+DB_USERNAME=your_user
+DB_PASSWORD=your_password
+```
 
 ---
 
@@ -377,11 +526,13 @@ LightPHP 内置了完整的安全机制：
 - **路径遍历防护**：文件操作严格校验路径
 - **会话安全**：Cookie 支持 `HttpOnly`、`Secure`、`SameSite` 标志
 
-框架通过 781+ 测试断言保障核心组件稳定性：
+框架通过 1218 项测试保障核心组件稳定性：
 
 ```bash
-php bin/console test   # 781/781 测试通过
+php bin/console test   # 1218/1218 测试通过
 ```
+
+> 审计发现的历史缺陷与修复记录见 [CHANGELOG.md](CHANGELOG.md)，审计报告见 `.comate/audit*/`。
 
 ---
 

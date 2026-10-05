@@ -1081,3 +1081,130 @@ $runner->run('Regression - Config 点号路径穿过标量不抛 TypeError', fun
     $t->assertFalse(\config\Config::has('lp_scalar.deeper'), '穿过标量应视为不存在');
     $t->assertTrue(\config\Config::has('lp_scalar'), '标量本身存在');
 });
+$runner->run('Regression - Router 支持已实例化的对象中间件', function ($t) {
+    // 回归点：executeMiddleware 缺 is_object 分支，docs 推荐的
+    // new Cors([...]) 抛 "Invalid middleware: object"，而 Pipeline 支持。
+    $mw = new class {
+        public bool $hit = false;
+        public function handle(\core\Request $r, callable $next): mixed
+        {
+            $this->hit = true;
+            return $next($r);
+        }
+    };
+    $router = new \core\Router();
+    $router->setGlobalMiddleware([$mw]);
+    $router->get('/obj-mw', fn() => new \core\Response('OK'));
+
+    $old = $_SERVER['REQUEST_URI'] ?? null;
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+    $_SERVER['REQUEST_URI'] = '/obj-mw';
+    try {
+        $res = $router->dispatch(new \core\Request());
+        $t->assertEquals('OK', $res->getContent(), '对象中间件应放行到处理器');
+        $t->assertTrue($mw->hit, '对象中间件 handle() 应被调用');
+    } finally {
+        if ($old !== null) { $_SERVER['REQUEST_URI'] = $old; } else { unset($_SERVER['REQUEST_URI']); }
+    }
+});
+
+$runner->run('Regression - Cors 接受部分配置数组', function ($t) {
+    // 回归点：构造函数用 `$config ?? defaults`，传入部分配置时
+    // allowed_origins 等键缺失，in_array('*', null) 抛 TypeError。
+    $cors = new \middleware\Cors(['allowed_origins' => ['https://a.test']]);
+    $t->assertTrue(true, '部分配置不再抛 TypeError');
+    $t->assertTrue(true, '构造成功');
+
+    $empty = new \middleware\Cors([]);
+    $t->assertTrue(true, '空数组配置同样可用');
+});
+
+$runner->run('Regression - 中间件别名支持 :参数 语法', function ($t) {
+    // 回归点：resolveMiddleware 解析别名时丢弃 ':args' 后缀，
+    // 'throttle:60,1' 被当成类名 → Invalid middleware: throttle:60,1。
+    $probe = new class extends \core\Router {
+        public function resolvePublic(array $mws): array
+        {
+            $ref = new \ReflectionMethod(\core\Router::class, 'resolveMiddleware');
+            $ref->setAccessible(true);
+            return $ref->invoke($this, $mws);
+        }
+    };
+    $probe->aliasMiddleware('throttle', \middleware\Throttle::class);
+    $out = $probe->resolvePublic(['throttle:60,1']);
+    $t->assertEquals(1, count($out), '应解析出 1 个中间件');
+    $t->assertEquals(\middleware\Throttle::class . ':60,1', $out[0], '别名参数后缀应保留');
+
+    // 端到端：能真正实例化（参数按签名转成 int，不抛 TypeError）
+    $router = new \core\Router();
+    $router->aliasMiddleware('throttle', \middleware\Throttle::class);
+    $router->get('/thr', fn() => new \core\Response('T'));
+    $router->setGlobalMiddleware(['throttle:60,1']);
+    $old = $_SERVER['REQUEST_URI'] ?? null;
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+    $_SERVER['REQUEST_URI'] = '/thr';
+    try {
+        $res = $router->dispatch(new \core\Request());
+        $t->assertEquals(200, $res->getStatusCode(), 'throttle:60,1 应可执行');
+    } catch (\Throwable $e) {
+        $t->assertTrue(false, '不应抛异常: ' . $e->getMessage());
+    } finally {
+        if ($old !== null) { $_SERVER['REQUEST_URI'] = $old; } else { unset($_SERVER['REQUEST_URI']); }
+    }
+});
+
+$runner->run('Regression - OPTIONS 预检经过中间件并带 CORS 头', function ($t) {
+    // 回归点：Router 在进入中间件链前就自动应答 OPTIONS（204），
+    // Cors 的预检分支成了死代码，响应零 Access-Control-* 头。
+    $router = new \core\Router();
+    $router->setGlobalMiddleware([new \middleware\Cors(['allowed_origins' => ['*']])]);
+    $router->post('/api/user', fn() => new \core\Response('created'));
+
+    $old = $_SERVER['REQUEST_URI'] ?? null;
+    $oldMethod = $_SERVER['REQUEST_METHOD'] ?? null;
+    $oldOrigin = $_SERVER['HTTP_ORIGIN'] ?? null;
+    $_SERVER['REQUEST_METHOD'] = 'OPTIONS';
+    $_SERVER['REQUEST_URI'] = '/api/user';
+    $_SERVER['HTTP_ORIGIN'] = 'https://client.test';
+    try {
+        $res = $router->dispatch(new \core\Request());
+        $t->assertEquals(204, $res->getStatusCode(), '预检应返回 204');
+        $headers = $res->getHeaders();
+        $t->assertTrue(isset($headers['Access-Control-Allow-Origin']), '应带 Access-Control-Allow-Origin');
+        $t->assertTrue(isset($headers['Access-Control-Allow-Methods']), '应带 Access-Control-Allow-Methods');
+        $t->assertEquals('*', $headers['Access-Control-Allow-Origin'], '通配符配置回显 *');
+    } finally {
+        foreach ([['REQUEST_URI', $old], ['REQUEST_METHOD', $oldMethod], ['HTTP_ORIGIN', $oldOrigin]] as [$k, $v]) {
+            if ($v !== null) { $_SERVER[$k] = $v; } else { unset($_SERVER[$k]); }
+        }
+    }
+});
+
+$runner->run('Regression - shouldSkip 重复斜杠无法绕过白名单', function ($t) {
+    // 回归点：parse_url('//api//user') 按 authority-form 解析得到 '/user'，
+    // $except 白名单被等价路径绕过。
+    $mw = new class extends \middleware\Middleware {
+        protected array $except = ['/api/user'];
+        public function handle(\core\Request $r, callable $next): mixed
+        {
+            return $this->shouldSkip() ? new \core\Response('SKIPPED') : $next($r);
+        }
+    };
+
+    $oldMethod = $_SERVER['REQUEST_METHOD'] ?? null;
+    foreach (['/api/user', '//api//user', '/api/user/', '//api/user'] as $uri) {
+        $router = new \core\Router();
+        $router->setGlobalMiddleware([$mw]);
+        $router->post('/api/user', fn() => new \core\Response('PROTECTED'));
+        $oldUri = $_SERVER['REQUEST_URI'] ?? null;
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_SERVER['REQUEST_URI'] = $uri;
+        try {
+            $res = $router->dispatch(new \core\Request());
+            $t->assertEquals('SKIPPED', $res->getContent(), "URI {$uri} 应命中 except 白名单");
+        } finally {
+            if ($oldUri !== null) { $_SERVER['REQUEST_URI'] = $oldUri; } else { unset($_SERVER['REQUEST_URI']); }
+        }
+    }
+    if ($oldMethod !== null) { $_SERVER['REQUEST_METHOD'] = $oldMethod; }
+});

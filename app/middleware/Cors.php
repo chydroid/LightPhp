@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace middleware;
 
 /**
- * CORS 中间件 - 处理跨域请求
+ * CORS 涓棿浠?- 澶勭悊璺ㄥ煙璇锋眰
  */
 class Cors
 {
@@ -12,7 +12,11 @@ class Cors
 
     public function __construct(?array $config = null)
     {
-        $this->config = $config ?? [
+        // 濮嬬粓涓庨粯璁ゅ€煎悎骞讹細姝ゅ墠鐢?`$config ?? defaults`锛?
+        // 浼犲叆銆岄儴鍒嗛厤缃€嶏紙濡備粎 allowed_origins锛夋椂鍏朵綑閿叏閮ㄧ己澶憋紝
+        // 绗?26 琛?in_array('*', $this->config['allowed_origins']) 鐩存帴鎶?
+        // TypeError: Argument #2 must be of type array, null given銆?
+        $defaults = [
             'allowed_origins' => [],
             'allowed_methods' => ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
             'allowed_headers' => ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-TOKEN'],
@@ -20,9 +24,10 @@ class Cors
             'max_age' => 86400,
             'supports_credentials' => false,
         ];
+        $this->config = $config === null ? $defaults : ($config + $defaults);
 
-        // W3C CORS 规范明确禁止通配符 Origin 与 Credentials 同时启用
-        // 此组合会导致任意站点可携带 Cookie 发起跨域请求
+        // W3C CORS 瑙勮寖鏄庣‘绂佹閫氶厤绗?Origin 涓?Credentials 鍚屾椂鍚敤
+        // 姝ょ粍鍚堜細瀵艰嚧浠绘剰绔欑偣鍙惡甯?Cookie 鍙戣捣璺ㄥ煙璇锋眰
         if (in_array('*', $this->config['allowed_origins'], true)
             && !empty($this->config['supports_credentials'])) {
             throw new \InvalidArgumentException(
@@ -33,11 +38,11 @@ class Cors
     }
 
     /**
-     * 处理请求
+     * 澶勭悊璇锋眰
      * 
-     * @param \core\Request $request 请求对象
-     * @param callable $next 下一个处理者
-     * @return mixed 响应
+     * @param \core\Request $request 璇锋眰瀵硅薄
+     * @param callable $next 涓嬩竴涓鐞嗚€?
+     * @return mixed 鍝嶅簲
      */
     public function handle(\core\Request $request, callable $next): mixed
     {
@@ -46,40 +51,57 @@ class Cors
 
         if (in_array('*', $this->config['allowed_origins'], true)) {
             if ($this->config['supports_credentials']) {
-                // 有凭证时不允许用通配符，回退到回显请求 Origin
+                // 鏈夊嚟璇佹椂涓嶅厑璁哥敤閫氶厤绗︼紝鍥為€€鍒板洖鏄捐姹?Origin
                 if ($origin !== '') {
-                    header("Access-Control-Allow-Origin: {$origin}");
-                    header('Vary: Origin');
+                    $this->sendHeader('Access-Control-Allow-Origin', $origin);
+                    $this->sendHeader('Vary', 'Origin');
                 }
             } else {
-                header('Access-Control-Allow-Origin: *');
+                $this->sendHeader('Access-Control-Allow-Origin', '*');
             }
         } elseif ($this->isOriginAllowed($origin)) {
-            header("Access-Control-Allow-Origin: {$origin}");
-            header('Vary: Origin');
+            $this->sendHeader('Access-Control-Allow-Origin', $origin);
+            $this->sendHeader('Vary', 'Origin');
         }
 
         if ($this->config['supports_credentials']) {
-            header('Access-Control-Allow-Credentials: true');
+            $this->sendHeader('Access-Control-Allow-Credentials', 'true');
         }
 
         $method = $request->method();
         if ($method === 'OPTIONS') {
-            header('Access-Control-Allow-Methods: ' . implode(', ', $this->config['allowed_methods']));
-            header('Access-Control-Allow-Headers: ' . implode(', ', $this->config['allowed_headers']));
-            header("Access-Control-Max-Age: {$this->config['max_age']}");
+            // CORS 澶存棦鐢?header() 鐩村彂锛堢湡瀹?HTTP 鍦烘櫙锛夛紝涔熷啓鍏ヨ繑鍥炵殑
+            // Response 瀵硅薄锛歊outer 鐨?OPTIONS 鑷姩搴旂瓟杩斿洖 Response锛?
+            // 鑻ュ彧璋?header()锛屼腑闂村眰/娴嬭瘯璇?getHeaders() 灏嗘嬁涓嶅埌杩欎簺澶淬€?
+            $allowMethods = implode(', ', $this->config['allowed_methods']);
+            $allowHeaders = implode(', ', $this->config['allowed_headers']);
+            $maxAge = (string) $this->config['max_age'];
 
-            http_response_code(204);
-            return '';
+            $this->sendHeader('Access-Control-Allow-Methods', $allowMethods);
+            $this->sendHeader('Access-Control-Allow-Headers', $allowHeaders);
+            $this->sendHeader('Access-Control-Max-Age', $maxAge);
+
+            $response = \core\Response::make('', 204);
+            $response->header('Access-Control-Allow-Methods', $allowMethods);
+            $response->header('Access-Control-Allow-Headers', $allowHeaders);
+            $response->header('Access-Control-Max-Age', $maxAge);
+            $allowedOrigin = $this->resolveAllowOriginHeader($origin);
+            if ($allowedOrigin !== null) {
+                $response->header('Access-Control-Allow-Origin', $allowedOrigin);
+            }
+            if ($this->config['supports_credentials']) {
+                $response->header('Access-Control-Allow-Credentials', 'true');
+            }
+            return $response;
         }
 
         if (!empty($this->config['exposed_headers'])) {
-            header('Access-Control-Expose-Headers: ' . implode(', ', $this->config['exposed_headers']));
+            $this->sendHeader('Access-Control-Expose-Headers', implode(', ', $this->config['exposed_headers']));
         }
 
-        // 非 OPTIONS 请求且 Origin 不被允许时，拒绝请求
-        // 没有 Origin 头的请求（同源请求）不需要 CORS 检查
-        // 注意：通配符+凭证模式已在上方处理，此处需排除该情况
+        // 闈?OPTIONS 璇锋眰涓?Origin 涓嶈鍏佽鏃讹紝鎷掔粷璇锋眰
+        // 娌℃湁 Origin 澶寸殑璇锋眰锛堝悓婧愯姹傦級涓嶉渶瑕?CORS 妫€鏌?
+        // 娉ㄦ剰锛氶€氶厤绗?鍑瘉妯″紡宸插湪涓婃柟澶勭悊锛屾澶勯渶鎺掗櫎璇ユ儏鍐?
         $wildcardWithCredentials = in_array('*', $this->config['allowed_origins'], true) && $this->config['supports_credentials'];
         if ($origin !== '' && !$this->isOriginAllowed($origin) && !$wildcardWithCredentials) {
             http_response_code(403);
@@ -87,6 +109,41 @@ class Cors
         }
 
         return $next($request);
+    }
+
+    /**
+     * 鍙戦€佸師鐢?HTTP 鍝嶅簲澶?
+     *
+     * CLI / 娴嬭瘯鐜涓?headers already sent锛岀洿鎺ヨ皟鐢?header() 浼氫骇鐢?
+     * 璀﹀憡鍣煶锛屾鏃惰烦杩囧嵆鍙€斺€擟ORS 澶村悓鏃朵篃浼氬啓鍏?Response 瀵硅薄銆?
+     *
+     * @param string $name 澶村悕绉?
+     * @param string $value 澶村€?
+     */
+    private function sendHeader(string $name, string $value): void
+    {
+        if (PHP_SAPI === 'cli' || headers_sent()) {
+            return;
+        }
+        header($name . ': ' . $value);
+    }
+
+    /**
+     * 璁＄畻 Access-Control-Allow-Origin 澶寸殑鍊?
+     *
+     * @param string $origin 宸插噣鍖栫殑璇锋眰 Origin
+     * @return string|null 澶村€硷紱鏃?Origin 鎴栦笉琚厑璁告椂杩斿洖 null
+     */
+    private function resolveAllowOriginHeader(string $origin): ?string
+    {
+        if (in_array('*', $this->config['allowed_origins'], true)) {
+            if ($this->config['supports_credentials']) {
+                // 閫氶厤绗?+ 鍑瘉锛氳鑼冪姝?'*'锛屽繀椤诲洖鏄惧叿浣?Origin
+                return $origin !== '' ? $origin : null;
+            }
+            return '*';
+        }
+        return $this->isOriginAllowed($origin) ? $origin : null;
     }
 
     private function isOriginAllowed(string $origin): bool
@@ -97,7 +154,7 @@ class Cors
 
         $allowed = $this->config['allowed_origins'];
 
-        // 有凭证时，不允许通配符匹配
+        // 鏈夊嚟璇佹椂锛屼笉鍏佽閫氶厤绗﹀尮閰?
         if (!empty($this->config['supports_credentials'])) {
             return in_array($origin, $allowed, true);
         }

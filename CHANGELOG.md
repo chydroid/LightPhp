@@ -2,6 +2,54 @@
 
 All notable changes to the LightPHP framework will be documented in this file.
 
+## [Unreleased]
+
+### 修复 (HIGH)
+
+本轮审计聚焦中间件执行链路，4 个 HIGH 缺陷集中在 `Router` 的中间件解析/执行处。
+
+- **[HIGH] Router 支持已实例化的对象中间件**
+  - 现象：`setGlobalMiddleware([new Cors([...])])` 抛 `RuntimeException: Invalid middleware: object`。而 `core\Pipeline` 本就支持对象形式，同框架两套执行器能力不一致；`docs/ecommerce-full-tutorial.md` 推荐的写法无法工作
+  - 根因：`executeMiddleware()` 只处理字符串类名与数组，缺 `is_object` 分支
+  - 修复：抽出 `invokeMiddleware()` 统一处理三种形式——已实例化对象（含 `handle()` 方法或可调用）、`ClassName`、`[ClassName, method]`；对象缺 `handle()` 时抛出带类名的明确异常
+
+- **[HIGH] OPTIONS 预检请求经过中间件链**
+  - 现象：`OPTIONS /api/user` 返回 204 但**零** `Access-Control-*` 头，`Cors::handle()` 的预检分支成为死代码，所有需预检的跨域请求被浏览器拦截
+  - 根因：`Router::dispatch()` 在进入中间件链**之前**就自动应答 OPTIONS
+  - 修复：预检改为经 `executeMiddleware()` 短路到 204 兜底处理器；`Cors` 把 CORS 头同时写入返回的 `Response` 对象（而非仅 `header()` 直发），使中间层与测试可经 `getHeaders()` 读取
+
+- **[HIGH] 中间件别名支持 `:参数` 语法**
+  - 现象：`Application.php` 注释宣传的 `'throttle:60,1'` 抛 `Invalid middleware: throttle:60,1`
+  - 根因：`resolveMiddleware()` 解析别名时直接整体替换，丢弃 `:args` 后缀
+  - 修复：解析时按首个 `:` 切分，保留并传递参数后缀；组后缀同样向组内每项传播；`castConstructorArgs()` 按构造函数签名把字符串参数转换为 `int`/`float`/`bool`，避免 strict_types 下 TypeError
+
+- **[HIGH] `Cors` 接受部分配置数组**
+  - 现象：`new Cors([])` 或 `new Cors(['allowed_origins' => [...]])` 在构造函数即致命——`TypeError: in_array(): Argument #2 ($haystack) must be of type array, null given`
+  - 根因：构造函数用 `$config ?? $defaults`，仅在参数为 `null` 时才用默认值；传入任何非 null 的数组都会丢失其余键
+  - 修复：改为 `$config + $defaults` 合并，缺键回退默认
+
+### 修复 (MEDIUM)
+
+- **[MEDIUM] `Middleware::shouldSkip()` 无法被等价路径绕过**
+  - 现象：`$except` 白名单对 `POST /api/user` 生效，但同一路由的 `POST //api//user` 未命中
+  - 根因：`parse_url('//api//user')` 按 authority-form 解析出 host，得到 `/user`；且未折叠重复斜杠
+  - 修复：新增 `normalizeUri()`，先折叠重复斜杠再 `parse_url`，与 `Router::normalizeUri()` 语义对齐
+  - 说明：本条修复的是**白名单**（`$except`）的一致性；重复斜杠是否仍能命中路由由 Router 自身的 URI 归一化决定
+
+- **[MEDIUM] `Cors` 在 CLI/测试环境不再产生 header 警告**
+  - 现象：`headers already sent` 警告刷屏
+  - 修复：新增 `sendHeader()`，在 `PHP_SAPI === 'cli'` 或 `headers_sent()` 时跳过原生发送（CORS 头仍写入 Response 对象）
+
+### 已知行为 (非缺陷)
+
+- **`Model` 静态化对子类覆盖的兼容性代价**：子类若以**实例方法**覆盖父类的静态方法（如 `public function create()` 覆盖 `Model::create()`），PHP 在**编译期**抛 `Cannot make static method ... non static`，无法用 try/catch 捕获。这是静态化改造的固有 BC 变更，需同步子类改为静态方法签名。
+- **`Response::download()` 不会因输出缓冲而全量物化**：实测 16 MB 文件在 `Application::run()` 的 `ob_end_flush()` 路径下 peak 内存增量为 0，`readfile` 保持流式写入。
+
+### 测试
+
+- 新增 5 组回归测试（16 条断言），覆盖对象中间件、部分配置 CORS、别名参数语法、OPTIONS 预检 CORS 头、`shouldSkip` 重复斜杠归一化
+- 全量测试 **1100/1100 通过**，全项目 `php -l` 无错误
+
 ## [2.15.9] - 2026-08-02
 
 ### 现代化 (MEDIUM)

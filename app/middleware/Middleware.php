@@ -11,9 +11,10 @@ abstract class Middleware
 
     protected function shouldSkip(): bool
     {
-        $uri = (string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
-        $uri = rtrim($uri, '/');
-        $uri = $uri !== '' ? $uri : '/';
+        // 必须与 Router::normalizeUri() 保持一致的归一化：
+        // 直接 parse_url('//api//user') 会按 authority-form 解析出 host，
+        // 得到 /user，导致 $except 白名单被重复斜杠绕过。
+        $uri = $this->normalizeUri();
 
         foreach ($this->except as $pattern) {
             $pattern = rtrim($pattern, '/');
@@ -31,5 +32,23 @@ abstract class Middleware
         }
 
         return false;
+    }
+
+    /**
+     * 规范化请求 URI（与 core\Router::normalizeUri 语义一致）
+     *
+     * 折叠重复斜杠后再 parse_url，避免 `//api//user` 被当成
+     * authority-form（host=api、path=/user）而绕过 $except 白名单。
+     *
+     * @return string 规范化后的路径
+     */
+    protected function normalizeUri(): string
+    {
+        $raw = (string) ($_SERVER['REQUEST_URI'] ?? '/');
+        $collapsed = preg_replace('#/+#', '/', $raw);
+        $path = parse_url(is_string($collapsed) ? $collapsed : '/', PHP_URL_PATH);
+        $path = is_string($path) ? $path : '/';
+        $path = rtrim($path, '/');
+        return $path !== '' ? $path : '/';
     }
 }

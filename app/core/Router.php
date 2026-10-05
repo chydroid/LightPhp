@@ -100,16 +100,36 @@ class Router
     {
         $resolved = [];
         foreach ($middlewares as $mw) {
-            if (is_string($mw) && isset($this->middlewareAliases[$mw])) {
-                $resolved[] = $this->middlewareAliases[$mw];
-            } elseif (is_string($mw) && isset($this->middlewareGroups[$mw])) {
-                // 中间件组可能自引用/互相引用（如 'web' 含 'web'），
-                // 无环检测会无限递归耗尽内存。遇到已在展开链中的组直接跳过。
-                if (isset($seen[$mw])) {
-                    continue;
+            if (is_string($mw)) {
+                // 别名可带构造参数：'throttle:60,1'
+                // 解析别名时必须保留 ':args' 后缀，否则 executeMiddleware
+                // 只拿到裸类名，参数被静默丢弃。
+                [$aliasName] = explode(':', $mw, 2);
+                if (isset($this->middlewareAliases[$aliasName])) {
+                    $target = $this->middlewareAliases[$aliasName];
+                    $resolved[] = is_string($target)
+                        ? $target . substr($mw, strlen($aliasName))
+                        : $target;
+                } elseif (isset($this->middlewareGroups[$aliasName])) {
+                    // 中间件组可能自引用/互相引用，无环检测会无限递归耗尽内存
+                    if (isset($seen[$aliasName])) {
+                        continue;
+                    }
+                    $seen[$aliasName] = true;
+                    $inner = $this->resolveMiddleware($this->middlewareGroups[$aliasName], $seen);
+                    // 组后缀同样传递：'web:x' → 组内每项追加 ':x'
+                    $suffix = substr($mw, strlen($aliasName));
+                    if ($suffix !== '') {
+                        foreach ($inner as $k => $item) {
+                            if (is_string($item)) {
+                                $inner[$k] = $item . $suffix;
+                            }
+                        }
+                    }
+                    $resolved = array_merge($resolved, $inner);
+                } else {
+                    $resolved[] = $mw;
                 }
-                $seen[$mw] = true;
-                $resolved = array_merge($resolved, $this->resolveMiddleware($this->middlewareGroups[$mw], $seen));
             } else {
                 $resolved[] = $mw;
             }
@@ -562,10 +582,18 @@ class Router
                 $allowedMethods['GET'] = true;
             }
             if ($method === 'OPTIONS') {
-                // 自动应答预检：返回允许的方法，不进入应用逻辑
-                $response = Response::make('', 204);
-                $response->header('Allow', implode(', ', array_keys($allowedMethods)));
-                return $response;
+                // 自动应答预检。必须经中间件链：否则 Cors 的预检分支不会执行，
+                // 响应不含任何 Access-Control-* 头，浏览器会拦截预检请求
+                // （实测 OPTIONS /api/user 返回 204 但零 CORS 头）。
+                $allowHeader = implode(', ', array_keys($allowedMethods));
+                // 此处不能复用下方循环里的 $allMiddleware（尚未计算），
+                // 需按同样的规则重新合并全局 + 路由中间件。
+                $preflightMiddleware = array_merge(
+                    $this->resolveMiddleware($this->globalMiddleware),
+                    $this->resolveMiddleware($route['middleware'] ?? [])
+                );
+                $preflight = fn() => Response::make('', 204)->header('Allow', $allowHeader);
+                return $this->executeMiddleware($preflightMiddleware, $preflight, $request);
             }
             return Response::make('<h1>405 Method Not Allowed</h1>', 405)
                 ->header('Allow', implode(', ', array_keys($allowedMethods)));
@@ -763,36 +791,128 @@ class Router
         // 逆序遍历中间件，构建洋葱模型
         foreach (array_reverse($middlewares) as $middleware) {
             $next = function () use ($middleware, $next, $request) {
-                // 字符串形式的中间件类名
-                if (is_string($middleware) && class_exists($middleware)) {
-                    $instance = $this->container ? $this->container->get($middleware) : new $middleware();
-                    if (method_exists($instance, 'handle')) {
-                        return $instance->handle($request, $next);
-                    }
-                    throw new \RuntimeException("Middleware {$middleware} does not implement handle() method");
-                }
-                // 数组形式 [类名, 方法名]
-                if (is_array($middleware) && count($middleware) === 2) {
-                    [$class, $method] = $middleware;
-                    if (class_exists($class)) {
-                        $instance = $this->container ? $this->container->get($class) : new $class();
-                        if (method_exists($instance, $method)) {
-                            return $instance->$method($request, $next);
-                        }
-                        throw new \RuntimeException("Middleware method {$method} does not exist on {$class}");
-                    }
-                }
-                // 可调用对象
-                if (is_callable($middleware)) {
-                    return $middleware($request, $next);
-                }
-
-                $identifier = is_string($middleware) ? $middleware : gettype($middleware);
-                throw new \RuntimeException("Invalid middleware: {$identifier}");
+                return $this->invokeMiddleware($middleware, $next, $request);
             };
         }
 
         return $next();
+    }
+
+    /**
+     * 执行单个中间件
+     *
+     * 支持三种形式：
+     *  - 已实例化的对象（core\Pipeline 亦支持，两套执行器能力保持一致）
+     *  - 'ClassName'
+     *  - 'ClassName:arg1,arg2'（逗号分隔的构造参数）
+     *
+     * @param mixed $middleware 中间件定义
+     * @param callable $next 下一层
+     * @param \core\Request $request 当前请求
+     * @return mixed
+     */
+    private function invokeMiddleware(mixed $middleware, callable $next, \core\Request $request): mixed
+    {
+        // 已实例化的中间件对象：core\Pipeline 本就支持对象形式，
+        // 此处缺失导致 docs 中推荐的 new Cors([...]) 直接抛
+        // "Invalid middleware: object"。同框架两套执行器能力必须一致。
+        if (is_object($middleware)) {
+            if (method_exists($middleware, 'handle')) {
+                return $middleware->handle($request, $next);
+            }
+            if (is_callable($middleware)) {
+                return $middleware($request, $next);
+            }
+            throw new \RuntimeException(
+                'Middleware ' . get_class($middleware) . ' does not implement handle() method'
+            );
+        }
+
+        if (is_string($middleware)) {
+            // 可带构造参数：'throttle:60,1'
+            $className = $middleware;
+            $ctorArgs = [];
+            if (str_contains($middleware, ':')) {
+                [$className, $argStr] = explode(':', $middleware, 2);
+                $ctorArgs = array_values(array_filter(
+                    array_map('trim', explode(',', $argStr)),
+                    static fn(string $a): bool => $a !== ''
+                ));
+            }
+            if (class_exists($className)) {
+                // 按构造函数签名把 ':a,b' 的字符串参数转成声明的类型。
+                // 否则 'throttle:60,1' 会把字符串 "60" 传给 int $maxAttempts，
+                // strict_types 下抛 TypeError。
+                $ctorArgs = $this->castConstructorArgs($className, $ctorArgs);
+                // 容器有实例且无构造参数时复用（保持单例语义）
+                $instance = ($ctorArgs === [] && $this->container)
+                    ? $this->container->get($className)
+                    : new $className(...$ctorArgs);
+                if (method_exists($instance, 'handle')) {
+                    return $instance->handle($request, $next);
+                }
+                throw new \RuntimeException("Middleware {$className} does not implement handle() method");
+            }
+        }
+
+        // 数组形式 [类名, 方法名]
+        if (is_array($middleware) && count($middleware) === 2) {
+            [$class, $method] = $middleware;
+            if (class_exists($class)) {
+                $instance = $this->container ? $this->container->get($class) : new $class();
+                if (method_exists($instance, $method)) {
+                    return $instance->$method($request, $next);
+                }
+                throw new \RuntimeException("Middleware method {$method} does not exist on {$class}");
+            }
+        }
+
+        // 可调用对象 / 闭包
+        if (is_callable($middleware)) {
+            return $middleware($request, $next);
+        }
+
+        $identifier = is_string($middleware) ? $middleware : gettype($middleware);
+        throw new \RuntimeException("Invalid middleware: {$identifier}");
+    }
+
+    /**
+     * 按构造函数签名把字符串参数转换为声明的类型
+     *
+     * 支持 'throttle:60,1' 这类写法：解析出的参数都是字符串，
+     * 直接传给 int/float/bool 形参会在 strict_types 下抛 TypeError。
+     *
+     * @param string $className 中间件类名
+     * @param array $args 原始字符串参数
+     * @return array 转换后的参数
+     */
+    private function castConstructorArgs(string $className, array $args): array
+    {
+        if ($args === []) {
+            return $args;
+        }
+        $ref = new \ReflectionClass($className);
+        $ctor = $ref->getConstructor();
+        if ($ctor === null) {
+            return $args;
+        }
+        $params = $ctor->getParameters();
+        foreach ($args as $i => $arg) {
+            if (!isset($params[$i]) || !is_string($arg)) {
+                continue;
+            }
+            $type = $params[$i]->getType();
+            if (!$type instanceof \ReflectionNamedType || $type->isBuiltin() === false) {
+                continue;
+            }
+            $args[$i] = match ($type->getName()) {
+                'int' => (int) $arg,
+                'float' => (float) $arg,
+                'bool' => filter_var($arg, FILTER_VALIDATE_BOOLEAN),
+                default => $arg,
+            };
+        }
+        return $args;
     }
 
     /**

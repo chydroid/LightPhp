@@ -100,9 +100,17 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
 
     public function avg(?string $key = null): float|int
     {
-        $count = $this->count();
+        if ($key === null) {
+            $count = $this->count();
+            if ($count === 0) return 0;
+            return $this->sum() / $count;
+        }
+        // 分母只统计实际存在该键的项，避免 sum() 把缺失键当 0 导致均值被稀释
+        $values = array_column($this->items, $key);
+        $nonNull = array_filter($values, fn($v) => $v !== null);
+        $count = count($nonNull);
         if ($count === 0) return 0;
-        return $this->sum($key) / $count;
+        return array_sum($nonNull) / $count;
     }
 
     public function min(?string $key = null): mixed
@@ -379,9 +387,11 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
     public function zip(array $items): self
     {
         $result = [];
-        $count = max(count($this->items), count($items));
+        $a = array_values($this->items);
+        $b = array_values($items);
+        $count = max(count($a), count($b));
         for ($i = 0; $i < $count; $i++) {
-            $result[] = [$this->items[$i] ?? null, $items[$i] ?? null];
+            $result[] = [$a[$i] ?? null, $b[$i] ?? null];
         }
         return new static($result);
     }
@@ -415,6 +425,9 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
 
     public function split(int $number): self
     {
+        if (empty($this->items)) {
+            return new static([]);
+        }
         $chunks = array_chunk($this->items, (int) ceil(count($this->items) / max(1, $number)));
         return new static(array_map(fn($chunk) => new static($chunk), $chunks));
     }

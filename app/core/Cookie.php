@@ -13,7 +13,7 @@ class Cookie
     public static function set(string $key, mixed $value, int $expire = 0, string $path = '/', string $domain = '', ?bool $secure = null, bool $httponly = true, string $samesite = 'Lax'): bool
     {
         if ($secure === null) {
-            $secure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+            $secure = Request::isSecureFromServer();
         }
         if (!is_string($value) && !is_numeric($value)) {
             $encoded = json_encode($value, JSON_UNESCAPED_UNICODE);
@@ -33,7 +33,13 @@ class Cookie
             'samesite' => $samesite,
         ];
 
-        return setcookie($key, (string) $value, $options);
+        $ok = setcookie($key, (string) $value, $options);
+        if ($ok) {
+            // 同一请求后续读取 Cookie::get() 时 setcookie() 尚未生效（浏览器在下一次请求才发送），
+            // 回写 $_COOKIE 使链式读写在同一请求内自洽。
+            $_COOKIE[$key] = (string) $value;
+        }
+        return $ok;
     }
 
     public static function delete(string $key, string $path = '/', string $domain = '', ?bool $secure = null, bool $httponly = true, string $samesite = 'Lax'): bool

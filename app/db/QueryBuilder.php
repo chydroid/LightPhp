@@ -689,7 +689,7 @@ class QueryBuilder
             return $cached;
         }
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($this->bindings);
+        $this->bindAndExecute($stmt, $this->bindings);
         $result = $stmt->fetchAll();
         if ($result === false) {
             $result = [];
@@ -709,7 +709,7 @@ class QueryBuilder
             return $cached[0] ?? null;
         }
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($clone->bindings);
+        $this->bindAndExecute($stmt, $clone->bindings);
         $result = $stmt->fetch();
         if ($result !== false) {
             $this->setCacheFor($sql, [$result]);
@@ -774,7 +774,7 @@ class QueryBuilder
         }
 
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($clone->bindings);
+        $this->bindAndExecute($stmt, $clone->bindings);
         $result = $stmt->fetch();
         return (int) (is_array($result) ? ($result['__count'] ?? 0) : 0);
     }
@@ -841,7 +841,7 @@ class QueryBuilder
 
         $sql = $clone->buildSelect();
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($clone->bindings);
+        $this->bindAndExecute($stmt, $clone->bindings);
         $rows = $stmt->fetchAll();
 
         if ($hasGroup) {
@@ -873,13 +873,13 @@ class QueryBuilder
     public function max(string $column): mixed
     {
         $result = $this->aggregate('MAX', $column, '__max');
-        return is_array($result) ? ($result[0]['__max'] ?? null) : ($result ?: null);
+        return is_array($result) ? ($result[0]['__max'] ?? null) : ($result ?? null);
     }
 
     public function min(string $column): mixed
     {
         $result = $this->aggregate('MIN', $column, '__min');
-        return is_array($result) ? ($result[0]['__min'] ?? null) : ($result ?: null);
+        return is_array($result) ? ($result[0]['__min'] ?? null) : ($result ?? null);
     }
 
     public function insert(array $data): int|string
@@ -892,7 +892,7 @@ class QueryBuilder
         }
         $sql = $this->buildInsert($data);
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($this->bindings);
+        $this->bindAndExecute($stmt, $this->bindings);
         return $this->pdo->lastInsertId();
     }
 
@@ -906,7 +906,7 @@ class QueryBuilder
         }
         $sql = $this->buildUpdate($data);
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($this->bindings);
+        $this->bindAndExecute($stmt, $this->bindings);
         return $stmt->rowCount();
     }
 
@@ -1051,7 +1051,25 @@ class QueryBuilder
     {
         $sql = $this->buildSelect();
         $stmt = $this->pdo->prepare($sql);
-        return $stmt->execute($this->bindings) ? $stmt->rowCount() : 0;
+        return $this->bindAndExecute($stmt, $this->bindings) ? $stmt->rowCount() : 0;
+    }
+
+    /**
+     * 按类型绑定参数并执行，避免 PDO 默认按字符串发送导致数值比较语义错误
+     */
+    private function bindAndExecute(\PDOStatement $stmt, array $bindings): bool
+    {
+        foreach ($bindings as $key => $value) {
+            $paramType = match (true) {
+                $value === null => \PDO::PARAM_NULL,
+                is_bool($value) => \PDO::PARAM_BOOL,
+                is_int($value) => \PDO::PARAM_INT,
+                is_float($value) => \PDO::PARAM_STR,
+                default => \PDO::PARAM_STR,
+            };
+            $stmt->bindValue($key, $value, $paramType);
+        }
+        return $stmt->execute();
     }
 
     public function getBindings(): array

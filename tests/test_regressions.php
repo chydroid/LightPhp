@@ -2144,3 +2144,73 @@ $runner->run('Regression - trusted_hosts 默认即开启防护', function ($t) {
         if ($prevHost !== null) { $_SERVER['HTTP_HOST'] = $prevHost; } else { unset($_SERVER['HTTP_HOST']); }
     }
 });
+
+// =============================================================================
+// 第四轮审计回归（Collection / Hash / Session / QueryBuilder）
+// =============================================================================
+
+$runner->run('Regression - Collection::avg(键) 缺失键不计入分母', function ($t) {
+    // 回归点：原实现用 count() 作分母，缺失该键的项被 sum() 当 0 累加，均值被稀释
+    $c = new \core\Collection([['n' => 10], ['n' => 20], ['z' => 1]]);
+    $t->assertEquals(15, $c->avg('n'), '应仅按存在该键的 2 项求均值');
+    $t->assertEquals(0, (new \core\Collection([['x' => 1]]))->avg('n'), '全部缺失时应返回 0');
+    $t->assertEquals(15, (new \core\Collection([['n' => 10], ['n' => 20]]))->avg('n'));
+});
+
+$runner->run('Regression - Collection::zip 关联数组按下标顺序配对', function ($t) {
+    // 回归点：非连续/字符串键用 $this->items[$i] 取不到元素，全部配成 null
+    $z = (new \core\Collection(['a' => 1, 'b' => 2]))->zip(['x' => 'y']);
+    $t->assertEquals([[1, 'y'], [2, null]], $z->all());
+});
+
+$runner->run('Regression - Collection::split 空集合不触发 array_chunk 异常', function ($t) {
+    // 回归点：count=0 时 chunk 长度为 0，array_chunk 抛 ValueError
+    $t->assertEquals([], (new \core\Collection([]))->split(2)->all());
+    // 5 项分成 2 组 → 每片 3 个 → [3, 2]
+    $t->assertEquals(2, count((new \core\Collection([1, 2, 3, 4, 5]))->split(2)->all()));
+});
+
+$runner->run('Regression - Hash 参数越界抛 InvalidArgumentException', function ($t) {
+    // 回归点：bcrypt cost<4 时 password_hash 静默回退默认值；random_bytes(0|负数) 抛 ValueError
+    $t->assertThrows(\InvalidArgumentException::class, function () { \core\Hash::make('x', 3); });
+    $t->assertThrows(\InvalidArgumentException::class, function () { \core\Hash::make('x', 32); });
+    $t->assertThrows(\InvalidArgumentException::class, function () { \core\Hash::makeToken(0); });
+    $t->assertThrows(\InvalidArgumentException::class, function () { \core\Hash::makeKey(0); });
+    $t->assertEquals(16, strlen(\core\Hash::makeToken(8)));
+});
+
+$runner->run('Regression - Session::flash 显式传 null 视为写入而非读取', function ($t) {
+    // 回归点：$value === null 判定把 flash('k', null) 当成读取，返回并删除旧值
+    \core\Session::flashSet('lp_flash_r4', 'stored');
+    $t->assertNull(\core\Session::flash('lp_flash_r4', null), '显式写入 null 不应返回旧值');
+    $t->assertNull(\core\Session::flash('lp_flash_r4'), '读取已被 null 覆盖');
+});
+
+$runner->run('Regression - Session::all 过滤内部键', function ($t) {
+    // 回归点：原实现直接返回 $_SESSION，_flash_*/_token 等内部状态泄漏给调用方
+    \core\Session::set('lp_pub_r4', 'v');
+    \core\Session::flashSet('lp_priv_r4', 'v');
+    \core\Session::token();
+    $all = \core\Session::all();
+    $t->assertArrayHasKey('lp_pub_r4', $all);
+    $t->assertFalse(array_key_exists('_flash_lp_priv_r4', $all), '不应暴露 _flash_* 键');
+    $t->assertFalse(array_key_exists('_token', $all), '不应暴露 _token 键');
+});
+
+$runner->run('Regression - QueryBuilder 按类型绑定布尔/整型参数', function ($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    // 回归点：execute($bindings) 一律按字符串发送，false 变成 ''，与 0 不相等
+    $pdo = new \PDO('sqlite::memory:');
+    $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+    $pdo->exec('CREATE TABLE t_flags (id INTEGER PRIMARY KEY, active INTEGER)');
+    $pdo->exec('INSERT INTO t_flags (active) VALUES (0)');
+    $pdo->exec('INSERT INTO t_flags (active) VALUES (1)');
+
+    $off = (new \db\QueryBuilder($pdo))->table('t_flags')->where('active', false)->fetchAll();
+    $t->assertCount(1, $off, 'false 应按整数 0 绑定');
+    $on = (new \db\QueryBuilder($pdo))->table('t_flags')->where('active', true)->fetchAll();
+    $t->assertCount(1, $on, 'true 应按整数 1 绑定');
+});

@@ -136,7 +136,9 @@ class Session
     public static function flash(string $key, mixed $value = null): mixed
     {
         self::start();
-        if ($value === null) {
+        // 区分「未传 $value」与「显式传 null」：仅当参数未传入时才视为取回 flash 值，
+        // 否则 flash('n', null) 会被当成 flash('n') 误删已存数据。
+        if (func_num_args() < 2) {
             return self::pull('_flash_' . $key);
         }
         $_SESSION['_flash_' . $key] = $value;
@@ -166,7 +168,16 @@ class Session
     public static function all(): array
     {
         self::start();
-        return $_SESSION;
+        // 过滤内部键（_flash_*、_flash_old、_flash_new、_token 等），
+        // 避免调用方误用框架内部状态。
+        $result = [];
+        foreach ($_SESSION as $key => $value) {
+            if (is_string($key) && str_starts_with($key, '_')) {
+                continue;
+            }
+            $result[$key] = $value;
+        }
+        return $result;
     }
 
     public static function token(): string

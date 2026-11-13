@@ -7,6 +7,9 @@ class Hash
 {
     public static function make(string $value, int $cost = 12): string
     {
+        if ($cost < 4 || $cost > 31) {
+            throw new \InvalidArgumentException("bcrypt cost must be between 4 and 31, got {$cost}");
+        }
         return password_hash($value, PASSWORD_BCRYPT, ['cost' => $cost]);
     }
 
@@ -93,6 +96,9 @@ class Hash
      */
     public static function makeToken(int $length = 32): string
     {
+        if ($length < 1) {
+            throw new \InvalidArgumentException("Token length must be at least 1, got {$length}");
+        }
         return \bin2hex(\random_bytes($length));
     }
 
@@ -104,6 +110,9 @@ class Hash
      */
     public static function makeKey(int $length = 32): string
     {
+        if ($length < 1) {
+            throw new \InvalidArgumentException("Key length must be at least 1, got {$length}");
+        }
         return \base64_encode(\random_bytes($length));
     }
 }

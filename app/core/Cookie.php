@@ -45,7 +45,7 @@ class Cookie
     public static function delete(string $key, string $path = '/', string $domain = '', ?bool $secure = null, bool $httponly = true, string $samesite = 'Lax'): bool
     {
         if ($secure === null) {
-            $secure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+            $secure = Request::isSecureFromServer();
         }
         unset($_COOKIE[$key]);
         return setcookie($key, '', [

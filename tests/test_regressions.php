@@ -2358,3 +2358,145 @@ $runner->run('Regression - make:model 模板引用 model\\Model', function ($t) 
     $t->assertTrue(!str_contains($src, 'use core\\Model'), '模板不应 use 不存在的 core\\Model');
     $t->assertTrue(is_file(APP_PATH . 'model/Model.php'), 'model/Model.php 应存在');
 });
+
+// ========== 第八轮审计回归测试（10 项已实证 bug）==========
+
+// ---------- R8-01 ApiDoc::extractDescription 剥离 docblock 星号 ----------
+$runner->run('Regression - ApiDoc 描述提取不返回星号', function ($t) {
+    $apiDoc = new \core\ApiDoc();
+    $m = new \ReflectionMethod($apiDoc, 'extractDescription');
+    $m->setAccessible(true);
+    $multi = "/**\n * Get a user by id\n *\n * @param int \$id\n * @return string\n */";
+    $t->assertEquals('Get a user by id', $m->invoke($apiDoc, $multi), '多行 docblock 应提取首段描述');
+    $t->assertEquals('Foo bar', $m->invoke($apiDoc, '/** Foo bar */'), '单行 docblock 应提取描述');
+    $t->assertEquals('Hello world', $m->invoke($apiDoc, '* Hello world'), '纯星号行应剥离前缀');
+    $t->assertEquals('', $m->invoke($apiDoc, "/**\n * @param int \$a\n */"), '无描述应返回空串');
+});
+
+// ---------- R8-02/03 SoftDelete 写回状态 + 跨模型 scope 隔离 ----------
+$runner->run('Regression - SoftDelete delete 写回 deleted_at', function ($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    if (!class_exists('R8SoftDeleteWriteback', false)) {
+        class R8SoftDeleteWriteback extends \model\Model
+        {
+            protected string $table = 'r8wb';
+            protected array $fillable = ['name', 'deleted_at'];
+            use \traits\SoftDelete;
+        }
+    }
+    $conn = new \db\Connection(['driver' => 'sqlite', 'database' => ':memory:']);
+    $pdo = $conn->getPdo();
+    $pdo->exec('CREATE TABLE r8wb (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, deleted_at TEXT)');
+    $pdo->exec("INSERT INTO r8wb (name) VALUES ('alice')");
+    \model\Model::setDb($conn);
+    $m = R8SoftDeleteWriteback::find(1);
+    $t->assertTrue(!$m->trashed(), '删除前 trashed() 应为 false');
+    $m->delete();
+    $t->assertTrue($m->trashed(), '软删除后当前实例 trashed() 应立即为 true（deleted_at 写回）');
+});
+
+$runner->run('Regression - SoftDelete 跨模型 scope 不污染父类查询', function ($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    if (!class_exists('R8ScopeParent', false)) {
+        class R8ScopeParent extends \model\Model
+        {
+            protected string $table = 'r8sp';
+            protected array $fillable = ['name', 'deleted_at'];
+            use \traits\SoftDelete;
+        }
+        class R8ScopeChild extends R8ScopeParent
+        {
+            protected string $table = 'r8sc';
+        }
+    }
+    $conn = new \db\Connection(['driver' => 'sqlite', 'database' => ':memory:']);
+    $pdo = $conn->getPdo();
+    $pdo->exec('CREATE TABLE r8sp (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, deleted_at TEXT)');
+    $pdo->exec('CREATE TABLE r8sc (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, deleted_at TEXT)');
+    $pdo->exec("INSERT INTO r8sp (name) VALUES ('parent')");
+    $pdo->exec("INSERT INTO r8sc (name) VALUES ('child')");
+    \model\Model::setDb($conn);
+    // 子类设置 onlyTrashed 作用域，不应污染父类的后续查询
+    R8ScopeChild::onlyTrashed();
+    $rows = R8ScopeParent::all();
+    $names = array_values(array_map(fn($r) => is_array($r) ? $r['name'] : $r->name, $rows));
+    $t->assertEquals(['parent'], $names, '父类查询不应复用子类作用域实例（否则查错表）');
+});
+
+// ---------- R8-04/05 ValidationException 状态码与 getFirstError 类型 ----------
+$runner->run('Regression - ValidationException 状态码与 getFirstError 类型安全', function ($t) {
+    $e = new \core\exception\ValidationException(['email' => ['bad']]);
+    $t->assertEquals(422, $e->getStatusCode(), 'getStatusCode 应与默认 code 422 一致');
+
+    $e2 = new \core\exception\ValidationException(['age' => [123, 'too small']]);
+    $t->assertEquals('123', $e2->getFirstError(), 'int 首元素应安全转为字符串而非 TypeError');
+});
+
+// ---------- R8-06 TaggedCache::flush 聚合失败结果 ----------
+$runner->run('Regression - TaggedCache::flush 反映底层失败', function ($t) {
+    if (!class_exists('R8FlushStore', false)) {
+        class R8FlushStore implements \core\contract\CacheInterface
+        {
+            public bool $fail = false;
+            public array $tags = [];
+            public function get(string $key, mixed $default = null): mixed { return $default; }
+            public function set(string $key, mixed $value, ?int $ttl = null): bool { return true; }
+            public function has(string $key): bool { return false; }
+            public function delete(string $key): bool { return true; }
+            public function clear(): bool { return true; }
+            public function remember(string $key, int $ttl, callable $callback): mixed { return $callback(); }
+            public function increment(string $key, int $step = 1): int { return $step; }
+            public function decrement(string $key, int $step = 1): int { return -$step; }
+            public function many(array $keys): array { return []; }
+            public function setMany(array $values, ?int $ttl = null): bool { return true; }
+            public function deleteMany(array $keys): bool { return true; }
+            public function pull(string $key, mixed $default = null): mixed { return $default; }
+            public function tags(array $tags): \cache\TaggedCache { return new \cache\TaggedCache($this, $tags); }
+            public function flushByTag(string $tag): bool { $this->tags[] = $tag; return !$this->fail; }
+            public function attachTag(string $key, string $tag): void {}
+        }
+    }
+    $store = new R8FlushStore();
+    $tagged = new \cache\TaggedCache($store, ['a', 'b']);
+    $t->assertTrue($tagged->flush(), '底层全部成功时 flush 应返回 true');
+    $store->fail = true;
+    $t->assertTrue(!$tagged->flush(), '任一标签清除失败时 flush 应返回 false');
+});
+
+// ---------- R8-07 Facade 容器在应用启动时接线 ----------
+$runner->run('Regression - Application 启动接线 Facade 容器', function ($t) {
+    $app = new \core\Application();
+    $ref = new \ReflectionClass(\core\Facade::class);
+    $prop = $ref->getProperty('container');
+    $prop->setAccessible(true);
+    $t->assertTrue($prop->getValue() !== null, 'Application 启动后 Facade 容器应已接线');
+    $v = \cache\Cache::get('r8_nonexistent_key', 'fallback', 60);
+    $t->assertEquals('fallback', $v, 'Cache 门面应可经容器正常解析');
+});
+
+// ---------- R8-08 静态 Config 在应用启动时同步 ----------
+$runner->run('Regression - Application 启动同步静态 Config', function ($t) {
+    new \core\Application();
+    $t->assertTrue(\config\Config::has('app.url'), 'Application 启动后静态 Config 应加载 app.url');
+});
+
+// ---------- R8-09 about/contact 模板存在 ----------
+$runner->run('Regression - about/contact 视图模板存在', function ($t) {
+    $t->assertTrue(is_file(APP_PATH . 'view/about.php'), 'about 模板应存在');
+    $t->assertTrue(is_file(APP_PATH . 'view/contact.php'), 'contact 模板应存在');
+});
+
+// ---------- R8-10 RouteNotFoundException 渲染 404 ----------
+$runner->run('Regression - RouteNotFoundException 渲染为 404', function ($t) {
+    $e = new \core\exception\RouteNotFoundException('gone');
+    $t->assertEquals(404, $e->getStatusCode());
+    $eh = new \core\ExceptionHandler(null, false);
+    $resp = $eh->render(new \core\Request(), $e);
+    $t->assertEquals(404, $resp->getStatusCode(), '未捕获的 RouteNotFoundException 应按 404 渲染而非 500');
+});

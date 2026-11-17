@@ -117,10 +117,14 @@ class TaggedCache
      */
     public function flush(): bool
     {
+        $result = true;
         foreach ($this->tags as $tag) {
-            $this->store->flushByTag($tag);
+            // 聚合每个标签的清除结果，任一失败即向调用方返回 false。
+            if (!$this->store->flushByTag($tag)) {
+                $result = false;
+            }
         }
-        return true;
+        return $result;
     }
 
     private function tagKey(string $key): void

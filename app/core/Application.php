@@ -82,6 +82,9 @@ class Application
             $cached = require $cachedFile;
             if (is_array($cached)) {
                 $this->config = $cached;
+                // 同步到静态 Config：Request/Storage 直接读取 config\Config，
+                // 缓存命中时若不同步，app.url/trusted_hosts 等配置不生效。
+                \config\Config::loadCached($cachedFile);
                 return;
             }
         }
@@ -101,6 +104,10 @@ class Application
                 }
             }
         }
+
+        // 同步静态 Config：Request::fallbackHost()/isTrustedHost() 与 Storage
+        // 直接读取 config\Config::$items，此前生产环境从未加载导致配置失效。
+        \config\Config::load($configPath);
     }
 
     /**
@@ -142,6 +149,11 @@ class Application
         // app/route/*.php 中的 'cors' 等别名此前从未注册，导致骨架项目
         // 所有 /api/* 端点在运行时抛 "Invalid middleware: cors"（500）。
         $this->registerMiddlewareAliases();
+
+        // 为 Facade 门面接线容器：Cache::get() 等静态调用此前从未设置容器，
+        // 实际请求中 100% 抛 "Facade container not set"。
+        \core\Facade::setContainer($this->container);
+        \core\Facade::clearResolved();
     }
 
     /**

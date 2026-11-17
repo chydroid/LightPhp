@@ -175,11 +175,16 @@ class ExceptionHandler
         // 调试模式下的详细异常信息仅对可信 IP 暴露，防止生产环境误开 debug 时泄露堆栈
         $showDebug = $this->debug && $this->isTrustedIp();
 
+        // 尊重 FrameworkException 子类声明的 HTTP 状态码（如 RouteNotFoundException=404、
+        // ValidationException=422）。此前一律渲染为 500，导致公共 API 语义与文档承诺不符。
+        $statusCode = ($e instanceof \core\exception\FrameworkException) ? $e->getStatusCode() : 500;
+        $safeMessage = self::SAFE_MESSAGES[$statusCode] ?? '服务器内部错误';
+
         if ($this->currentRequest !== null && $this->shouldReturnJson($this->currentRequest)) {
             $data = [
                 'error' => [
-                    'code' => 500,
-                    'message' => $showDebug ? $e->getMessage() : '服务器内部错误',
+                    'code' => $statusCode,
+                    'message' => $showDebug ? $e->getMessage() : $safeMessage,
                 ],
             ];
 
@@ -190,16 +195,16 @@ class ExceptionHandler
                 $data['error']['trace'] = explode("\n", $e->getTraceAsString());
             }
 
-            return Response::json($data, 500);
+            return Response::json($data, $statusCode);
         }
 
         if ($showDebug) {
-            $content = $this->buildDebugHtml(500, $e->getMessage(), $e);
+            $content = $this->buildDebugHtml($statusCode, $e->getMessage(), $e);
         } else {
-            $content = $this->buildProductionHtml(500, '服务器内部错误');
+            $content = $this->buildProductionHtml($statusCode, $safeMessage);
         }
 
-        return new Response($content, 500);
+        return new Response($content, $statusCode);
     }
 
     /**

@@ -29,10 +29,11 @@ trait SoftDelete
      *
      * PHP 允许以 $obj->staticMethod() 形式调用静态方法，但该调用
      * 不会携带 $this，因此需要借助静态属性记录「当前作用域实例」。
+     * 实例按 static::class 分桶，避免子类实例污染父类（或反之）的静态查询。
      *
-     * @var static|null
+     * @var array<class-string, object>
      */
-    private static ?object $queryScopeInstance = null;
+    private static array $queryScopeInstances = [];
 
     /**
      * 解析本次静态调用应使用的实例
@@ -45,9 +46,10 @@ trait SoftDelete
      */
     private static function resolveScopeInstance(): static
     {
-        $scoped = self::$queryScopeInstance;
+        $key = static::class;
+        $scoped = self::$queryScopeInstances[$key] ?? null;
         if ($scoped instanceof static) {
-            self::$queryScopeInstance = null;
+            unset(self::$queryScopeInstances[$key]);
             return $scoped;
         }
         return new static();
@@ -119,7 +121,7 @@ trait SoftDelete
     {
         $instance = new static();
         $instance->trashedQuery = 'with';
-        self::$queryScopeInstance = $instance;
+        self::$queryScopeInstances[static::class] = $instance;
         return $instance;
     }
 
@@ -130,7 +132,7 @@ trait SoftDelete
     {
         $instance = new static();
         $instance->trashedQuery = 'only';
-        self::$queryScopeInstance = $instance;
+        self::$queryScopeInstances[static::class] = $instance;
         return $instance;
     }
 
@@ -199,7 +201,12 @@ trait SoftDelete
         if ($this->forceDeleting) {
             $result = $this->db()->where($this->primaryKey, '=', $id)->delete();
         } else {
-            $result = $this->db()->where($this->primaryKey, '=', $id)->update(['deleted_at' => date($this->dateFormat)]);
+            $deletedAt = date($this->dateFormat);
+            $result = $this->db()->where($this->primaryKey, '=', $id)->update(['deleted_at' => $deletedAt]);
+            if ($result > 0) {
+                // 写回实例，使 trashed() 立即反映软删除状态，并让重复 delete() 命中短路
+                $this->attributes['deleted_at'] = $deletedAt;
+            }
         }
 
         if ($result > 0) {

@@ -198,3 +198,103 @@
 4. Git 复核 status/diff，提交并推送。
 
 **实施状态**：见 CHANGELOG「[Unreleased] 第七轮复检审计修复」条目。
+
+---
+
+# 第八轮全面审计（盲区补查轮）
+
+> 审计日期：2026-11-17
+> 方式：4 个并行只读子代理分模块排查（属性路由/traits、业务控制器/路由入口/视图、HTTP 异常/验证码/哈希、配置/日志/缓存/契约/门面/迁移）+ 主代理逐条实证脚本复核。
+> 原则：仅修复可实证复现的 bug；未复现项、设计选择、行为差异一律记录不改动。
+> 测试基线：修复前 **1276/1276**；本轮修复后 **1294/1294**（新增 18 条回归测试）全部通过。
+
+## 八-一、结论摘要
+
+| 分类 | 数量 | 处理 |
+|------|------|------|
+| 确认 bug（已实证复现并修复） | 10 | 已修复 + 回归测试 |
+| 证伪 / 设计选择 / 行为差异 | 9 | 记录，不修复 |
+
+## 八-二、确认并修复的 bug（10 项）
+
+### R8-BUG-01 `ApiDoc::extractDescription()` 对标准 docblock 提取到星号
+- **位置**：`app/core/ApiDoc.php:176`
+- **现象**：`/\*\*\n * Foo\n \*/` 提取为 `*`，API 文档描述全部显示为星号。
+- **根因**：正则 `/\*\s*([^@\n]+)/` 首个 `*` 匹配到 `/**` 的第二个星号，捕获组取到下一行的 `*`。
+- **实证**：多行/单行/纯星号行三种输入均返回 `*` 或错误文本。
+- **修复**：改为逐行剥离 `/**`、`*`、`*/` 前缀后缀，跳过空行与 `@` 标签行，取首段真实描述。
+
+### R8-BUG-02 `SoftDelete::delete()` 软删除后不写回实例 `deleted_at`
+- **位置**：`app/traits/SoftDelete.php:199`
+- **现象**：`$m->delete()` 后 `$m->trashed()` 仍为 `false`；对同一实例重复 `delete()` 不命中「已删除」短路。
+- **根因**：只执行 `UPDATE`，未把时间戳写回 `$this->attributes['deleted_at']`。
+- **修复**：`UPDATE` 影响行数 > 0 时写回 `deleted_at`，使状态立即一致。
+
+### R8-BUG-03 `SoftDelete` 静态查询作用域跨模型污染
+- **位置**：`app/traits/SoftDelete.php:35`
+- **现象**：子类 `R8Child::withTrashed()` 后，父类 `R8Parent::all()` 复用了子类作用域实例，查错表抛 PDOException。
+- **根因**：`self::$queryScopeInstance` 单槽全局共享，`instanceof static` 对父类为正（子类是其实例）。
+- **修复**：作用域实例按 `static::class` 分桶存储，父类不再复用子类实例（同时解决上轮 R7-P-14 潜在问题）。
+
+### R8-BUG-04 `ValidationException::getStatusCode()` 恒返 500
+- **位置**：`app/core/exception/ValidationException.php:6`
+- **现象**：默认 `code=422`，但继承的 `getStatusCode()` 返回 500，与自身语义矛盾。
+- **修复**：声明 `protected int $statusCode = 422;`。
+
+### R8-BUG-05 `ValidationException::getFirstError()` 遇非字符串元素抛 TypeError
+- **位置**：`app/core/exception/ValidationException.php:21`
+- **现象**：`['age' => [123, 'too small']]` 首元素为 int 时，返回类型 `?string` 触发 TypeError。
+- **修复**：仅 string 元素直接返回，int 元素安全 `(string)` 转换。
+
+### R8-BUG-06 Facade 容器从未接线，所有门面 100% 不可用
+- **位置**：`app/core/Application.php:registerServices()`
+- **现象**：实际请求中 `Cache::get()` 抛 `RuntimeException: Facade container not set`。
+- **根因**：全仓无任何 `Facade::setContainer()` 调用；门面依赖容器但未在启动时注入。
+- **修复**：`registerServices()` 末尾 `Facade::setContainer($this->container)` + `clearResolved()`。
+
+### R8-BUG-07 静态 `config\Config::$items` 生产环境永不加载
+- **位置**：`app/core/Application.php:loadConfig()`
+- **现象**：`Request::fallbackHost()/isTrustedHost()` 与 `Storage` 直接读 `config\Config`，但应用启动只填 `$this->config` + 容器，静态 Config 恒空。
+- **实证**：启动后 `Config::get('app.url')` 返回 NULL（应为 `http://localhost`）。
+- **修复**：`loadConfig()` 缓存分支调 `loadCached()`、目录分支调 `Config::load()` 同步静态项（解决上轮 P-05 潜在问题）。
+- **注意**：原 `verify_r8.php` 因是纯 CLI 脚本、未实例化 Application 而误判此项为失败；实例化应用后验证通过。
+
+### R8-BUG-08 `/about`、`/contact` 路由指向不存在的模板
+- **位置**：`app/route/web.php:11-12`、`app/controller/IndexController.php`
+- **现象**：两个路由调用 `$this->view('about'/'contact')`，但 `app/view/` 下无对应模板，`View::render()` 抛 `RuntimeException` → 500。
+- **修复**：新增 `app/view/about.php`、`app/view/contact.php`。
+
+### R8-BUG-09 `RouteNotFoundException` 声明 404 却被渲染为 500
+- **位置**：`app/core/ExceptionHandler.php:renderException()`
+- **现象**：异常声明 `$statusCode=404`，但通用异常渲染硬编码 500，未捕获时按 500 输出。
+- **实证**：`ExceptionHandler::render(Request, RouteNotFoundException)` 返回 500（应 404）。
+- **修复**：`renderException()` 读取 `FrameworkException::getStatusCode()`，按真实状态码渲染（含 JSON/HTML 与安全消息白名单）。
+
+### R8-BUG-10 `TaggedCache::flush()` 吞掉底层失败恒返回 true
+- **位置**：`app/cache/TaggedCache.php:118`
+- **现象**：`flushByTag()` 全部失败时 `flush()` 仍返回 `true`，调用方无法感知失败。
+- **修复**：聚合每个标签的 `flushByTag()` 结果，任一失败即返回 false（解决上轮 R7-P-03 潜在问题）。
+
+## 八-三、证伪 / 设计选择 / 行为差异（记录，不修复）
+
+| 编号 | 条目 | 判定 |
+|------|------|------|
+| R8-FP-01 | `UserController::show(int $id)` 字符串实参类型不匹配 | 反射调用在 strict_types 下能正确强转，实测正常，非 bug |
+| R8-D-01 | `FormRequest` 文档与实现关于 `all()`/`validated()` 的差异 | 文档措辞问题，非运行时缺陷 |
+| R8-D-02 | Smarty 示例模板输出固定数据 | 示例性质，非功能缺陷 |
+| R8-D-03 | CAPTCHA 依赖 GD 扩展 | 环境问题，非代码缺陷 |
+| R8-D-04 | `core\contract` PSR-11 契约与实现签名差异 | 设计选择，无实证故障 |
+| R8-D-05 | `app/route/route.php` 与 `web.php` 两份路由定义 | 示例/兼容性质，非 bug |
+| R8-P-01 | `IndexController` 模板双重转义固定文本 | 固定文本无 XSS 风险，低影响 |
+| R8-P-02 | SoftDelete `withTrashed()` 后 dangling 作用域残留 | 属「作用域仅生效一次」设计，窄场景，未实证故障 |
+| R8-P-03 | `RouteNotFoundException` 全仓从未被框架自身抛出 | 公共 API 语义已修复；Router 用 `handleNotFound()` 直接返回 404 |
+
+## 八-四、修复计划与实施
+
+1. 修复 R8-BUG-01 ~ R8-BUG-10（10 处最小改动，匹配现有风格）。
+2. 新增 18 条回归测试到 `tests/test_regressions.php`（含 8 条断言细分）。
+3. `php -l` 全量语法检查 + 全量测试，确认无回归（1294/1294 通过）。
+4. 清理临时实证脚本 `verify_r8*.php`。
+5. Git 复核 status/diff，提交并推送。
+
+**实施状态**：见 CHANGELOG「[Unreleased] 第八轮全面审计修复」条目。

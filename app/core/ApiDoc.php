@@ -179,8 +179,18 @@ class ApiDoc
             return '';
         }
 
-        if (preg_match('/\*\s*([^@\n]+)/', $docComment, $matches)) {
-            return trim($matches[1]);
+        // 逐行剥离 docblock 的 '/**'、'*' 前缀与 '*/' 后缀，
+        // 取第一段非空且非 @ 标签的文本作为描述。
+        // 旧正则 /\*\s*([^@\n]+)/ 会把 "/**\n * Foo\n */" 提取为 "*"。
+        foreach (preg_split('/\r\n|\r|\n/', $docComment) ?: [] as $line) {
+            $line = trim($line);
+            $line = preg_replace('#^/\*\*+#', '', $line) ?? $line;
+            $line = preg_replace('#\*+/$#', '', $line) ?? $line;
+            $line = trim(ltrim($line, '*'));
+            if ($line === '' || $line[0] === '@') {
+                continue;
+            }
+            return $line;
         }
 
         return '';

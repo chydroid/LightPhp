@@ -4,6 +4,23 @@ All notable changes to the LightPHP framework will be documented in this file.
 
 ## [Unreleased]
 
+### 第八轮全面审计修复（10 项已实证 bug）
+
+再次全面审计（4 个并行只读子代理分模块排查盲区 + 主代理逐条实证脚本复核），仅修复可复现的 bug；证伪/设计选择/行为差异 9 项只记录在 `docs/AUDIT_REPORT.md`，不改动代码。全量测试 1294/1294 通过（新增 18 条回归测试）。
+
+- **[BUG-01] `ApiDoc::extractDescription()` 对标准 docblock 提取到星号**：旧正则把 `/**\n * Foo */` 提取为 `*`；改为逐行剥离 `/**`/`*`/`*/` 与 `@` 标签，取首段真实描述。
+- **[BUG-02] `SoftDelete::delete()` 软删除后不写回 `deleted_at`**：当前实例 `trashed()` 仍为 false、重复删除不短路；UPDATE 成功后写回时间戳。
+- **[BUG-03] `SoftDelete` 静态查询作用域跨模型污染**：单槽全局 `self::$queryScopeInstance` 使子类作用域被父类查询复用而查错表；改为按 `static::class` 分桶存储（同时解决上轮 R7-P-14 潜在问题）。
+- **[BUG-04] `ValidationException::getStatusCode()` 恒返 500**：与默认 `code=422` 自相矛盾；声明 `protected int $statusCode = 422`。
+- **[BUG-05] `ValidationException::getFirstError()` 遇非字符串元素抛 TypeError**：返回类型 `?string` 遇到 int 首元素触发 TypeError；string 直接返回、int 安全转字符串。
+- **[BUG-06] Facade 容器从未接线**：实际请求中 `Cache::get()` 等门面 100% 抛 `Facade container not set`；`Application::registerServices()` 末尾 `Facade::setContainer()` + `clearResolved()`（解决上轮 P-05 对应的门面侧缺失）。
+- **[BUG-07] 静态 `config\Config::$items` 生产环境永不加载**：`Request`/`Storage` 直接读取静态 Config 却恒空（`app.url` 返回 NULL）；`loadConfig()` 缓存分支调 `loadCached()`、目录分支调 `Config::load()` 同步静态项（解决上轮 P-05 潜在问题）。
+- **[BUG-08] `/about`、`/contact` 路由指向不存在的模板**：`View::render()` 抛 RuntimeException → 500；新增 `app/view/about.php`、`app/view/contact.php`。
+- **[BUG-09] `RouteNotFoundException` 声明 404 却渲染为 500**：`renderException()` 硬编码 500；改为读取 `FrameworkException::getStatusCode()` 按真实状态码渲染（含 JSON/HTML 与安全消息白名单）。
+- **[BUG-10] `TaggedCache::flush()` 吞掉底层失败恒返回 true**：聚合每个 `flushByTag()` 结果，任一失败即返回 false（解决上轮 R7-P-03 潜在问题）。
+
+> 注：原 `verify_r8.php` 因是纯 CLI 脚本未实例化 Application，误判 BUG-06/07 为失败；实例化应用后验证均通过。详细记录、证伪项与不修复理由见 `docs/AUDIT_REPORT.md` 第八轮章节。
+
 ### 第七轮复检审计修复（5 项已实证 bug）
 
 再次全面审计（4 个并行只读子代理分模块排查 + 主代理逐条实证复核），仅修复可复现的 bug；2 项二次证伪、3 项设计选择/行为差异、4 项与上轮重叠的潜在问题只记录在 `docs/AUDIT_REPORT.md`，不改动代码。全量测试 1276/1276 通过。

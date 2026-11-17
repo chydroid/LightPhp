@@ -193,7 +193,7 @@ $console->register(new class extends \core\console\Command {
             return 0;
         }
 
-        $content = "<?php\ndeclare(strict_types=1);\n\nnamespace model;\n\nuse core\Model;\n\nclass {$name} extends Model\n{\n    protected string \$table = '{$table}';\n    protected string \$primaryKey = 'id';\n    protected array \$fillable = [];\n    protected array \$hidden = [];\n    protected array \$casts = [];\n}\n";
+        $content = "<?php\ndeclare(strict_types=1);\n\nnamespace model;\n\nuse model\Model;\n\nclass {$name} extends Model\n{\n    protected string \$table = '{$table}';\n    protected string \$primaryKey = 'id';\n    protected array \$fillable = [];\n    protected array \$hidden = [];\n    protected array \$casts = [];\n}\n";
 
         if (!is_dir(APP_PATH . 'model/')) {
             mkdir(APP_PATH . 'model/', 0755, true);

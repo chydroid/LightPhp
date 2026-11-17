@@ -232,6 +232,12 @@ class Container implements PsrContainerInterface
         // 解析构造函数依赖
         $dependencies = [];
         foreach ($params as $parameter) {
+            // 显式传入的参数优先级最高，不应被容器自动解析的实例覆盖
+            if (array_key_exists($parameter->getName(), $parameters)) {
+                $dependencies[] = $parameters[$parameter->getName()];
+                continue;
+            }
+
             $type = $parameter->getType();
             $resolved = null;
             $resolvedOk = false;
@@ -263,10 +269,8 @@ class Container implements PsrContainerInterface
                 continue;
             }
 
-            // 使用传入的参数或默认值
-            if (array_key_exists($parameter->getName(), $parameters)) {
-                $dependencies[] = $parameters[$parameter->getName()];
-            } elseif ($parameter->isDefaultValueAvailable()) {
+            // 使用默认值或 nullable 回退
+            if ($parameter->isDefaultValueAvailable()) {
                 $dependencies[] = $parameter->getDefaultValue();
             } elseif ($type !== null && $type->allowsNull()) {
                 $dependencies[] = null;

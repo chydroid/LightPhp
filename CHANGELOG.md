@@ -4,6 +4,37 @@ All notable changes to the LightPHP framework will be documented in this file.
 
 ## [Unreleased]
 
+### 第七轮复检审计修复（5 项已实证 bug）
+
+再次全面审计（4 个并行只读子代理分模块排查 + 主代理逐条实证复核），仅修复可复现的 bug；2 项二次证伪、3 项设计选择/行为差异、4 项与上轮重叠的潜在问题只记录在 `docs/AUDIT_REPORT.md`，不改动代码。全量测试 1275/1275 通过。
+
+- **[BUG-01] `Container::make()` 显式传入的类类型参数被容器自动解析覆盖**
+  - 现象：`make(Foo::class, ['dep' => $explicit])` 得到的是容器绑定的 `stdClass`，而非显式传入的对象
+  - 根因：解析顺序颠倒——先自动解析命名类类型并 `continue`，显式参数分支永远轮不到
+  - 修复：循环开始处优先检查 `$parameters`，命中即使用并 `continue`
+
+- **[BUG-02] `HttpException::getStatusCode()` 恒返 500，与 `getHttpStatusCode()` 不一致**
+  - 现象：`new HttpException(404)` 的 `getHttpStatusCode()` 为 404，`getStatusCode()` 却为 500
+  - 根因：构造函数只设置自身 `$httpStatusCode`，未同步父类 `FrameworkException::$statusCode`
+  - 修复：构造时同步 `$this->statusCode = $httpStatusCode`
+
+- **[BUG-03] `QueryBuilder::count()` 忽略 `distinct()`**
+  - 现象：`distinct()->select('email')->count()` 对 `a,a,b` 返回 3（应为 2）
+  - 根因：`count()` 把 `select` 覆写为 `COUNT(*)`，`DISTINCT` 作用于单行聚合结果无效
+  - 修复：distinct 时下沉为 `COUNT(DISTINCT col)`；未显式传列时从 `select` 字段（去除反引号）提取单列
+
+- **[BUG-04] `Schema::table()` 为 `dropColumn/renameColumn/change` 误加 `ADD COLUMN` 前缀**
+  - 现象：`dropColumn('email')` 生成 `ALTER TABLE ... ADD COLUMN DROP COLUMN \`email\``（非法 SQL）
+  - 根因：`compileAlter()` 与 SQLite 分支把一切非 `ADD ` 开头的变更串都当作新列定义
+  - 修复：新增 `isFullAlterClause()`，识别 `ADD/DROP/RENAME/MODIFY/CHANGE` 完整子句不再加前缀
+
+- **[BUG-05] `bin/console make:model` 生成模板继承不存在的 `core\Model`**
+  - 现象：生成的模型含 `use core\Model;`，但 `core/Model.php` 不存在（真实基类为 `model\Model`）
+  - 根因：模板字符串硬编码了错误命名空间，与 `Generator.php:81` 已修正的写法不一致
+  - 修复：模板改为 `use model\Model;`
+
+- 新增 5 条回归测试（`tests/test_regressions.php`），覆盖上述 5 项，全量测试达 1275/1275 通过。
+
 ### 第六轮审计修复（5 项已实证 bug）
 
 全面审计（4 个并行只读子代理 + 主代理逐条实证复核），仅修复可复现的 bug；5 个被证伪的疑似问题与 14 项潜在/存疑问题只记录在 `docs/AUDIT_REPORT.md`，不改动代码。全量测试 1265/1265 通过。

@@ -108,7 +108,8 @@ class Schema
                 if ($change === '') {
                     continue;
                 }
-                if (!$this->execute("ALTER TABLE `{$this->table}`\n  ADD COLUMN {$change}")) {
+                $clause = $this->isFullAlterClause($change) ? $change : 'ADD COLUMN ' . $change;
+                if (!$this->execute("ALTER TABLE `{$this->table}`\n  {$clause}")) {
                     return false;
                 }
             }
@@ -227,6 +228,14 @@ class Schema
         return implode("\n", $parts);
     }
 
+    /**
+     * 判断变更串是否已是完整的 ALTER 子句（无需再补 ADD COLUMN 前缀）
+     */
+    private function isFullAlterClause(string $change): bool
+    {
+        return (bool) preg_match('/^\s*(ADD|DROP|RENAME|MODIFY|CHANGE)\b/i', $change);
+    }
+
     private function compileAlter(): string
     {
         $changes = array_merge($this->columns, $this->commands);
@@ -239,7 +248,8 @@ class Schema
         // 此前直接拼接裸列定义，任何驱动下新增列都会报语法错误。
         $lines = [];
         foreach ($changes as $change) {
-            $lines[] = '  ' . (stripos($change, 'ADD ') === 0 ? $change : 'ADD COLUMN ' . $change);
+            // DROP/RENAME/MODIFY/CHANGE 等已是完整 ALTER 子句，不能再加 ADD COLUMN
+            $lines[] = '  ' . ($this->isFullAlterClause($change) ? $change : 'ADD COLUMN ' . $change);
         }
 
         // SQLite 的 ALTER TABLE 每次只接受一个子句，多行逗号分隔会语法错误

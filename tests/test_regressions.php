@@ -2282,3 +2282,77 @@ $runner->run('Regression - Config::load 加载含 Config.php 的目录不 fatal'
         '应正常加载配置且不触发类重复声明'
     );
 });
+
+// ========== 第七轮审计回归测试（5 项已实证 bug）==========
+
+// ---------- R7-01 Container::make 显式类参数被容器解析覆盖 ----------
+$runner->run('Regression - Container::make 显式类参数优先于容器自动解析', function ($t) {
+    if (!class_exists('R7ContainerConsumer', false)) {
+        class R7ContainerConsumer
+        {
+            public function __construct(public \stdClass $dep)
+            {
+            }
+        }
+    }
+    $container = new \core\Container();
+    $container->singleton(\stdClass::class, fn() => (object)['tag' => 'from-container']);
+    $explicit = (object)['tag' => 'explicit'];
+    $consumer = $container->make('R7ContainerConsumer', ['dep' => $explicit]);
+    $t->assertEquals('explicit', $consumer->dep->tag, '显式传入的对象不应被容器自动解析覆盖');
+});
+
+// ---------- R7-02 HttpException::getStatusCode 与 getHttpStatusCode 不一致 ----------
+$runner->run('Regression - HttpException::getStatusCode 返回真实状态码', function ($t) {
+    $e = new \core\exception\HttpException(404, 'Not Found');
+    $t->assertEquals(404, $e->getHttpStatusCode());
+    $t->assertEquals(404, $e->getStatusCode(), '继承的 getStatusCode 应与 getHttpStatusCode 一致');
+    $e2 = new \core\exception\HttpException(422, 'bad');
+    $t->assertEquals(422, $e2->getStatusCode());
+});
+
+// ---------- R7-03 QueryBuilder::count 忽略 distinct ----------
+$runner->run('Regression - QueryBuilder::count 尊重 distinct', function ($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $pdo->exec('CREATE TABLE d (id INTEGER PRIMARY KEY, email TEXT)');
+    $pdo->exec("INSERT INTO d (email) VALUES ('a'),('a'),('b')");
+    $distinctCount = (new \db\QueryBuilder($pdo))->table('d')->distinct()->select('email')->count();
+    $t->assertEquals(2, $distinctCount, 'distinct count 应去重后为 2');
+    $plainCount = (new \db\QueryBuilder($pdo))->table('d')->select('email')->count();
+    $t->assertEquals(3, $plainCount, '不带 distinct 时应为 3');
+});
+
+// ---------- R7-04 Schema ALTER 为 DROP COLUMN 误加 ADD COLUMN 前缀 ----------
+$runner->run('Regression - Schema dropColumn SQL 不带 ADD COLUMN 前缀', function ($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $schema = new \db\Schema(new \PDO('sqlite::memory:'));
+    $compileAlter = new \ReflectionMethod($schema, 'compileAlter');
+    $compileAlter->setAccessible(true);
+    $blueprint = new \db\Blueprint('t');
+    $blueprint->dropColumn('email');
+    $bpColumns = new \ReflectionProperty($blueprint, 'columns');
+    $bpColumns->setAccessible(true);
+    $schemaColumns = new \ReflectionProperty($schema, 'columns');
+    $schemaColumns->setAccessible(true);
+    $schemaColumns->setValue($schema, $bpColumns->getValue($blueprint));
+    $sql = $compileAlter->invoke($schema);
+    $t->assertTrue(
+        str_contains($sql, 'DROP COLUMN `email`') && !str_contains($sql, 'ADD COLUMN DROP'),
+        "生成的 ALTER SQL 异常: {$sql}"
+    );
+});
+
+// ---------- R7-05 make:model 模板引用不存在的 core\Model ----------
+$runner->run('Regression - make:model 模板引用 model\\Model', function ($t) {
+    $src = file_get_contents(__DIR__ . '/../bin/console');
+    $t->assertTrue(str_contains($src, 'use model\\Model'), '模板应 use model\\Model');
+    $t->assertTrue(!str_contains($src, 'use core\\Model'), '模板不应 use 不存在的 core\\Model');
+    $t->assertTrue(is_file(APP_PATH . 'model/Model.php'), 'model/Model.php 应存在');
+});

@@ -109,3 +109,92 @@
 5. Git 复核 status/diff，提交并推送。
 
 **实施状态**：见文末 CHANGELOG「[Unreleased] 第六轮审计修复」条目。
+
+---
+
+# 第七轮复检审计（v2.16.0 复检轮）
+
+> 审计日期：2026-11-17
+> 方式：4 个并行只读子代理分模块排查 + 主代理逐条实证脚本复核。
+> 原则：仅修复可实证复现的 bug；设计选择、行为差异、二次证伪项一律记录不改动。
+
+## 七-一、结论摘要
+
+| 分类 | 数量 | 处理 |
+|------|------|------|
+| 确认 bug（已实证复现） | 5 | 已修复 + 回归测试 |
+| 二次证伪（行为正确） | 2 | 不修复 |
+| 设计选择 / 行为差异 | 3 | 不修复 |
+| 潜在问题（与上轮重叠） | 4 | 记录，不改动 |
+
+测试基线：修复前 **1258/1258**；本轮修复后 **1275/1275** 全部通过。
+
+## 七-二、确认并修复的 bug（5 项）
+
+### R7-BUG-01 `Container::make()` 显式类类型参数被容器自动解析覆盖
+- **位置**：`app/core/Container.php:234`
+- **现象**：`make(Foo::class, ['dep' => $explicit])`，构造函数 `dep` 为类类型时得到容器绑定的实例而非显式对象。
+- **根因**：依赖解析顺序颠倒——先对命名类类型执行 `$this->get()` 并 `continue`，显式参数分支永远轮不到。
+- **实证**：`singleton(stdClass, from-container)` + 显式 `explicit` → `dep.tag = 'from-container'`（应为 `'explicit'`）。
+- **修复**：循环起始处优先检查 `$parameters`，命中即用并 `continue`。
+
+### R7-BUG-02 `HttpException::getStatusCode()` 恒返 500
+- **位置**：`app/core/exception/HttpException.php:10`
+- **现象**：`new HttpException(404)` 的 `getHttpStatusCode() = 404`，但继承的 `getStatusCode() = 500`。
+- **根因**：构造函数只设置自身 `$httpStatusCode`，未同步父类 `FrameworkException::$statusCode`（默认 500）。
+- **实证**：两个 getter 返回值不一致。
+- **修复**：构造时同步 `$this->statusCode = $httpStatusCode`。
+
+### R7-BUG-03 `QueryBuilder::count()` 忽略 `distinct()`
+- **位置**：`app/db/QueryBuilder.php:751`
+- **现象**：`distinct()->select('email')->count()` 对 `a,a,b` 返回 3（应为 2）。
+- **根因**：`count()` 覆写 `select` 为 `COUNT(*)`，`DISTINCT` 作用于单行聚合结果无效。
+- **实证**：`getSql()` 为 `SELECT DISTINCT email`，而 count 为 3；显式 `count('email')` 亦为 3。
+- **修复**：distinct 时下沉为 `COUNT(DISTINCT col)`；未显式传列时从 `select` 字段提取（需去除 `select()` 加的反引号）。
+
+### R7-BUG-04 `Schema::table()` 为 `dropColumn/renameColumn/change` 误加 `ADD COLUMN` 前缀
+- **位置**：`app/db/Schema.php:105`（SQLite 分支）与 `compileAlter()`
+- **现象**：`dropColumn('email')` 生成 `ALTER TABLE ... ADD COLUMN DROP COLUMN \`email\``（非法 SQL）。
+- **根因**：`compileAlter()` 与 SQLite 分支把所有非 `ADD ` 开头的变更串一律当作新列定义补 `ADD COLUMN`。
+- **实证**：反射注入 `dropColumn` 变更串，`compileAlter()` 输出带误加前缀。
+- **修复**：新增 `isFullAlterClause()`，识别 `ADD/DROP/RENAME/MODIFY/CHANGE` 完整子句，不再补前缀。
+
+### R7-BUG-05 `bin/console make:model` 生成模板继承不存在的 `core\Model`
+- **位置**：`bin/console:196`
+- **现象**：生成的模型含 `use core\Model;`，但 `core/Model.php` 不存在（真实基类为 `model\Model`）。
+- **根因**：模板字符串硬编码错误命名空间，与 `Generator.php:81` 已修正的 `use model\Model;` 不一致。
+- **实证**：模板含 `use core\Model` 且 `core/Model.php` 不存在。
+- **修复**：模板改为 `use model\Model;`。
+
+## 七-三、二次证伪（不修复）
+
+| 编号 | 声称 | 实证结果 | 结论 |
+|------|------|---------|------|
+| R7-FP-01 | OPTIONS 预检错用末条路由 middleware | 差分实验：marker 挂命中路由时预检执行、挂末条路由时不执行 → 实际用命中路由 | 行为正确 |
+| R7-FP-02 | `View::include()` 子视图未转义导致 XSS | 子视图 `<?= $x ?>` 实测输出 `&lt;script&gt;...`，已被转义 | 行为正确 |
+
+## 七-四、设计选择 / 行为差异（不修复）
+
+| 编号 | 条目 | 判定 |
+|------|------|------|
+| R7-D-01 | Application 对非法返回值回 HTTP 200、body `code=500` | 注释中「500」指 body 字段，属既有设计，非状态行错误 |
+| R7-D-02 | `Model::toArray()` 不应用访问器（Laravel 会应用） | 设计差异，改动面大且可能破坏依赖原始属性的调用方 |
+| R7-D-03 | `sum()/avg()` 在 SQLite 返回 float | 实测正常，MySQL 场景无法实证，记录为潜在 |
+
+## 七-五、潜在问题（与上轮重叠，记录不改动）
+
+| 编号 | 条目 | 位置 | 不改原因 |
+|------|------|------|---------|
+| R7-P-01 | `Application::handleException()` 生产环境回显异常消息 | `app/core/Application.php:386` | 与上轮 P 类重叠；已走 `getHttpStatusCode()`，消息回显需产品决策 |
+| R7-P-02 | `ExceptionHandler` 未引用 `SAFE_MESSAGES` 白名单 | `app/core/exception/ExceptionHandler.php:145` | 静态一致，属安全策略增强，非实证故障 |
+| R7-P-03 | `TaggedCache::flush()` 忽略 `flushByTag()` 返回值 | `app/cache/TaggedCache.php` | 返回值语义需与缓存驱动契约确认 |
+| R7-P-04 | `Blade` 未编译 `@env/@endenv`、FileCache `.lock` 清理 | `app/view/Blade.php`、`app/cache/FileCache.php` | 需功能需求确认，非 bug |
+
+## 七-六、修复计划与实施
+
+1. 修复 R7-BUG-01 ~ R7-BUG-05（5 处最小改动）。
+2. 新增 5 条回归测试到 `tests/test_regressions.php`。
+3. `php -l` 全量语法检查 + 全量测试，确认无回归（1275/1275 通过）。
+4. Git 复核 status/diff，提交并推送。
+
+**实施状态**：见 CHANGELOG「[Unreleased] 第七轮复检审计修复」条目。

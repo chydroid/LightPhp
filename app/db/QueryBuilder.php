@@ -764,9 +764,24 @@ class QueryBuilder
             $innerSql = $clone->buildSelect();
             $sql = "SELECT COUNT(*) as __count FROM ({$innerSql}) AS __count_sub";
         } else {
-            $clone->select = $column === '*'
-                ? "COUNT(*) as __count"
-                : "COUNT(`{$column}`) as __count";
+            // distinct() 时去重必须下沉到聚合函数内部：COUNT(DISTINCT *) 非法，
+            // 未显式传列则从已设置的 select 字段（纯列名）中提取
+            $distinctColumn = $column;
+            if ($clone->distinct && $column === '*') {
+                // select() 会以反引号包裹列名（如 `email`），需去除后再校验是否为单列
+                $selected = trim(trim($clone->select), '`');
+                if ($selected !== '' && $selected !== '*' && preg_match('/^[a-zA-Z0-9_]+$/', $selected)) {
+                    $distinctColumn = $selected;
+                }
+            }
+            if ($clone->distinct && $distinctColumn !== '*') {
+                $clone->select = "COUNT(DISTINCT `{$distinctColumn}`) as __count";
+                $clone->distinct = false;
+            } else {
+                $clone->select = $column === '*'
+                    ? "COUNT(*) as __count"
+                    : "COUNT(`{$column}`) as __count";
+            }
             $clone->groupBy = '';
             $clone->having = [];
             $clone->clearHavingBindings();

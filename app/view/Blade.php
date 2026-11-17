@@ -308,6 +308,7 @@ class Blade
             '@endprepend(?!\w)'            => '<?php $__blade->endPrepend(); ?>',
             '@production(?!\w)'            => '<?php if (env(\'APP_ENV\') === \'production\'): ?>',
             '@endproduction(?!\w)'         => '<?php endif; ?>',
+            '@endenv(?!\w)'                => '<?php endif; ?>',
         ];
 
         foreach ($statements as $pattern => $replacement) {

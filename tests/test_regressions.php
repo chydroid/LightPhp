@@ -2500,3 +2500,32 @@ $runner->run('Regression - RouteNotFoundException 渲染为 404', function ($t) 
     $resp = $eh->render(new \core\Request(), $e);
     $t->assertEquals(404, $resp->getStatusCode(), '未捕获的 RouteNotFoundException 应按 404 渲染而非 500');
 });
+
+// ---------- R9-BUG-01 Blade @env/@endenv 结束标签编译 ----------
+$runner->run('Regression - Blade @endenv 编译为 endif 无 ParseError', function ($t) {
+    $tmp = sys_get_temp_dir() . '/blade_endenv_' . getmypid();
+    @mkdir($tmp . '/views', 0777, true);
+    @mkdir($tmp . '/cache', 0777, true);
+    try {
+        $blade = new \view\Blade($tmp . '/views', $tmp . '/cache');
+        $compiled = $blade->compileString("@env('production')X@endenv");
+        $t->assertTrue(!str_contains($compiled, '@endenv'), '@endenv 必须被编译，不可原样残留');
+        $t->assertTrue(str_contains($compiled, 'endif'), '@env 块必须生成 endif 结束标签');
+
+        file_put_contents($tmp . '/views/probe.blade.php', "HEAD@env('production')MID@endenv TAIL");
+        $out = $blade->render('probe');
+        $t->assertTrue(is_string($out), '@env/@endenv 模板应能正常渲染（无 ParseError）');
+        $t->assertTrue(
+            str_starts_with($out, 'HEAD') && str_ends_with($out, 'TAIL'),
+            '应保留 @env 块外的内容'
+        );
+    } finally {
+        @unlink($tmp . '/views/probe.blade.php');
+        foreach (glob($tmp . '/cache/*') ?: [] as $f) {
+            @unlink($f);
+        }
+        @rmdir($tmp . '/views');
+        @rmdir($tmp . '/cache');
+        @rmdir($tmp);
+    }
+});

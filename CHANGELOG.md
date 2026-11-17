@@ -4,6 +4,14 @@ All notable changes to the LightPHP framework will be documented in this file.
 
 ## [Unreleased]
 
+### 第九轮全面审计修复（1 项已实证 bug）
+
+再次全面审计（子代理工具本轮不可用，主代理手动逐文件深入检查前八轮未逐行覆盖的深层盲区文件：视图/模板、缓存、DB 连接、事件/环境/会话、容器/管道/路由、ORM 模型、核心控制器辅助类等），仅修复可实证复现的 bug；证伪/设计选择/行为差异 8 项只记录在 `docs/AUDIT_REPORT.md`，不改动代码。全量测试 1298/1298 通过（新增 1 条回归测试、4 项断言）。
+
+- **[BUG-01] `Blade @env(...)...@endenv` 缺少结束标签编译导致模板 ParseError**：`@env('production')` 被编译为 `if(...):` 冒号语法，但 `@endenv` 在 statements 表中无映射、原样残留，缺少 `endif;` 闭合 → `Parse error: unexpected end of file, expecting endif`；新增 `'@endenv(?!\w)' => '<?php endif; ?>'` 映射（对比 `@production/@endproduction` 成对存在，属遗漏）。注：第八轮 R7-P-04 曾将其误判为"需功能需求确认，非 bug"，本轮实证推翻。
+
+> 详细记录、覆盖文件清单、证伪项与不修复理由见 `docs/AUDIT_REPORT.md` 第九轮章节。
+
 ### 第八轮全面审计修复（10 项已实证 bug）
 
 再次全面审计（4 个并行只读子代理分模块排查盲区 + 主代理逐条实证脚本复核），仅修复可复现的 bug；证伪/设计选择/行为差异 9 项只记录在 `docs/AUDIT_REPORT.md`，不改动代码。全量测试 1294/1294 通过（新增 18 条回归测试）。

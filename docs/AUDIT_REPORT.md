@@ -188,7 +188,7 @@
 | R7-P-01 | `Application::handleException()` 生产环境回显异常消息 | `app/core/Application.php:386` | 与上轮 P 类重叠；已走 `getHttpStatusCode()`，消息回显需产品决策 |
 | R7-P-02 | `ExceptionHandler` 未引用 `SAFE_MESSAGES` 白名单 | `app/core/exception/ExceptionHandler.php:145` | 静态一致，属安全策略增强，非实证故障 |
 | R7-P-03 | `TaggedCache::flush()` 忽略 `flushByTag()` 返回值 | `app/cache/TaggedCache.php` | 返回值语义需与缓存驱动契约确认 |
-| R7-P-04 | `Blade` 未编译 `@env/@endenv`、FileCache `.lock` 清理 | `app/view/Blade.php`、`app/cache/FileCache.php` | 需功能需求确认，非 bug |
+| R7-P-04 | `Blade` 未编译 `@env/@endenv`、FileCache `.lock` 清理 | `app/view/Blade.php`、`app/cache/FileCache.php` | `@env/@endenv` 部分已在第九轮实证为 bug 并修复（见 R9-BUG-01）；FileCache `.lock` 清理仍需功能需求确认，非 bug |
 
 ## 七-六、修复计划与实施
 
@@ -298,3 +298,54 @@
 5. Git 复核 status/diff，提交并推送。
 
 **实施状态**：见 CHANGELOG「[Unreleased] 第八轮全面审计修复」条目。
+
+---
+
+# 第九轮全面审计（深层盲区补查轮）
+
+> 审计日期：2026-11-17
+> 方式：主代理手动逐文件深入审计（子代理工具本轮不可用），聚焦前八轮未逐行检查的深层文件：视图/模板、缓存、DB 连接、事件/环境/会话、容器/管道/路由、ORM 模型、核心控制器辅助类等。
+> 原则：仅修复可实证复现的 bug；未复现项、设计选择、行为差异一律记录不改动。
+> 测试基线：修复前 **1294/1294**；本轮修复后 **1298/1298**（新增 1 条回归测试、4 项断言）全部通过。
+
+## 九-一、覆盖文件清单（本轮新检查）
+
+- 视图/模板：`View.php`、`Blade.php`、`SmartyView.php`
+- 缓存：`FileCache.php`、`CacheManager.php`、`TaggedCache.php`
+- 数据库：`Connection.php`、`Model.php`、`ModelQuery.php`
+- 核心：`EventDispatcher.php`、`Env.php`、`Session.php`、`Container.php`、`Pipeline.php`、`Router.php`、`Facade.php`、`FormRequest.php`、`Generator.php`
+- 控制器/命令：`IndexController.php`、`UserController.php`、`SmartyUserController.php`、`Command.php`、`Console.php`
+- 配置/工具：`app.php`、`cache.php`、`database.php`、`storage.php`、`route.php`、`Hash.php`、`helpers.php`、`Helper.php`、`Validate.php`、`Upload.php`、`Collection.php`、`Smarty.php`
+
+## 九-二、确认并修复的 bug
+
+### R9-BUG-01 `Blade @env(...)... @endenv` 缺少结束标签编译，模板 ParseError
+- **位置**：`app/view/Blade.php:280`（balanced 映射）与 `compileStatements()` 的 statements 表
+- **现象**：`@env('production')` 被编译为 `<?php if (env('APP_ENV') === 'production'): ?>`，但 `@endenv` 在 statements 表中无映射，原样残留在模板中。冒号语法的 `if` 必须由 `endif;` 闭合，导致编译产物触发 `Parse error: unexpected end of file, expecting "elseif" or "else" or "endif"`。
+- **根因**：`@env` 在 balanced 表中被当作带参数语句编译为 `if(...):`，但遗漏了配套的 `@endenv → <?php endif; ?>` 映射。对比 `@production/@endproduction`（309-310 行）成对存在，属明显遗漏。
+- **实证**：`compileString("@env('production')HELLO@endenv")` 产物残留 `@endenv`、`endif` 计数为 0，`php -l` 报 ParseError；`@production...@endproduction` 对照正常（`endif` 计数 1、无残留）。
+- **修复**：statements 表新增 `'@endenv(?!\w)' => '<?php endif; ?>'`（与 `@endproduction` 一致）。修复后编译产物 `endif` 计数 1、无残留，渲染正常。
+- **注意**：第八轮 R7-P-04 曾将 `"Blade 未编译 @env/@endenv"` 判为"需功能需求确认，非 bug"——本轮实证推翻该结论：`@env` **已**被编译为 `if(...):`，缺的是结束标签映射，属确定性缺陷而非功能需求。
+
+## 九-三、证伪 / 设计选择 / 行为差异（记录，不修复）
+
+| 编号 | 条目 | 判定 |
+|------|------|------|
+| R9-FP-01 | `Connection::beginTransaction()` 嵌套 SAVEPOINT 用 `exec()` 返回 int 触发 bool 返回 TypeError | 已在此前修复（170-174 行注释明确 `$result = true`），非 bug |
+| R9-FP-02 | `View::include()` 双重转义 | 已在早期修复（272-275 行临时关闭 autoEscape），非 bug |
+| R9-FP-03 | `Env::load()` 类型化值与 `putenv` 字符串不一致 | 已在早期修复（84-88 行 $_ENV 存类型化、putenv 存字符串），非 bug |
+| R9-FP-04 | `Router::executeHandler()` 闭包展开字符串键参数触发 "Unknown named parameter" | 已修复（935-946 行 array_values + 变参处理），非 bug |
+| R9-FP-05 | `Session::flash()` 显式 null 被误判为取回 | 已修复（141 行 func_num_args 判断），非 bug |
+| R9-D-01 | `FileCache` 无独立分布式锁、`clear()` 用 glob 非递归 | 单进程/单目录语义，属设计选择，无实证故障 |
+| R9-D-02 | `Model::withRelation()` 需显式声明 `xxxModel` 属性或调用关联方法推断类 | 约定优于配置，非 bug |
+| R9-D-03 | `Generator::guessNamespace()` 固定返回 `model`/`controller` | 与 Loader 命名空间映射一致，非 bug |
+
+## 九-四、修复计划与实施
+
+1. 修复 R9-BUG-01（1 处最小改动，匹配现有 statements 表风格）。
+2. 新增 1 条回归测试到 `tests/test_regressions.php`（含 4 项断言，覆盖编译产物、残留、语法、渲染）。
+3. `php -l` 语法检查 + 全量测试，确认无回归（1298/1298 通过）。
+4. 清理临时实证脚本 `probe_env.php`。
+5. Git 复核 status/diff，提交并推送。
+
+**实施状态**：见 CHANGELOG「[Unreleased] 第九轮全面审计修复」条目。

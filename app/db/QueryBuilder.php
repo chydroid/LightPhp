@@ -763,25 +763,34 @@ class QueryBuilder
             // GROUP BY 查询：用子查询包裹以正确计算分组数
             $innerSql = $clone->buildSelect();
             $sql = "SELECT COUNT(*) as __count FROM ({$innerSql}) AS __count_sub";
-        } else {
-            // distinct() 时去重必须下沉到聚合函数内部：COUNT(DISTINCT *) 非法，
-            // 未显式传列则从已设置的 select 字段（纯列名）中提取
+        } elseif ($clone->distinct) {
+            // DISTINCT 必须在聚合前生效：单列用 COUNT(DISTINCT col)，
+            // 多列/表达式用子查询去重后计数（COUNT(DISTINCT *) 非法）
             $distinctColumn = $column;
-            if ($clone->distinct && $column === '*') {
-                // select() 会以反引号包裹列名（如 `email`），需去除后再校验是否为单列
+            if ($column === '*') {
+                // select() 会以反引号包裹列名（如 `email`），去除后仅纯单列名可下沉
                 $selected = trim(trim($clone->select), '`');
                 if ($selected !== '' && $selected !== '*' && preg_match('/^[a-zA-Z0-9_]+$/', $selected)) {
                     $distinctColumn = $selected;
                 }
             }
-            if ($clone->distinct && $distinctColumn !== '*') {
+            if ($distinctColumn !== '*') {
                 $clone->select = "COUNT(DISTINCT `{$distinctColumn}`) as __count";
                 $clone->distinct = false;
+                $clone->groupBy = '';
+                $clone->having = [];
+                $clone->clearHavingBindings();
+                $sql = $clone->buildSelect();
             } else {
-                $clone->select = $column === '*'
-                    ? "COUNT(*) as __count"
-                    : "COUNT(`{$column}`) as __count";
+                // 多列/表达式：外层统计去重子查询的行数
+                $clone->having = [];
+                $clone->clearHavingBindings();
+                $sql = "SELECT COUNT(*) as __count FROM ({$clone->buildSelect()}) AS __distinct_count";
             }
+        } else {
+            $clone->select = $column === '*'
+                ? "COUNT(*) as __count"
+                : "COUNT(`{$column}`) as __count";
             $clone->groupBy = '';
             $clone->having = [];
             $clone->clearHavingBindings();

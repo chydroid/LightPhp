@@ -127,7 +127,7 @@
 | 设计选择 / 行为差异 | 3 | 不修复 |
 | 潜在问题（与上轮重叠） | 4 | 记录，不改动 |
 
-测试基线：修复前 **1258/1258**；本轮修复后 **1275/1275** 全部通过。
+测试基线：修复前 **1258/1258**；本轮修复后 **1276/1276** 全部通过。
 
 ## 七-二、确认并修复的 bug（5 项）
 
@@ -149,8 +149,8 @@
 - **位置**：`app/db/QueryBuilder.php:751`
 - **现象**：`distinct()->select('email')->count()` 对 `a,a,b` 返回 3（应为 2）。
 - **根因**：`count()` 覆写 `select` 为 `COUNT(*)`，`DISTINCT` 作用于单行聚合结果无效。
-- **实证**：`getSql()` 为 `SELECT DISTINCT email`，而 count 为 3；显式 `count('email')` 亦为 3。
-- **修复**：distinct 时下沉为 `COUNT(DISTINCT col)`；未显式传列时从 `select` 字段提取（需去除 `select()` 加的反引号）。
+- **实证**：`getSql()` 为 `SELECT DISTINCT email`，而 count 为 3；显式 `count('email')` 亦为 3；多列 `select(['email','city'])` 亦被忽略。
+- **修复**：单列下沉为 `COUNT(DISTINCT col)`（未显式传列时从 `select` 字段提取，需去反引号）；多列/表达式改用 `SELECT COUNT(*) FROM (SELECT DISTINCT ...)` 子查询去重计数。
 
 ### R7-BUG-04 `Schema::table()` 为 `dropColumn/renameColumn/change` 误加 `ADD COLUMN` 前缀
 - **位置**：`app/db/Schema.php:105`（SQLite 分支）与 `compileAlter()`
@@ -194,7 +194,7 @@
 
 1. 修复 R7-BUG-01 ~ R7-BUG-05（5 处最小改动）。
 2. 新增 5 条回归测试到 `tests/test_regressions.php`。
-3. `php -l` 全量语法检查 + 全量测试，确认无回归（1275/1275 通过）。
+3. `php -l` 全量语法检查 + 全量测试，确认无回归（1276/1276 通过）。
 4. Git 复核 status/diff，提交并推送。
 
 **实施状态**：见 CHANGELOG「[Unreleased] 第七轮复检审计修复」条目。

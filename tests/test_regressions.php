@@ -2318,12 +2318,14 @@ $runner->run('Regression - QueryBuilder::count 尊重 distinct', function ($t) {
         return;
     }
     $pdo = new \PDO('sqlite::memory:');
-    $pdo->exec('CREATE TABLE d (id INTEGER PRIMARY KEY, email TEXT)');
-    $pdo->exec("INSERT INTO d (email) VALUES ('a'),('a'),('b')");
+    $pdo->exec('CREATE TABLE d (id INTEGER PRIMARY KEY, email TEXT, city TEXT)');
+    $pdo->exec("INSERT INTO d (email, city) VALUES ('a','x'),('a','x'),('b','y')");
     $distinctCount = (new \db\QueryBuilder($pdo))->table('d')->distinct()->select('email')->count();
-    $t->assertEquals(2, $distinctCount, 'distinct count 应去重后为 2');
+    $t->assertEquals(2, $distinctCount, '单列 distinct count 应去重后为 2');
     $plainCount = (new \db\QueryBuilder($pdo))->table('d')->select('email')->count();
     $t->assertEquals(3, $plainCount, '不带 distinct 时应为 3');
+    $multiDistinct = (new \db\QueryBuilder($pdo))->table('d')->distinct()->select(['email', 'city'])->count();
+    $t->assertEquals(2, $multiDistinct, '多列 distinct count 应按组合去重后为 2');
 });
 
 // ---------- R7-04 Schema ALTER 为 DROP COLUMN 误加 ADD COLUMN 前缀 ----------

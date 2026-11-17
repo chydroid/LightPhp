@@ -6,7 +6,7 @@ All notable changes to the LightPHP framework will be documented in this file.
 
 ### 第七轮复检审计修复（5 项已实证 bug）
 
-再次全面审计（4 个并行只读子代理分模块排查 + 主代理逐条实证复核），仅修复可复现的 bug；2 项二次证伪、3 项设计选择/行为差异、4 项与上轮重叠的潜在问题只记录在 `docs/AUDIT_REPORT.md`，不改动代码。全量测试 1275/1275 通过。
+再次全面审计（4 个并行只读子代理分模块排查 + 主代理逐条实证复核），仅修复可复现的 bug；2 项二次证伪、3 项设计选择/行为差异、4 项与上轮重叠的潜在问题只记录在 `docs/AUDIT_REPORT.md`，不改动代码。全量测试 1276/1276 通过。
 
 - **[BUG-01] `Container::make()` 显式传入的类类型参数被容器自动解析覆盖**
   - 现象：`make(Foo::class, ['dep' => $explicit])` 得到的是容器绑定的 `stdClass`，而非显式传入的对象
@@ -21,7 +21,7 @@ All notable changes to the LightPHP framework will be documented in this file.
 - **[BUG-03] `QueryBuilder::count()` 忽略 `distinct()`**
   - 现象：`distinct()->select('email')->count()` 对 `a,a,b` 返回 3（应为 2）
   - 根因：`count()` 把 `select` 覆写为 `COUNT(*)`，`DISTINCT` 作用于单行聚合结果无效
-  - 修复：distinct 时下沉为 `COUNT(DISTINCT col)`；未显式传列时从 `select` 字段（去除反引号）提取单列
+  - 修复：单列下沉为 `COUNT(DISTINCT col)`（未显式传列时从 `select` 字段提取，需去反引号）；多列/表达式改用 `SELECT COUNT(*) FROM (SELECT DISTINCT ...)` 子查询去重计数
 
 - **[BUG-04] `Schema::table()` 为 `dropColumn/renameColumn/change` 误加 `ADD COLUMN` 前缀**
   - 现象：`dropColumn('email')` 生成 `ALTER TABLE ... ADD COLUMN DROP COLUMN \`email\``（非法 SQL）
@@ -33,7 +33,7 @@ All notable changes to the LightPHP framework will be documented in this file.
   - 根因：模板字符串硬编码了错误命名空间，与 `Generator.php:81` 已修正的写法不一致
   - 修复：模板改为 `use model\Model;`
 
-- 新增 5 条回归测试（`tests/test_regressions.php`），覆盖上述 5 项，全量测试达 1275/1275 通过。
+- 新增 5 条回归测试（`tests/test_regressions.php`），覆盖上述 5 项，全量测试达 1276/1276 通过。
 
 ### 第六轮审计修复（5 项已实证 bug）
 

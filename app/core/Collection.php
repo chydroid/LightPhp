@@ -322,6 +322,9 @@ class Collection implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonS
         foreach ($this->items as $item) {
             if (is_array($item)) {
                 array_push($result, ...(new static($item))->flatten()->all());
+            } elseif ($item instanceof self) {
+                // Collection 实现 IteratorAggregate 而非 array，需单独递归展平
+                array_push($result, ...$item->flatten()->all());
             } else {
                 $result[] = $item;
             }

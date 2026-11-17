@@ -2214,3 +2214,71 @@ $runner->run('Regression - QueryBuilder 按类型绑定布尔/整型参数', fun
     $on = (new \db\QueryBuilder($pdo))->table('t_flags')->where('active', true)->fetchAll();
     $t->assertCount(1, $on, 'true 应按整数 1 绑定');
 });
+
+// ============================================================================
+// 第六轮审计修复 —— 5 项确认 bug（详见 docs/AUDIT_REPORT.md）
+// ============================================================================
+
+// ---------- BUG-01 except=['/'] 无法命中根路径 ----------
+$runner->run('Regression - Middleware except=["/"] 命中根路径', function ($t) {
+    $mw = new class extends \middleware\Middleware {
+        public function handle(\core\Request $request, callable $next): mixed { return $next($request); }
+        public function setExcept(array $e): void { $this->except = $e; }
+        public function skip(): bool { return $this->shouldSkip(); }
+    };
+    $old = $_SERVER['REQUEST_URI'] ?? null;
+    try {
+        $_SERVER['REQUEST_URI'] = '/';
+        $mw->setExcept(['/']);
+        $t->assertTrue($mw->skip(), '根路径 / 应命中 except=["/"]');
+        $mw->setExcept(['/api']);
+        $t->assertFalse($mw->skip(), '根路径不应命中 except=["/api"]');
+    } finally {
+        if ($old === null) {
+            unset($_SERVER['REQUEST_URI']);
+        } else {
+            $_SERVER['REQUEST_URI'] = $old;
+        }
+    }
+});
+
+// ---------- BUG-02 getFirstError 遇空错误数组提前返回 ----------
+$runner->run('Regression - ValidationException::getFirstError 跳过空错误数组', function ($t) {
+    $e = new \core\exception\ValidationException(['email' => [], 'name' => ['name required']]);
+    $t->assertEquals('name required', $e->getFirstError());
+    $e2 = new \core\exception\ValidationException(['a' => [], 'b' => []]);
+    $t->assertNull($e2->getFirstError());
+});
+
+// ---------- BUG-03 flatten 不展平嵌套 Collection ----------
+$runner->run('Regression - Collection::flatten 展平嵌套 Collection', function ($t) {
+    $c = new \core\Collection([1, [2, new \core\Collection([3, 4])]]);
+    $t->assertEquals([1, 2, 3, 4], $c->flatten()->all());
+});
+
+// ---------- BUG-04 Env::get 对 $_ENV 中的非字符串值抛 TypeError ----------
+$runner->run('Regression - Env::get 对 $_ENV 中的布尔值不抛 TypeError', function ($t) {
+    // load() 会把类型化 true 写入 $_ENV，清空静态缓存迫使 get() 走 $_ENV 分支
+    $r = new \ReflectionClass(\core\Env::class);
+    $vars = $r->getProperty('vars');
+    $vars->setAccessible(true);
+    $old = $vars->getValue();
+    $vars->setValue(null, []);
+    $_ENV['LP_ENV_BOOL_PROBE'] = true;
+    try {
+        $t->assertTrue(\core\Env::get('LP_ENV_BOOL_PROBE') === true, '布尔 true 应原样返回');
+    } finally {
+        unset($_ENV['LP_ENV_BOOL_PROBE']);
+        $vars->setValue(null, $old);
+    }
+});
+
+// ---------- BUG-05 Config::load 加载自身 Config.php 导致 fatal ----------
+$runner->run('Regression - Config::load 加载含 Config.php 的目录不 fatal', function ($t) {
+    // 回归点：glob('*.php') 包含 Config.php 自身，require 会重复声明类导致 fatal
+    \config\Config::load(APP_PATH . 'config');
+    $t->assertTrue(
+        \config\Config::has('app.url') || \config\Config::has('database.default'),
+        '应正常加载配置且不触发类重复声明'
+    );
+});

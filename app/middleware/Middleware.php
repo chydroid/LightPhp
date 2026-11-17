@@ -18,6 +18,10 @@ abstract class Middleware
 
         foreach ($this->except as $pattern) {
             $pattern = rtrim($pattern, '/');
+            // normalizeUri() 对根路径返回 '/'，而 rtrim('/', '/') 得到 ''；对齐为空时回退到 '/'
+            if ($pattern === '') {
+                $pattern = '/';
+            }
             if ($pattern === '*' || $pattern === $uri) {
                 return true;
             }

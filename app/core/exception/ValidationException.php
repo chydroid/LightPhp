@@ -21,7 +21,13 @@ class ValidationException extends FrameworkException
     public function getFirstError(): ?string
     {
         foreach ($this->errors as $fieldErrors) {
-            return $fieldErrors[0] ?? null;
+            // 字段的错误数组可能为空，跳过继续查找后续字段的真实错误
+            if (is_array($fieldErrors) && isset($fieldErrors[0])) {
+                return $fieldErrors[0];
+            }
+            if (is_string($fieldErrors) && $fieldErrors !== '') {
+                return $fieldErrors;
+            }
         }
         return null;
     }

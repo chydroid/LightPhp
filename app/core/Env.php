@@ -110,7 +110,9 @@ class Env
 
         if (isset($_ENV[$key])) {
             $val = $_ENV[$key];
-            $lower = strtolower($val);
+            // load() 会把类型化值（true/false/null）写入 $_ENV，strict_types 下
+            // 必须先转字符串再比较；返回值保留原始类型化值
+            $lower = strtolower((string) $val);
             if ($lower === 'true') return true;
             if ($lower === 'false') return false;
             if ($lower === 'null') return null;

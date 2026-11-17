@@ -4,6 +4,37 @@ All notable changes to the LightPHP framework will be documented in this file.
 
 ## [Unreleased]
 
+### 第六轮审计修复（5 项已实证 bug）
+
+全面审计（4 个并行只读子代理 + 主代理逐条实证复核），仅修复可复现的 bug；5 个被证伪的疑似问题与 14 项潜在/存疑问题只记录在 `docs/AUDIT_REPORT.md`，不改动代码。全量测试 1265/1265 通过。
+
+- **[BUG-01] `Middleware::except(['/'])` 无法命中根路径**
+  - 现象：根路径 `/` 上 `except=['/']` 白名单失效
+  - 根因：`normalizeUri()` 对根路径返回 `'/'`，而 `rtrim('/', '/')` 得到 `''`，恒不相等
+  - 修复：`rtrim` 结果为空时回退为 `'/'`
+
+- **[BUG-02] `ValidationException::getFirstError()` 遇空错误数组提前返回 null**
+  - 现象：`['email' => [], 'name' => ['name required']]` 返回 `null`，丢失真实错误
+  - 根因：`foreach` 首轮即 `return $fieldErrors[0] ?? null`
+  - 修复：跳过空/非数组条目，返回首个真实错误，兼容字符串消息格式
+
+- **[BUG-03] `Collection::flatten()` 不展平嵌套 `Collection`**
+  - 现象：`[1, [2, new Collection([3,4])]]` 展平后仍含集合对象
+  - 根因：仅判断 `is_array()`，`Collection` 实现 `IteratorAggregate` 而非 array
+  - 修复：增加 `instanceof self` 分支递归展平，与 Laravel 语义一致
+
+- **[BUG-04] `Env::get()` 对 `$_ENV` 中非字符串值抛 `TypeError`**
+  - 现象：`strtolower(): Argument #1 must be of type string, bool given`
+  - 根因：`load()` 会把类型化值写入 `$_ENV`，strict_types 下直接传给 `strtolower()`
+  - 修复：比较时用 `(string) $val`，返回值保留原始类型
+
+- **[BUG-05] `Config::load()` 加载应用配置目录触发 fatal**
+  - 现象：`Cannot redeclare class config\Config`
+  - 根因：`glob('*.php')` 包含 `Config.php` 自身，`require` 时重复声明类
+  - 修复：与 `Application::loadConfig()` 一致，跳过 `Config.php`
+
+- 新增 5 条回归测试（覆盖上述 5 项），全量测试由 1258 增至 1265 条，全部通过。
+
 ### 修复 (HIGH)
 
 本轮审计聚焦中间件执行链路，4 个 HIGH 缺陷集中在 `Router` 的中间件解析/执行处。

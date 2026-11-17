@@ -81,6 +81,11 @@ class Config
 
         foreach ($files as $file) {
             $name = basename($file, '.php');
+            // Config.php 是类定义文件而非配置数组，require 会重复声明类导致 fatal；
+            // 与 Application::loadConfig() 保持一致，直接跳过。
+            if ($name === 'Config') {
+                continue;
+            }
             // 二次加载同一目录会重复 require 同一文件，导致其中的
             // 函数/类重复声明 fatal；已加载过的配置直接跳过。
             if (array_key_exists($name, self::$items)) {

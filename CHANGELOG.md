@@ -4,6 +4,15 @@ All notable changes to the LightPHP framework will be documented in this file.
 
 ## [Unreleased]
 
+### 第十轮全面审计修复（4 项已实证 bug）
+
+全模块交叉复核（主代理逐文件通读 core/db/model/view/cache/middleware/log/traits/console 全部类，20+ 组最小复现探针实证），仅修复可实证复现的 bug；7 项证伪、3 项设计观察只记录在 `docs/AUDIT_REPORT.md` 第十轮章节，不改动代码。全量测试 1307/1307 通过（新增 4 条回归测试、9 项断言）。
+
+- **[BUG-01] `QueryBuilder::groupBy()` 多次调用静默覆盖先前分组键**：`groupBy('g')->groupBy('h')` 生成 `GROUP BY h` 丢失第一键，聚合粒度错误（实测 3 组数据返回 2 组）；改为非空时追加列，与 `orderBy()` 语义对齐。
+- **[BUG-02] `chunkById()` 已有 DESC 排序时重复读取同一批行且提前终止**：克隆体追加 `ORDER BY id ASC` 与原 `id DESC` 叠加，首列生效导致游标回退（实测 5 行表回调收到 5,4,5 即止，漏掉 1/2/3 行）；克隆体先重置 `orderBy` 再按游标列升序排序。
+- **[BUG-03] Blade `@@` 转义失效**：`@@if($x)` 编译为 `@<?php if ($x): ?>`——丢一个 `@` 且生成真实控制结构，单写即 ParseError，与文档承诺的「@@ 原样输出」不符；编译前将 `@@(?=[a-zA-Z])` 换占位 token、结束后还原为单个 `@`（与 emailTokens/verbatim 机制同构）。
+- **[BUG-04] Blade `@each` 循环变量泄漏到父模板作用域**：`@each('item',[1,2],'row')` 结束后 `$row` 残留并覆盖父模板同名变量（与 `@include` 隔离语义不一致）；编译产物在循环前记录原值、结束后恢复或 unset，保留 require 语义兼容既有测试。
+
 ### 第九轮全面审计修复（1 项已实证 bug）
 
 再次全面审计（子代理工具本轮不可用，主代理手动逐文件深入检查前八轮未逐行覆盖的深层盲区文件：视图/模板、缓存、DB 连接、事件/环境/会话、容器/管道/路由、ORM 模型、核心控制器辅助类等），仅修复可实证复现的 bug；证伪/设计选择/行为差异 8 项只记录在 `docs/AUDIT_REPORT.md`，不改动代码。全量测试 1298/1298 通过（新增 1 条回归测试、4 项断言）。

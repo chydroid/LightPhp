@@ -391,7 +391,13 @@ class QueryBuilder
     public function groupBy(string $column): self
     {
         $this->validateColumnName($column);
-        $this->groupBy = "GROUP BY " . $this->sanitizeColumn($column);
+        // 多次调用追加列（与 orderBy 一致）：此前直接覆盖，
+        // groupBy('g')->groupBy('h') 会静默丢失第一个分组键
+        if ($this->groupBy !== '') {
+            $this->groupBy .= ', ' . $this->sanitizeColumn($column);
+        } else {
+            $this->groupBy = "GROUP BY " . $this->sanitizeColumn($column);
+        }
         return $this;
     }
 
@@ -1018,6 +1024,11 @@ class QueryBuilder
         do {
             $clone = clone $this;
             $clone->where($column, '>', $lastId);
+            // 游标分页依赖按 $column 升序推进：必须重置已有排序。
+            // 此前 orderBy() 是追加语义，链上已有 orderBy('id','DESC') 时
+            // 生成 ORDER BY id DESC, id ASC —— 首列生效导致取到的是最大端，
+            // lastId 回退后重复读取同一批行（实测 5,4,5 且提前终止）。
+            $clone->orderBy = '';
             $clone->orderBy($column, 'ASC');
             $clone->limit($count);
             $results = $clone->fetchAll();

@@ -2529,3 +2529,96 @@ $runner->run('Regression - Blade @endenv 编译为 endif 无 ParseError', functi
         @rmdir($tmp);
     }
 });
+
+// ---------- R10-BUG-01 QueryBuilder groupBy 多次调用覆盖 ----------
+$runner->run('Regression - groupBy 多次调用追加列而非覆盖', function ($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+    $pdo->exec('CREATE TABLE r10g (g TEXT, h TEXT, v INT)');
+    $pdo->exec("INSERT INTO r10g VALUES ('a','x',1),('a','y',2),('b','x',4)");
+    $q = (new \db\QueryBuilder($pdo))->table('r10g')->groupBy('g')->groupBy('h');
+    $sql = $q->getSql();
+    $t->assertStringContains('`g`, `h`', $sql, '两次 groupBy 应生成 GROUP BY g, h');
+    $rows = $q->fetchAll();
+    $t->assertEquals(3, count($rows), '(g,h) 组合共 3 组，覆盖 bug 会按单列分组得 2 组');
+});
+
+// ---------- R10-BUG-02 chunkById 已有 DESC 排序导致重复读取 ----------
+$runner->run('Regression - chunkById 重置已有排序避免重复行', function ($t) {
+    if (!in_array('sqlite', \PDO::getAvailableDrivers())) {
+        $t->assertTrue(true, 'SQLite driver not available, test skipped');
+        return;
+    }
+    $pdo = new \PDO('sqlite::memory:');
+    $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+    $pdo->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_ASSOC);
+    $pdo->exec('CREATE TABLE r10c (id INTEGER PRIMARY KEY, name TEXT)');
+    for ($i = 1; $i <= 5; $i++) {
+        $pdo->exec("INSERT INTO r10c VALUES ($i,'n$i')");
+    }
+    $seen = [];
+    (new \db\QueryBuilder($pdo))->table('r10c')->orderBy('id', 'DESC')->chunkById(2, function ($rows) use (&$seen) {
+        foreach ($rows as $r) {
+            $seen[] = $r['id'];
+        }
+        if (count($seen) > 12) {
+            return false; // 防御：旧 bug 下会无限重复
+        }
+    });
+    $t->assertEquals([1, 2, 3, 4, 5], $seen, '游标分页必须每行恰好访问一次（旧 bug 实测 5,4,5）');
+});
+
+// ---------- R10-BUG-03 Blade @@ 转义失效 ----------
+$runner->run('Regression - Blade @@if/@@endif 输出字面指令不编译', function ($t) {
+    $blade = new \view\Blade(VIEW_PATH, STORAGE_PATH . 'views/');
+    $t->assertEquals('@if($x)', $blade->compileString('@@if($x)'), '@@if 应还原为字面 @if');
+    $t->assertEquals('@endif', $blade->compileString('@@endif'), '@@endif 应还原为字面 @endif');
+    $t->assertEquals('@foreach($a as $b)', $blade->compileString('@@foreach($a as $b)'), '@@foreach 同理');
+
+    $tmp = sys_get_temp_dir() . '/blade_r10at_' . getmypid();
+    @mkdir($tmp . '/views', 0777, true);
+    @mkdir($tmp . '/cache', 0777, true);
+    try {
+        file_put_contents($tmp . '/views/at.blade.php', '@@if($x) and @@endif');
+        $b = new \view\Blade($tmp . '/views', $tmp . '/cache');
+        $out = $b->render('at');
+        $t->assertEquals('@if($x) and @endif', $out, '渲染结果应为字面文本且无 ParseError');
+    } finally {
+        @unlink($tmp . '/views/at.blade.php');
+        foreach (glob($tmp . '/cache/*') ?: [] as $f) {
+            @unlink($f);
+        }
+        @rmdir($tmp . '/views');
+        @rmdir($tmp . '/cache');
+        @rmdir($tmp);
+    }
+});
+
+// ---------- R10-BUG-04 Blade @each 循环变量泄漏到父作用域 ----------
+$runner->run('Regression - Blade @each 结束后恢复父作用域同名变量', function ($t) {
+    $tmp = sys_get_temp_dir() . '/blade_r10each_' . getmypid();
+    @mkdir($tmp . '/views', 0777, true);
+    @mkdir($tmp . '/cache', 0777, true);
+    try {
+        file_put_contents($tmp . '/views/item.blade.php', '[{{ $row }}]');
+        file_put_contents($tmp . '/views/leak.blade.php', "@each('item', [1,2], 'row')after={{ isset(\$row) ? 'LEAK' : 'clean' }}");
+        file_put_contents($tmp . '/views/keep.blade.php', "@each('item', [1,2], 'row')after={{ \$row }}");
+        $b = new \view\Blade($tmp . '/views', $tmp . '/cache');
+        $t->assertEquals('[1][2]after=clean', $b->render('leak'), '@each 后不应残留循环变量');
+        $t->assertEquals('[1][2]after=PARENT', $b->render('keep', ['row' => 'PARENT']), '@each 后父模板同名变量应恢复原值');
+    } finally {
+        foreach (glob($tmp . '/views/*') ?: [] as $f) {
+            @unlink($f);
+        }
+        foreach (glob($tmp . '/cache/*') ?: [] as $f) {
+            @unlink($f);
+        }
+        @rmdir($tmp . '/views');
+        @rmdir($tmp . '/cache');
+        @rmdir($tmp);
+    }
+});

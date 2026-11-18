@@ -221,15 +221,31 @@ class Blade
             $content
         );
 
+        // 保护 @@ 转义：@@if / @@endif 等应原样输出字面 @if / @endif，
+        // 而非编译成指令（此前 @@if($x) 编译为 @<?php if...，既丢一个 @
+        // 又产生未闭合控制结构导致 ParseError）。先换成占位 token，
+        // 编译结束后还原为单个 @。
+        $escapedAtTokens = [];
+        $content = (string) preg_replace_callback(
+            '/@@(?=[a-zA-Z])/',
+            function () use (&$escapedAtTokens) {
+                $key = '__ESCAPEDAT_' . count($escapedAtTokens) . '__';
+                $escapedAtTokens[$key] = '@';
+                return $key;
+            },
+            $content
+        );
+
         $content = $this->compileEach($content);
         $content = $this->compileStatements($content);
         $content = $this->compileEchos($content);
         $content = $this->compileDirectives($content);
         $content = $this->compileIncludes($content);
 
-        // 还原邮箱 token 与 verbatim 块
+        // 还原邮箱 token、verbatim 块与 @@ 转义 token
         $content = str_replace(array_keys($emailTokens), array_values($emailTokens), $content);
-        return str_replace(array_keys($verbatimBlocks), array_values($verbatimBlocks), $content);
+        $content = str_replace(array_keys($verbatimBlocks), array_values($verbatimBlocks), $content);
+        return str_replace(array_keys($escapedAtTokens), array_values($escapedAtTokens), $content);
     }
 
     /**
@@ -500,9 +516,16 @@ class Blade
                 $view = trim($parts[0], "'\"");
                 $items = $parts[1];
                 $var = trim($parts[2], "'\"");
-                return '<?php foreach ((array)(' . $items . ') as $__key => $' . $var . '): ?>'
+                // 循环变量用完即恢复/清理：此前 foreach 直接写在父作用域，
+                // @each 结束后 $row 泄漏到父模板（实测 isset($row) 为 true），
+                // 覆盖父模板同名变量。与 @include 的作用域隔离语义对齐。
+                return '<?php $__eachPrev = array_key_exists(\'' . addslashes($var) . '\', get_defined_vars()) ? $' . $var . ' : null; '
+                     . '$__eachHad = array_key_exists(\'' . addslashes($var) . '\', get_defined_vars()); '
+                     . 'foreach ((array)(' . $items . ') as $__key => $' . $var . '): ?>'
                      . '<?php $__inc_each = $__blade->resolveInclude(\'' . addslashes($view) . '\'); if ($__inc_each) { require $__inc_each; } ?>'
-                     . '<?php endforeach; ?>';
+                     . '<?php endforeach; '
+                     . 'if ($__eachHad) { $' . $var . ' = $__eachPrev; } else { unset($' . $var . '); } '
+                     . 'unset($__eachPrev, $__eachHad, $__inc_each, $__key); ?>';
             },
             $content
         );

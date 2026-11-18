@@ -349,3 +349,80 @@
 5. Git 复核 status/diff，提交并推送。
 
 **实施状态**：见 CHANGELOG「[Unreleased] 第九轮全面审计修复」条目。
+
+---
+
+# 第十轮全面审计（全模块交叉复核轮）
+
+> 审计日期：2026-11-18
+> 方式：主代理手动逐文件通读全部核心/DB/视图/缓存/中间件/模型/工具类，对每个疑点编写最小复现脚本实证；与前九轮已修复项、证伪清单逐项去重。
+> 原则：仅修复可实证复现的 bug；未复现项、设计选择、行为差异一律记录不改动。
+> 测试基线：修复前 **1298/1298**；本轮修复后 **1307/1307**（新增 4 条回归测试、9 项断言）全部通过。
+
+## 十-一、覆盖范围
+
+本轮为全量交叉复核：core 全部 25 个类（HttpClient/Cookie/HttpResponse/Captcha/Storage/LocalDisk/ExceptionHandler/Hash/Response/Request/Upload/Session/Validate/Collection/JsonResource/EventDispatcher/Pipeline/Container/Application/Router/Generator/ApiDoc/Env/FormRequest/Loader/Facade/Controller/helpers/Disk）、db 全部（QueryBuilder/Connection/ModelQuery/Schema/Seeder）、model/Model、view 全部（Blade/View/Smarty/SmartyView/Helper）、cache 全部（FileCache/CacheManager/TaggedCache/RedisCache/MemcachedCache）、middleware（Throttle/OutputCache/Cors/RequestLogMiddleware）、log/Logger、traits（SoftDelete/HasModelEvents/Macroable）、console（Console/Command）。共执行 20+ 组最小复现探针（P1~P20）。
+
+## 十-二、确认并修复的 bug
+
+### R10-BUG-01 `QueryBuilder::groupBy()` 多次调用静默覆盖先前分组键
+- **位置**：`app/db/QueryBuilder.php:391`
+- **现象**：`->groupBy('g')->groupBy('h')` 生成 `GROUP BY h`，第一个分组键被丢弃；聚合结果按错误的粒度分组（实测 3 组数据只返回 2 组）。
+- **根因**：`$this->groupBy = "GROUP BY ..."` 直接赋值覆盖；同类的 `orderBy()` 是追加语义，两者不一致。
+- **实证**：SQLite 内存表 (g,h) 三组合数据，链式两次 groupBy 后 `getSql()` 仅含 `h`，fetchAll 返回 2 行而非 3 行。
+- **修复**：非空时以 `, ` 追加列（与 orderBy 对齐），首次调用保持原格式。
+- **回归测试**：`Regression - groupBy 多次调用追加列而非覆盖`（SQL 断言 + 行数断言）。
+
+### R10-BUG-02 `chunkById()` 在已有 DESC 排序时重复读取同一批行且提前终止
+- **位置**：`app/db/QueryBuilder.php:1019`（chunkById 克隆分支）
+- **现象**：`->orderBy('id','DESC')->chunkById(2, cb)` 实测回调收到 `5,4,5` 后即结束——第 1、2、3 行永远读不到，第 5 行重复处理。对账/迁移类任务会漏数据且重复执行副作用。
+- **根因**：游标分页依赖按 `$column` 升序推进，但 `orderBy()` 是追加语义：克隆体上追加 `ORDER BY id ASC` 后实际 SQL 为 `ORDER BY id DESC, id ASC`，首列 DESC 生效 → 每批取最大端，`lastId` 回退导致 `WHERE id > lastId` 反复命中同一批。
+- **实证**：5 行表 chunk=2，seen=[5,4,5]；按非主键列 `name DESC` 排序同样复现。字符串主键（TEXT PK）升序场景正常（P16 对照）。
+- **修复**：克隆体先 `$clone->orderBy = ''` 重置排序再追加 `orderBy($column,'ASC')`，保证游标推进方向唯一。
+- **回归测试**：`Regression - chunkById 重置已有排序避免重复行`（断言恰好 [1,2,3,4,5]，含防死循环上限）。
+
+### R10-BUG-03 Blade `@@` 转义失效：`@@if(...)` 被编译成指令且丢失一个 `@`
+- **位置**：`app/view/Blade.php` compileString 管线
+- **现象**：`@@if($x)` 编译为 `@<?php if ($x): ?>`、`@@endif` 编译为 `@<?php endif; ?>`——既没有输出字面 `@if`，还生成了真实控制结构；模板中单写 `@@if(...)` 会因未闭合 if 直接 ParseError。文档注释（tests/test_regressions.php:395）明确承诺「需要原样输出时应使用 @@ 转义」，实现与承诺不符。
+- **根因**：编译管线只有邮箱 token 与 verbatim 保护，没有 `@@` 转义处理；statements 正则匹配到第二个 `@` 开始编译，残留第一个 `@`。
+- **实证**：compileString('@@if($x)') === '@<?php if ($x): ?>'（修复前）。
+- **修复**：编译前将 `@@(?=[a-zA-Z])` 替换为占位 token，管线结束后还原为单个 `@`（与既有 emailTokens/verbatimBlocks 机制同构）。`@@custom` 等未知指令同样正确输出 `@custom`。
+- **回归测试**：`Regression - Blade @@if/@@endif 输出字面指令不编译`（compileString 三断言 + 端到端 render 无 ParseError）。
+
+### R10-BUG-04 Blade `@each` 循环变量泄漏到父模板作用域
+- **位置**：`app/view/Blade.php` compileEach
+- **现象**：`@each('item', [1,2], 'row')` 结束后父模板 `isset($row)` 为 true（实测输出 LEAK）；若父模板本有同名 `$row`，其值被循环最后一项覆盖。与 `@include` 的作用域隔离语义不一致，属模板变量污染。
+- **根因**：编译产物 `foreach (... as $row)` 直接在父作用域展开，结束后未清理/恢复。
+- **实证**：子模板渲染 [1][2] 后 `after=LEAK`；父传 row=PARENT 时被覆盖为 2。
+- **修复**：编译产物在 foreach 前记录 `$__eachHad/$__eachPrev`，结束后有则恢复原值、无则 unset，并清理辅助变量。保留 require 语义（兼容既有测试 A2「compiles to require not echo」）。
+- **回归测试**：`Regression - Blade @each 结束后恢复父作用域同名变量`（clean 断言 + PARENT 恢复断言）。
+
+## 十-三、证伪项（疑似但实证不成立，不改动）
+
+| 编号 | 疑点 | 实证结果 | 结论 |
+|------|------|----------|------|
+| R10-FP-01 | Model `$hidden` 字段经 paginate/fetchAll JSON 泄漏 | ASSOC fetch 模式（Connection 真实默认）下输出 `[{"id":1,"name":"alice"}]`，password 已隐藏；此前"泄漏"系探针误用 BOTH 模式的假象 | 非 bug |
+| R10-FP-02 | `View::include()` 传入新数据未转义（XSS） | 父模板传原始 `<script>` 经 include 输出 `&lt;script&gt;`，转义正常；字面量场景输出原文属 autoEscape 对编译期常量的既有设计（R7-FP-02/R9-FP-02 同源） | 非 bug |
+| R10-FP-03 | FileCache remember 回调抛异常后残留脏值 | has(key)=false，无脏缓存；仅遗留 .lock 文件（锁文件按设计保留复用，见 R8 相关记录） | 非 bug |
+| R10-FP-04 | TaggedCache flush 后底层键残留 | flush 后 get 均为 NULL | 非 bug |
+| R10-FP-05 | whereIn 空数组生成非法 SQL | 返回 0 行，SQL 合法 | 非 bug |
+| R10-FP-06 | chunkById 字符串主键（uuid）游标失效 | TEXT PK 升序遍历 a,b,c,d,e 完整无重复 | 非 bug |
+| R10-FP-07 | Env 双引号值 `\n` 未转义为换行 | dotenv 语义各家不一（vlucas/dotenv 支持、symfony 不支持），本项目未承诺该语义 | 行为差异，不改 |
+
+## 十-四、潜在问题 / 设计观察（记录不改动）
+
+| 编号 | 观察 | 说明 |
+|------|------|------|
+| R10-D-01 | `groupBy('g,h')` 逗号串抛 Invalid column name | 校验器按单列名设计，多列需链式调用（本轮 BUG-01 修复后链式语义已正确）；如需支持逗号串属功能增强 |
+| R10-D-02 | QueryBuilder 无 `whereNotIn()` 方法 | 功能缺失而非缺陷；可用 whereRaw 或后续增强 |
+| R10-D-03 | `@@` 后接非字母（如 `@@1`）不转义 | 与 Laravel 行为一致（仅指令形态需转义），维持现状 |
+
+## 十-五、修复计划与实施
+
+1. 修复 R10-BUG-01 ~ R10-BUG-04（2 个文件、4 处最小改动，匹配现有风格与注释密度）。
+2. 新增 4 条回归测试（9 项断言）到 `tests/test_regressions.php`。
+3. `php -l` 语法检查 + 全量测试，确认无回归（**1307/1307** 通过）。
+4. 清理临时实证脚本 `probe_r10*.php`。
+5. Git 复核 status/diff，提交。
+
+**实施状态**：见 CHANGELOG「[Unreleased] 第十轮全面审计修复」条目。

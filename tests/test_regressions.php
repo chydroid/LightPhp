@@ -1519,6 +1519,30 @@ $runner->run('Regression - OPTIONS 预检经过中间件并带 CORS 头', functi
     }
 });
 
+$runner->run('Regression - OPTIONS 预检只执行命中 URI 的路由中间件', function ($t) {
+    // 回归点：URI 命中但方法不匹配时，OPTIONS 回退误用循环结束后的 $route
+    // （最后注册的路由）的中间件，导致预检被无关路由的中间件拦截。
+    $old = $_SERVER['REQUEST_URI'] ?? null;
+    $oldMethod = $_SERVER['REQUEST_METHOD'] ?? null;
+    $_SERVER['REQUEST_METHOD'] = 'OPTIONS';
+    $_SERVER['REQUEST_URI'] = '/api/user';
+    try {
+        $blocker = fn($req, $next) => \core\Response::make('BLOCKED', 403);
+        $router = new \core\Router();
+        $router->get('/api/user', fn() => \core\Response::make('ok'));
+        $router->middleware([$blocker]);
+        $router->get('/other', fn() => \core\Response::make('other'));
+
+        $res = $router->dispatch(new \core\Request());
+        $t->assertEquals(204, $res->getStatusCode(), '预检应返回 204');
+        $t->assertEquals('', $res->getContent(), '不应被无关路由的中间件拦截');
+    } finally {
+        foreach ([['REQUEST_URI', $old], ['REQUEST_METHOD', $oldMethod]] as [$k, $v]) {
+            if ($v !== null) { $_SERVER[$k] = $v; } else { unset($_SERVER[$k]); }
+        }
+    }
+});
+
 $runner->run('Regression - shouldSkip 重复斜杠无法绕过白名单', function ($t) {
     // 回归点：parse_url('//api//user') 按 authority-form 解析得到 '/user'，
     // $except 白名单被等价路径绕过。
@@ -1813,6 +1837,41 @@ $runner->run('Regression - Request 支持多文件上传字段', function ($t) {
         $t->assertFalse($req->hasFile('missing'), '不存在的字段应返回 false');
         $t->assertEquals([], $req->files('missing'), '不存在的字段应返回空数组');
         $t->assertNull($req->singleFile('missing'), '不存在的字段 singleFile() 应返回 null');
+    } finally {
+        if ($prevFiles === null) { unset($_FILES); } else { $_FILES = $prevFiles; }
+    }
+});
+
+$runner->run('Regression - Request 识别 PHP 原生多文件结构', function ($t) {
+    // 回归点：PHP 对 name="docs[]" 产出顶层 name/error 仍存在、但其值为数组的
+    // 转置结构，isMultiFileField 却因「存在 name/error 键」误判为单文件。
+    $prevFiles = $_FILES ?? null;
+    $_FILES = [
+        'docs' => [
+            'name' => ['a.pdf', 'b.pdf'],
+            'type' => ['application/pdf', 'application/pdf'],
+            'tmp_name' => ['/tmp/a', '/tmp/b'],
+            'error' => [UPLOAD_ERR_OK, UPLOAD_ERR_OK],
+            'size' => [10, 20],
+        ],
+        'idle' => [
+            'name' => ['x.pdf'],
+            'type' => ['application/pdf'],
+            'tmp_name' => [''],
+            'error' => [UPLOAD_ERR_NO_FILE],
+            'size' => [0],
+        ],
+    ];
+
+    try {
+        $req = new \core\Request();
+        $t->assertEquals(2, count($req->files('docs')), 'files() 应展开原生多文件结构');
+        $t->assertEquals('a.pdf', $req->files('docs')[0]->getClientName(), '顺序应保持');
+        $t->assertEquals('b.pdf', $req->files('docs')[1]->getClientName(), '第二个文件应存在');
+        $t->assertTrue($req->hasFile('docs'), '有文件时 hasFile 应为 true');
+        $t->assertFalse($req->hasFile('idle'), '全部子文件未选择时 hasFile 应为 false');
+        $t->assertThrows(\LogicException::class, fn() => $req->singleFile('docs'), '多文件字段 singleFile() 应抛异常');
+        $t->assertEquals('a.pdf', $req->file('docs')->getClientName(), 'file() 应取第一个子文件');
     } finally {
         if ($prevFiles === null) { unset($_FILES); } else { $_FILES = $prevFiles; }
     }

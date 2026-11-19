@@ -426,3 +426,74 @@
 5. Git 复核 status/diff，提交。
 
 **实施状态**：见 CHANGELOG「[Unreleased] 第十轮全面审计修复」条目。
+
+# 第十一轮全面审计（剩余模块清零轮）
+
+## 十一-一、覆盖范围
+
+本轮把前十轮尚未逐行通读的模块全部清零，并复核了与 HTTP 分发、文件上传直接相关的既有实现：
+
+- 视图层：`app/view/Blade.php`、`View.php`、`Smarty.php`、`SmartyView.php`、`Helper.php`
+- 配置：`app/config/Config.php`、`app.php`、`cache.php`、`database.php`、`storage.php`
+- 控制台：`app/core/console/Command.php`、`Console.php`、`bin/make.php`、`bin/generate-apidoc.php`
+- 日志：`app/log/Logger.php`
+- 数据库：`app/db/Schema.php`（含 `Blueprint` / `Migration`）、`Seeder.php`
+- 缓存：`app/cache/RedisCache.php`、`MemcachedCache.php`（`FileCache` / `TaggedCache` / `CacheManager` 复核）
+- 中间件：`OutputCache.php`、`CsrfMiddleware.php`、`RequestLogMiddleware.php`
+- 核心工具：`Collection.php`、`Captcha.php`、`ApiDoc.php`、`Generator.php`、`HttpResponse.php`、`HttpClient.php`、`JsonResource.php`、`ExceptionHandler.php`、`Macroable.php`、`ServiceProvider.php`、`attributes/Route.php`
+- 入口与路由：`public/index.php`、`app/route/*.php`、`app/controller/*.php`
+
+## 十一-二、确认并修复的 bug（2 项）
+
+### R11-BUG-01 OPTIONS 预检误用「最后注册路由」的中间件
+- **位置**：`app/core/Router.php:554-601`（`dispatch()` 的 OPTIONS 回退分支）
+- **现象**：注册 `GET /api/user` → 追加组中间件（直接返回 403）→ 注册 `GET /other` 后，`OPTIONS /api/user` 返回 **403 BLOCKED-BY-UNRELATED-MIDDLEWARE**；删除末尾无关路由后同一请求返回 **204**。浏览器预检会被完全无关的鉴权/拦截中间件拒绝。
+- **根因**：`foreach ($this->routes as $route)` 结束后 `$route` 仍指向最后一次迭代（最后注册的路由），OPTIONS 分支直接读取 `$route['middleware']`，取得的是 `/other` 的中间件而非命中 URI 的路由中间件。
+- **实证**：`storage/probe_b.php` 修复前 `status=403 body=BLOCKED-BY-UNRELATED-MIDDLEWARE`，对照组 `status=204 body=`；修复后两组均 `204`。
+- **修复**：循环内把首个「URI 命中但方法不匹配」路由的中间件记录到 `$preflightMiddleware`，预检链按「全局中间件 → 该路由中间件」合并，与正常分发顺序一致。
+- **回归测试**：`Regression - OPTIONS 预检只执行命中 URI 的路由中间件`。
+
+### R11-BUG-02 Request 无法识别 PHP 原生多文件上传结构
+- **位置**：`app/core/Request.php:504`（`isMultiFileField`）、`:478`（`files`）、`:527`（`hasFile`）、`:426`（`file`）
+- **现象**：`$_FILES['docs']` 为 PHP 原生多文件结构（顶层 `name`/`type`/`tmp_name`/`error`/`size` 均存在，但值为逐文件数组）时：
+  - `isMultiFileField('docs')` 返回 **false**；
+  - `files('docs')` 只返回 **1** 个文件（应 2 个）；
+  - `singleFile('docs')` 返回 `core\Upload` 而非按文档抛 `LogicException`；
+  - `hasFile('docs')` 对「全部子文件都未选择」的字段仍返回 **true**；
+  - `file('docs')` 把整个转置数组塞进 `Upload`，得到一个各字段均为数组的坏对象。
+- **根因**：旧判定把「顶层存在 `name`/`error` 键」当作单文件标志。PHP 对 `name="docs[]"` 生成的正是**含这些顶层键、值为数组**的转置结构，因此永远进不了多文件分支。
+- **实证**：`storage/probe_a.php` 修复前 `isMulti=false / files count=1 / singleFile=core\Upload`；修复后 `isMulti=true / files count=2 / singleFile threw LogicException`。
+- **修复**：以 `is_array($field['name']) || is_array($field['error'])` 判定多文件；新增 `multiFileItems()` 将两种结构（PHP 原生转置结构、已归一化的「元素即单文件信息」结构）统一展开为逐文件列表；`files()`、`hasFile()`、`file()` 复用该结果。`file()` 对多文件字段取第一个子文件，与「`$key === null` 时返回第一个文件」的既有语义一致。
+- **回归测试**：`Regression - Request 识别 PHP 原生多文件结构`（覆盖 `files()/hasFile()/singleFile()/file()`）。
+
+## 十一-三、证伪项（疑似但实证不成立，不改动）
+
+| 编号 | 疑似问题 | 复核结论 |
+|------|----------|----------|
+| R11-FP-01 | `Command::parseInput()` 短选项 `-abc` 应拆成多个 flag | 项目签名文档只演示 `--opt` / `{--opt=default}`，未承诺 POSIX 短选项合并；属功能差异 |
+| R11-FP-02 | `View::include()` 丢弃子视图定义的 section | 恢复父作用域是刻意的防污染设计（避免局部模板覆盖父模板区块），与 Blade `@include` 作用域隔离一致 |
+| R11-FP-03 | `Config::loadCached()` 让「已加载项」覆盖缓存项 | 方法注释明确「合并到现有配置中，已加载项优先（不覆盖）」，实现与文档一致 |
+| R11-FP-04 | `JsonResource` 子类未声明 `$wrap` 时应取基类默认值 | 沿继承链反射查找，基类 `$wrap='data'` 可正确继承；多层继承同样成立 |
+| R11-FP-05 | `Blade::compileEchos()` 的 `{{{ }}}` 与 `{{ }}` 顺序会双重编译 | 三条正则均要求完整成对定界符，`{{{ x }}}` 先被三花括号分支消费，实测无二次替换 |
+| R11-FP-06 | `OutputCache` 缓存 3xx/4xx 响应 | 已有 `200 <= code < 400` 限制，且拒绝缓存 `Set-Cookie` 等头，行为正确 |
+| R11-FP-07 | `CsrfMiddleware` 对 JSON 请求取不到 token | 同时读取 `post('_token')` 与 `X-CSRF-TOKEN` 头，与常见 SPA 用法一致 |
+
+## 十一-四、潜在问题 / 环境限制（记录不改动）
+
+| 编号 | 观察 | 说明 |
+|------|------|------|
+| R11-P-01 | `bin/console test` 依赖 `passthru()`（`bin/console:418`） | 本机 `disable_functions` 禁用 `passthru` 时直接 fatal。标准 PHP 环境可用，属宿主配置限制；如要兼容禁用环境可加 `function_exists()` 降级为直接 include 测试入口（本轮不改，避免扩大范围） |
+| R11-P-02 | `Schema::table()` 在 SQLite 下对 `unique()` 生成的 `UNIQUE (...)` 会补 `ADD COLUMN` 前缀 | SQLite 的 `ALTER TABLE` 本身不支持新增表级唯一约束，属数据库能力限制；正常建表路径（`create()`）无此问题 |
+| R11-P-03 | `RedisCache::increment()/decrement()` 为「读-改-写」而非原子命令 | 高并发下可能丢失计数；保留 TTL 的语义需要 read-modify-write，属设计权衡，文档未承诺原子性 |
+| R11-P-04 | `MemcachedCache::attachTag()` 以 `TTL=0`（永不过期）保存标签集合 | 长期运行可能积累过期 key 名；`flushByTag()` 会清理标签集合本身，影响有限，与 Redis 驱动的 TTL 对齐策略不同 |
+| R11-P-05 | `Logger::interpolate()` 对非 `Stringable` 对象不插值，`remainingContext()` 记录类名 | 与 PSR-3 的上下文约定一致，非缺陷 |
+
+## 十一-五、修复计划与实施
+
+1. 修复 R11-BUG-01、R11-BUG-02（2 个文件、最小改动，匹配现有风格与中文注释密度）。
+2. 新增 2 条回归测试（OPTIONS 中间件隔离、PHP 原生多文件结构）到 `tests/test_regressions.php`。
+3. `php -l` 语法检查 + 全量 `php tests/run_tests.php`，确认无回归（**1316/1316** 通过）。
+4. 清理临时实证脚本 `storage/probe_a.php`、`storage/probe_b.php`。
+5. Git 复核 `status`/`diff` 后提交。
+
+**实施状态**：见 CHANGELOG「[Unreleased] 第十一轮全面审计修复」条目。

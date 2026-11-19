@@ -429,11 +429,17 @@ class Request
             if (empty($this->files)) {
                 return null;
             }
-            $firstKey = array_key_first($this->files);
-            return new Upload($this->files[$firstKey]);
+            $key = (string) array_key_first($this->files);
         }
         if (!isset($this->files[$key])) {
             return null;
+        }
+        // 多文件字段不能把整个转置数组塞进 Upload（其中 name/type 等仍是数组，
+        // 会得到一个字段全错的对象）；与「为 null 时返回第一个文件」的语义
+        // 保持一致，这里取第一个子文件。需要全部文件时用 files()。
+        if ($this->isMultiFileField($key)) {
+            $items = $this->multiFileItems($this->files[$key]);
+            return $items === [] ? null : new Upload($items[0]);
         }
         return new Upload($this->files[$key]);
     }
@@ -481,10 +487,8 @@ class Request
         }
 
         $out = [];
-        foreach ($field as $single) {
-            if (is_array($single)) {
-                $out[] = new Upload($single);
-            }
+        foreach ($this->multiFileItems($field) as $single) {
+            $out[] = new Upload($single);
         }
         return $out;
     }
@@ -506,16 +510,65 @@ class Request
         if (!is_array($field)) {
             return false;
         }
-        // 多文件结构：没有顶层 'error'/'name' 键，且存在数组元素
+        // PHP 原生多文件结构（name="docs[]"）顶层仍有 name/type/tmp_name/error/size，
+        // 但每个值本身是数组（每个文件一项）。旧实现把「存在 name/error 键」
+        // 当作单文件标志，导致多文件字段被误判为单文件。
+        if (is_array($field['name'] ?? null) || is_array($field['error'] ?? null)) {
+            return true;
+        }
         if (array_key_exists('error', $field) || array_key_exists('name', $field)) {
             return false;
         }
+        // 兼容已归一化为「每个元素是一项完整文件信息」的嵌套结构
         foreach ($field as $v) {
             if (is_array($v)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * 将多文件字段展开为「每个文件一项」的列表
+     *
+     * 同时支持两种结构：
+     *  - PHP 原生：name/type/tmp_name/error/size 各自为数组；
+     *  - 归一化：每个元素本身就是一项文件信息数组。
+     *
+     * @param array $field 多文件字段
+     * @return list<array{name: string, type: string, tmp_name: string, error: int, size: int}>
+     */
+    private function multiFileItems(array $field): array
+    {
+        if (is_array($field['name'] ?? null) || is_array($field['error'] ?? null)) {
+            $items = [];
+            $names = is_array($field['name'] ?? null) ? $field['name'] : [];
+            foreach ($names as $i => $name) {
+                $items[] = [
+                    'name' => (string) $name,
+                    'type' => (string) ($field['type'][$i] ?? ''),
+                    'tmp_name' => (string) ($field['tmp_name'][$i] ?? ''),
+                    'error' => (int) ($field['error'][$i] ?? UPLOAD_ERR_NO_FILE),
+                    'size' => (int) ($field['size'][$i] ?? 0),
+                ];
+            }
+            return $items;
+        }
+
+        $items = [];
+        foreach ($field as $single) {
+            if (!is_array($single)) {
+                continue;
+            }
+            $items[] = [
+                'name' => (string) ($single['name'] ?? ''),
+                'type' => (string) ($single['type'] ?? ''),
+                'tmp_name' => (string) ($single['tmp_name'] ?? ''),
+                'error' => (int) ($single['error'] ?? UPLOAD_ERR_NO_FILE),
+                'size' => (int) ($single['size'] ?? 0),
+            ];
+        }
+        return $items;
     }
 
     /**
@@ -532,8 +585,8 @@ class Request
         // 多文件字段没有顶层 'error' 键，直接取会触发
         // "Undefined array key error" 警告；任一子文件成功上传即视为存在
         if ($this->isMultiFileField($key)) {
-            foreach ($this->files[$key] as $single) {
-                if (is_array($single) && ($single['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            foreach ($this->multiFileItems($this->files[$key]) as $single) {
+                if (($single['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
                     return true;
                 }
             }

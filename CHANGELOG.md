@@ -4,6 +4,15 @@ All notable changes to the LightPHP framework will be documented in this file.
 
 ## [Unreleased]
 
+### 第十一轮全面审计修复（2 项已实证 bug）
+
+剩余模块清零轮（视图/配置/控制台/日志/Schema/Redis/Memcached/输出缓存/CSRF/Collection/ApiDoc/Generator 等全部逐行通读，2 组最小复现探针实证），仅修复可实证复现的 bug；7 项证伪、5 项潜在问题/环境限制只记录在 `docs/AUDIT_REPORT.md` 第十一轮章节，不改动代码。全量测试 1316/1316 通过（新增 2 条回归测试、9 项断言）。
+
+- **[BUG-01] OPTIONS 预检误用「最后注册路由」的中间件**：`dispatch()` 的 OPTIONS 回退分支读取 foreach 结束后残留的 `$route`，注册 `GET /api/user`、追加拦截中间件、再注册 `GET /other` 后，`OPTIONS /api/user` 被 `/other` 的中间件拒绝（实测 403 BLOCKED，删除末尾路由后为 204）；改为循环内记录首个「URI 命中但方法不匹配」路由的中间件，预检链按「全局 → 该路由」合并。
+- **[BUG-02] Request 无法识别 PHP 原生多文件上传结构**：`$_FILES['docs']` 为 `name`/`error` 键值均为数组的转置结构时，`isMultiFileField()` 因「存在 name/error 键」误判为单文件，导致 `files()` 只返回 1 个、`singleFile()` 不抛异常、`hasFile()` 对全未选择字段返回 true、`file()` 产出字段为数组的坏 `Upload`；改为按值为数组判定多文件，新增 `multiFileItems()` 统一展开两种结构，`files()`/`hasFile()`/`file()` 复用（`file()` 取第一个子文件）。
+
+> 详细记录、覆盖文件清单、证伪项与不修复理由见 `docs/AUDIT_REPORT.md` 第十一轮章节。
+
 ### 第十轮全面审计修复（4 项已实证 bug）
 
 全模块交叉复核（主代理逐文件通读 core/db/model/view/cache/middleware/log/traits/console 全部类，20+ 组最小复现探针实证），仅修复可实证复现的 bug；7 项证伪、3 项设计观察只记录在 `docs/AUDIT_REPORT.md` 第十轮章节，不改动代码。全量测试 1307/1307 通过（新增 4 条回归测试、9 项断言）。

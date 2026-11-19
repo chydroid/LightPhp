@@ -553,6 +553,9 @@ class Router
 
         // 第一遍记录「URI 命中但方法不匹配」的路由，用于返回 405 + Allow 头
         $allowedMethods = [];
+        // 同时记录与该 URI 匹配的第一个路由的中间件，供 OPTIONS 预检使用。
+        // 不能用循环结束后的 $route：那是最后注册的路由，与当前 URI 无关。
+        $preflightMiddleware = null;
 
         foreach ($this->routes as $route) {
             // HEAD 请求应匹配 GET 路由（HTTP 规范）
@@ -567,6 +570,9 @@ class Router
             if (!$methodMatch) {
                 // URI 命中但方法不允许：记录下来，供循环结束后返回 405 + Allow
                 $allowedMethods[$route['method']] = true;
+                if ($preflightMiddleware === null) {
+                    $preflightMiddleware = $route['middleware'] ?? [];
+                }
                 continue;
             }
 
@@ -586,14 +592,13 @@ class Router
                 // 响应不含任何 Access-Control-* 头，浏览器会拦截预检请求
                 // （实测 OPTIONS /api/user 返回 204 但零 CORS 头）。
                 $allowHeader = implode(', ', array_keys($allowedMethods));
-                // 此处不能复用下方循环里的 $allMiddleware（尚未计算），
-                // 需按同样的规则重新合并全局 + 路由中间件。
-                $preflightMiddleware = array_merge(
+                // 与正常分发一致的顺序：全局中间件 → 命中 URI 的路由中间件。
+                $preflightChain = array_merge(
                     $this->resolveMiddleware($this->globalMiddleware),
-                    $this->resolveMiddleware($route['middleware'] ?? [])
+                    $this->resolveMiddleware($preflightMiddleware ?? [])
                 );
                 $preflight = fn() => Response::make('', 204)->header('Allow', $allowHeader);
-                return $this->executeMiddleware($preflightMiddleware, $preflight, $request);
+                return $this->executeMiddleware($preflightChain, $preflight, $request);
             }
             return Response::make('<h1>405 Method Not Allowed</h1>', 405)
                 ->header('Allow', implode(', ', array_keys($allowedMethods)));
